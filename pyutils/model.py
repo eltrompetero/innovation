@@ -4,7 +4,9 @@
 # ======================================================================== #
 import numpy as np
 from datetime import datetime
-
+import string
+from multiprocess import Pool, cpu_count
+LETTERS = list(string.ascii_letters)
 
 
 # ========= #
@@ -76,6 +78,61 @@ def snapshot_occupancy(firms, xbds):
                 occ[x-xbds[0]] += 1
     return occ
     
+def extract_deadfirms(fsnapshot):
+    """Extract list of dead firms per time step.
+    
+    Parameters
+    ----------
+    fsnapshot : list of lists of Firm
+    
+    Returns
+    -------
+    list of lists of Firm
+    """
+    
+    # extract firm ids
+    ids = [[f.id for f in firms] for firms in fsnapshot]
+    
+    deadfirms = [[]]
+    for i in range(len(ids)-1):
+        deadfirms.append([])
+        for j, thisid in enumerate(ids[i]):
+            if not thisid in ids[i+1]:
+                deadfirms[-1].append(fsnapshot[i][j])
+    return deadfirms
+    
+def extract_growth_rate(fsnapshot):
+    """Extract list of growth rates per firm over sequential time steps.
+    
+    Firms that don't survive into the next time step do not have a
+    growth rate. They just disappear from the count.
+    
+    Parameters
+    ----------
+    fsnapshot : list of lists of Firm
+    
+    Returns
+    -------
+    list of list of floats
+        Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1},
+        and the wealth levels used to calculate the ratio.
+    """
+    
+    # extract firm ids
+    ids = [[f.id for f in firms] for firms in fsnapshot]
+    
+    grate = []
+    for i in range(1, len(ids)):
+        grate.append([])
+        for j, thisid in enumerate(ids[i]):
+            if thisid in ids[i-1]:
+                w0 = fsnapshot[i-1][ids[i-1].index(thisid)].wealth
+                w1 = fsnapshot[i][j].wealth
+                grate[-1].append(((w1-w0)/w0, w0, w1))
+        if not grate[-1]:  # label empty elements with inf
+            grate[-1].append((np.inf,np.inf,np.inf))
+    return grate
+    
     
 
 # ======= #
@@ -90,7 +147,9 @@ class Simulator():
                  expandRate=.5,
                  innovSuccessRate=.6,
                  depressionRate=.2,
-                 innMutWidth=.05):
+                 innMutWidth=.05,
+                 replicationP=.95,
+                 growf=.9):
         """
         Parameters
         ----------
@@ -107,6 +166,12 @@ class Simulator():
         innovSuccessRate : float, .6
         depressionRate : float, .2
         innMutWidth : float, .05
+            Width of the normal distribution determining mutant innovation.
+        replicationP : float, .95
+            Probability that new firm is a mutant replicate of an existing
+            firm's innovation.
+        growf : float, .9
+            Growth cost fraction f.
         """
         
         self.L0 = L0
@@ -117,6 +182,8 @@ class Simulator():
         self.innovSuccessRate = innovSuccessRate
         self.depressionRate = depressionRate
         self.innMutWidth = innMutWidth
+        self.replicationP = replicationP
+        self.growf = growf
         self.storage = {}  # store previous sim results
 
     def simulate(self, T, cache=True):
@@ -146,9 +213,10 @@ class Simulator():
         innovSuccessRate = self.innovSuccessRate
         depressionRate = self.depressionRate
         innMutWidth = self.innMutWidth
+        replicationP = self.replicationP
+        growf = self.growf
         
         # variables for tracking history
-        deadfirms = []
         firmSnapshot = []
         latticeSnapshot = []
         
@@ -161,7 +229,8 @@ class Simulator():
         # initialize
         for i in range(N0):
             # choose innovation tendency uniformly? how to impose selection?
-            firms.append(Firm(np.random.randint(lattice.left, lattice.right+1), np.random.rand(),
+            firms.append(Firm(np.random.randint(lattice.left, lattice.right+1),
+                              np.random.rand(),
                               lattice=lattice))
             lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
         lattice.push()
@@ -171,8 +240,8 @@ class Simulator():
             # spawn new firms either by mutating from a sample of existing firms or by random sampling
             # from a uniform distribution
             nNew = np.random.poisson(g0)
-            if len(firms):
-                for i in range(nNew):
+            for i in range(nNew):
+                if len(firms) and np.random.rand() <= replicationP:
                     # mutate an existing firm's innov
                     newInnov = np.clip(np.random.choice(firms).innov + np.random.normal(scale=innMutWidth),
                                        0, 1)
@@ -180,8 +249,7 @@ class Simulator():
                                       newInnov,
                                       lattice=lattice))
                     lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
-            else:
-                for i in range(nNew):
+                else:
                     firms.append(Firm(np.random.randint(lattice.left, lattice.right+1), np.random.rand(),
                                       lattice=lattice))
                     lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
@@ -197,7 +265,7 @@ class Simulator():
                 f.wealth += income
                 f.age += 1
 
-                growthcost = .95 * f.wealth/f.size()
+                growthcost = growf * f.wealth/f.size()
                 eps = .01
                 if f.wealth>(growthcost+eps) and f.rng.rand()<expandRate:
                     out = f.grow(innovSuccessRate, cost=growthcost)
@@ -221,7 +289,7 @@ class Simulator():
                 # shrink all firms that have any value on the obsolete topic
                 # firms of size one will be delete by accounting for negative wealth next
                 for i, f in enumerate(firms):
-                    if f.sites[0]<lattice.left:
+                    if f.sites[0]<=lattice.left:  # lattice of size 1 incurs loss!
                         # lose fraction of wealth invested in that site
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
@@ -245,6 +313,25 @@ class Simulator():
         if cache:
             self.storage[str(datetime.now())] = firmSnapshot, latticeSnapshot
         return firmSnapshot, latticeSnapshot
+        
+    def parallel_simulate(self, nSamples, T):
+        """Parallelize self.simulate() and save results into self.storage data member dict.
+        
+        Parameters
+        ----------
+        nSamples : int
+        T : int
+        
+        Returns
+        -------
+        None
+        """
+        
+        with Pool(cpu_count()) as pool:
+            firmSnapshot, latticeSnapshot = list(zip(*pool.map(lambda args: self.simulate(T, cache=False),
+                                                               range(nSamples))))
+        for i in range(nSamples):
+            self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
 #end Simulator
 
 
@@ -256,6 +343,7 @@ class Firm():
                  lattice=None,
                  connection_cost=0.,
                  wealth=1.,
+                 id=None,
                  rng=None):
         """
         Parameters
@@ -270,6 +358,7 @@ class Firm():
         lattice : TopicLattice
         connection_cost : float, 0.
         wealth : float, 1.
+        id : str, None
         rng : np.random.RandomState, None
         """
         
@@ -287,6 +376,7 @@ class Firm():
         
         if rng is None:
             self.rng = np.random.RandomState()
+        self.id = id or ''.join(np.random.choice(LETTERS, size=20))
             
     def size(self):
         return self.sites[1]-self.sites[0]+1
@@ -317,9 +407,9 @@ class Firm():
         return income
         
     def grow(self, expansion_p, cost=None):
-        """Attempt to expand to a neighboring site, and deplete half of resources whether
-        or not attempt succeeded. This makes innovation expensive. If no innovation required,
-        then expansion is guaranteed to succeed.
+        """Attempt to expand to a neighboring site, and deplete resources whether
+        or not attempt succeeded. This makes innovation expensive. If no innovation
+        required, then expansion is guaranteed to succeed.
         
         Parameters
         ----------
@@ -366,7 +456,8 @@ class Firm():
                         self.innov,
                         self.connectionCost,
                         self.wealth,
-                        self.age)
+                        self.age,
+                        self.id)
 #end Firm
 
 
@@ -379,7 +470,8 @@ class LiteFirm():
                  innov,
                  connection_cost,
                  wealth,
-                 age):
+                 age,
+                 id):
         """
         Parameters
         ----------
@@ -393,6 +485,7 @@ class LiteFirm():
         connection_cost : float, 0.
         wealth : float, 1.
         age : int
+        id : str
         """
         
         self.sites = sites
@@ -400,6 +493,7 @@ class LiteFirm():
         self.wealth = wealth
         self.age = age
         self.connectionCost = connection_cost
+        self.id = id
 #end LiteFirm
 
 
