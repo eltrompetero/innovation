@@ -128,10 +128,49 @@ def extract_growth_rate(fsnapshot):
             if thisid in ids[i-1]:
                 w0 = fsnapshot[i-1][ids[i-1].index(thisid)].wealth
                 w1 = fsnapshot[i][j].wealth
-                grate[-1].append(((w1-w0)/w0, w0, w1))
+                t = fsnapshot[i][j].age
+                grate[-1].append(((w1-w0)/w0, w0, w1, t))
         if not grate[-1]:  # label empty elements with inf
-            grate[-1].append((np.inf,np.inf,np.inf))
+            grate[-1].append((np.inf,np.inf,np.inf,np.inf))
     return grate
+    
+def find_wide_segments(leftright, mn_width=50, mn_len=50):
+    """Find continuous segments with differences between left and right
+    boundaries wider than some min width.
+    
+    Parameters
+    ----------
+    leftright : ndarray
+    mn_width : int, 100
+        Min width of extents returned.
+    mn_len : int, 50
+        Min length of continuous sequence returned.
+    
+    Returns
+    -------
+    list of twoples
+        Such that the interval can be extracted from the appropriate array
+        by using the given left and right indices [left:right], i.e. the right
+        index already contains the offset by 1.
+    """
+    
+    d = np.diff(leftright, axis=1).ravel()
+    d = np.diff((d>=mn_width).astype(int))
+    ix = np.where(d)[0]
+    bds = []
+    
+    if ix.size:
+        # consider first element
+        if d[ix[0]]==-1:
+            bds.append((0, ix[0]+1))
+            ix = ix[1:]
+        for i in range(ix.size//2):
+            bds.append((ix[i*2]+1, ix[i*2+1]+1))
+        # consider last element
+        if (ix.size%2):
+            bds.append((ix[-1]+1, d.size+1))
+        return [i for i in bds if (i[1]-i[0])>=mn_len]
+    return []
     
     
 
@@ -259,7 +298,11 @@ class Simulator():
             # calculate firm income and growth
             growLattice = 0  # switch for if lattice needs to be grown
             newOccupancy = 0  # count new firms occupying innovated area
-            depressedSites = []#np.arange(lattice.left, lattice.right+1)[np.random.rand(lattice.right-lattice.left+1)<depressionRate]
+            if depressionRate:
+                ix = np.random.rand(lattice.right-lattice.left+1) < depressionRate
+                depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
+            else:
+                depressionRate = []
             for f in firms:
                 income = f.income(depressedSites)
                 f.wealth += income
@@ -289,7 +332,7 @@ class Simulator():
                 # shrink all firms that have any value on the obsolete topic
                 # firms of size one will be delete by accounting for negative wealth next
                 for i, f in enumerate(firms):
-                    if f.sites[0]<=lattice.left:  # lattice of size 1 incurs loss!
+                    if f.sites[0]<=lattice.left:  # s.t. lattice of size 1 incurs loss!
                         # lose fraction of wealth invested in that site
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
