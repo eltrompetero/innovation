@@ -350,6 +350,23 @@ class Simulator():
                 for i in range(f.sites[0], f.sites[1]+1):
                     lattice.remove(i)
         #     check_firms_occupancy(firms, lattice)
+        
+            # if there are at least two firms
+            # split up any firm making up >10% of total wealth and occupying >10 sites
+            # this only imposes a finite cutoff
+            if len(firms)>1:
+                w = np.array([f.wealth for f in firms])
+                totwealth = w.sum()
+                fwealth = w / totwealth
+                ix = np.where(fwealth>.1)[0]
+                if ix.size:
+                    counter = 0
+                    babyfirms = []
+                    for i in ix:
+                        if firms[i-counter].size()>10:
+                            babyfirms += firms.pop(i-counter).split()
+                            counter += 1
+                    firms += babyfirms
 
             # collect data on status
             firmSnapshot.append([f.copy() for f in firms])
@@ -496,6 +513,32 @@ class Firm():
         self.sites = self.sites[0], self.sites[1] + 1
         return 1, 0
         
+    def split(self, n_split=2):
+        """Split firm into equally-sized smaller firms. Split wealth equally.
+        
+        Parameters
+        ----------
+        n_split : int, 2
+        
+        Returns
+        -------
+        list of Firm
+        """
+        
+        ix = [int((self.sites[1]-self.sites[0]+1) * i/n_split)+self.sites[0]
+              for i in range(n_split)]
+        ix.append(self.sites[1])
+        
+        babyfirms = []
+        for i in range(len(ix)-1):
+            # copy everything besides splitting lattice and wealth
+            babyfirms.append(Firm((ix[i],ix[i+1]),
+                                  self.innov,
+                                  lattice=self.lattice,
+                                  connection_cost=self.connectionCost,
+                                  wealth=self.wealth/n_split))
+        return babyfirms
+        
     def copy(self):
         return LiteFirm(self.sites,
                         self.innov,
@@ -553,7 +596,7 @@ class TopicLattice():
         self.d_occupancy = [0]
         
     # ============== #
-    # Info functions
+    # Info functions #
     # ============== #
     def get_occ(self, i):
         return self.occupancy[i-self.left]
@@ -562,7 +605,7 @@ class TopicLattice():
         return len(self.occupancy)
         
     # ============= #
-    # Mod functions
+    # Mod functions #
     # ============= #
     def shrink_left(self, n=1):
         assert n>=1
