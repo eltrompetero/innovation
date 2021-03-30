@@ -210,7 +210,8 @@ class Simulator():
             Probability that new firm is a mutant replicate of an existing
             firm's innovation.
         growf : float, .9
-            Growth cost fraction f.
+            Growth cost fraction f. If this is higher, then it is more expensive
+            to expand into new sectors.
         """
         
         self.L0 = L0
@@ -302,7 +303,8 @@ class Simulator():
                 ix = np.random.rand(lattice.right-lattice.left+1) < depressionRate
                 depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
             else:
-                depressionRate = []
+                depressedSites = []
+                
             for f in firms:
                 income = f.income(depressedSites)
                 f.wealth += income
