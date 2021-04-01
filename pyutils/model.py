@@ -5,7 +5,10 @@
 import numpy as np
 from datetime import datetime
 import string
+import os
 from multiprocess import Pool, cpu_count
+
+from workspace.utils import save_pickle
 LETTERS = list(string.ascii_letters)
 
 
@@ -188,7 +191,8 @@ class Simulator():
                  depressionRate=.2,
                  innMutWidth=.05,
                  replicationP=.95,
-                 growf=.9):
+                 growf=.9,
+                 connectionCost=0.):
         """
         Parameters
         ----------
@@ -212,6 +216,7 @@ class Simulator():
         growf : float, .9
             Growth cost fraction f. If this is higher, then it is more expensive
             to expand into new sectors.
+        connectionCost : float, 0.
         """
         
         self.L0 = L0
@@ -224,6 +229,7 @@ class Simulator():
         self.innMutWidth = innMutWidth
         self.replicationP = replicationP
         self.growf = growf
+        self.connectionCost = connectionCost
         self.storage = {}  # store previous sim results
 
     def simulate(self, T, cache=True):
@@ -255,6 +261,7 @@ class Simulator():
         innMutWidth = self.innMutWidth
         replicationP = self.replicationP
         growf = self.growf
+        cCost = self.connectionCost
         
         # variables for tracking history
         firmSnapshot = []
@@ -271,7 +278,8 @@ class Simulator():
             # choose innovation tendency uniformly? how to impose selection?
             firms.append(Firm(np.random.randint(lattice.left, lattice.right+1),
                               np.random.rand(),
-                              lattice=lattice))
+                              lattice=lattice,
+                              connection_cost=cCost))
             lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
         lattice.push()
 
@@ -354,19 +362,19 @@ class Simulator():
             # if there are at least two firms
             # split up any firm making up >10% of total wealth and occupying >10 sites
             # this only imposes a finite cutoff
-            if len(firms)>1:
-                w = np.array([f.wealth for f in firms])
-                totwealth = w.sum()
-                fwealth = w / totwealth
-                ix = np.where(fwealth>.1)[0]
-                if ix.size:
-                    counter = 0
-                    babyfirms = []
-                    for i in ix:
-                        if firms[i-counter].size()>10:
-                            babyfirms += firms.pop(i-counter).split()
-                            counter += 1
-                    firms += babyfirms
+#            if len(firms)>1:
+#                w = np.array([f.wealth for f in firms])
+#                totwealth = w.sum()
+#                fwealth = w / totwealth
+#                ix = np.where(fwealth>.1)[0]
+#                if ix.size:
+#                    counter = 0
+#                    babyfirms = []
+#                    for i in ix:
+#                        if firms[i-counter].size()>10:
+#                            babyfirms += firms.pop(i-counter).split()
+#                            counter += 1
+#                    firms += babyfirms
 
             # collect data on status
             firmSnapshot.append([f.copy() for f in firms])
@@ -394,6 +402,33 @@ class Simulator():
                                                                range(nSamples))))
         for i in range(nSamples):
             self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+            
+    def save(self, folder, name=None):
+        """Save simulator instance.
+        
+        Parameters
+        ----------
+        folder : str
+        name : str, None
+            Default name is the date and time.
+        
+        Returns
+        -------
+        bool
+            Whether or not save was successful.
+        """
+        
+        if not os.path.isdir(folder):
+            return False
+            
+        name = str(datetime.now())+'.p'
+        if os.path.isfile(f'{folder}/{name}'):
+            return False
+        
+        with open(f'{folder}/{name}', 'wb') as f:
+            pickle.dump({'simulator':self}, f)
+            return True
+        return False
 #end Simulator
 
 
@@ -465,7 +500,8 @@ class Firm():
                 income -= (self.wealth / (self.sites[1]-self.sites[0]+1)) / self.lattice.get_occ(s)
             else:
                 income += (self.wealth / (self.sites[1]-self.sites[0]+1)) / self.lattice.get_occ(s)
-        income -= self.wealth * self.connectionCost * (self.sites[1]-self.sites[0]+1)**.5
+        #income -= self.wealth * self.connectionCost * np.log(self.sites[1]-self.sites[0]+1)
+        income -= self.wealth * self.connectionCost * (self.sites[1]-self.sites[0]+1)
         return income
         
     def grow(self, expansion_p, cost=None):
@@ -550,7 +586,7 @@ class Firm():
 
 
 
-class LiteFirm():
+class LiteFirm(Firm):
     """One-dimensional firm copy.
     """
     def __init__(self,
