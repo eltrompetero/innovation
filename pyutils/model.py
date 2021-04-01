@@ -2,13 +2,14 @@
 # 1D firm innovation models
 # Author : Eddie Lee, edlee@csh.ac.at
 # ======================================================================== #
-import numpy as np
 from datetime import datetime
 import string
-import os
 from multiprocess import Pool, cpu_count
+from scipy.signal import fftconvolve
 
 from workspace.utils import save_pickle
+from .utils import *
+
 LETTERS = list(string.ascii_letters)
 
 
@@ -107,8 +108,8 @@ def extract_deadfirms(fsnapshot):
 def extract_growth_rate(fsnapshot):
     """Extract list of growth rates per firm over sequential time steps.
     
-    Firms that don't survive into the next time step do not have a
-    growth rate. They just disappear from the count.
+    Firms that don't survive into the next time step do not have a growth rate. They just
+    disappear from the count.
     
     Parameters
     ----------
@@ -117,8 +118,8 @@ def extract_growth_rate(fsnapshot):
     Returns
     -------
     list of list of floats
-        Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1},
-        and the wealth levels used to calculate the ratio.
+        Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1}, and
+        the wealth levels used to calculate the ratio.
     """
     
     # extract firm ids
@@ -138,8 +139,8 @@ def extract_growth_rate(fsnapshot):
     return grate
     
 def find_wide_segments(leftright, mn_width=50, mn_len=50):
-    """Find continuous segments with differences between left and right
-    boundaries wider than some min width.
+    """Find continuous segments with differences between left and right boundaries wider
+    than some min width.
     
     Parameters
     ----------
@@ -152,9 +153,9 @@ def find_wide_segments(leftright, mn_width=50, mn_len=50):
     Returns
     -------
     list of twoples
-        Such that the interval can be extracted from the appropriate array
-        by using the given left and right indices [left:right], i.e. the right
-        index already contains the offset by 1.
+        Such that the interval can be extracted from the appropriate array by using the
+        given left and right indices [left:right], i.e. the right index already contains
+        the offset by 1.
     """
     
     d = np.diff(leftright, axis=1).ravel()
@@ -174,8 +175,59 @@ def find_wide_segments(leftright, mn_width=50, mn_len=50):
             bds.append((ix[-1]+1, d.size+1))
         return [i for i in bds if (i[1]-i[0])>=mn_len]
     return []
+
+def segment_by_bound_vel(leftright, zero_thresh, moving_window=10):
+    """Given the boundaries of the 1D lattice, segment time series into pieces with +/-/0
+    velocities according to the defined threshold.
+
+    Parameters
+    ----------
+    leftright : list or ndarray
+    zero_thresh : float
+    moving_window : int, 10
+        Width of moving average window.
+
+    Returns
+    -------
+    list of twoples
+        Boundaries of time segments. Note that this is calculated on vector that is one
+        element shorter than leftright.
+    list
+        Time-averaged velocities at each moment in time for each of the extracted
+        segments.
+    """
     
+    if moving_window<5:
+        warn("Window may be too small to get a smooth velocity.")
     
+    if isinstance(leftright, list):
+        leftright = np.vstack(leftright)
+    else:
+        assert leftright.ndim==2
+        leftright.shape[1]==2
+
+    width = leftright[:,1] - leftright[:,0]
+    if moving_window>1:
+        swidth = fftconvolve(width, np.ones(moving_window)/moving_window, mode='same')
+    else:
+        swidth = width
+
+    v = swidth[1:] - swidth[:-1]  # change width over a single time step
+    vsign = np.zeros(v.size, dtype=int)
+    vsign[v>zero_thresh] = 1
+    vsign[v<-zero_thresh] = -1
+    
+    # find places where velocity switches sign
+    # offset of 1 makes sure window counts to the last element of set
+    ix = np.where(vsign[1:]!=vsign[:-1])[0] + 1
+    windows = [(0, ix[0])]
+    for i in range(ix.size-1):
+        windows.append((ix[i], ix[i+1]))
+    windows.append((ix[-1], vsign.size))
+
+    return windows, v
+
+
 
 # ======= #
 # Classes #

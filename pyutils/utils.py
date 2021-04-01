@@ -8,11 +8,13 @@ from fastparquet import ParquetFile
 import snappy
 import os
 import datetime as dt
+from warnings import warn
 DATADR = os.path.expanduser('~')+'/Dropbox/Research/corporations/starter_packet' 
+
+
 
 def snappy_decompress(data, uncompressed_size):
         return snappy.decompress(data)
-
 
 def topic_added_dates():
     """Dates on which new topics were added according to the "topic taxonomy.csv".
