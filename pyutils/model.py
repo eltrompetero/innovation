@@ -176,7 +176,9 @@ def find_wide_segments(leftright, mn_width=50, mn_len=50):
         return [i for i in bds if (i[1]-i[0])>=mn_len]
     return []
 
-def segment_by_bound_vel(leftright, zero_thresh, moving_window=10):
+def segment_by_bound_vel(leftright, zero_thresh,
+                         moving_window=10,
+                         smooth_vel=False):
     """Given the boundaries of the 1D lattice, segment time series into pieces with +/-/0
     velocities according to the defined threshold.
 
@@ -184,8 +186,11 @@ def segment_by_bound_vel(leftright, zero_thresh, moving_window=10):
     ----------
     leftright : list or ndarray
     zero_thresh : float
-    moving_window : int, 10
+    moving_window : int or tuple, 10
         Width of moving average window.
+    smooth_vel : bool, False
+        If True, smooth velocity after calculation from smoothed distance time series.
+        Can specify separate moving windows by providing a tuple for moving_window.
 
     Returns
     -------
@@ -193,12 +198,16 @@ def segment_by_bound_vel(leftright, zero_thresh, moving_window=10):
         Boundaries of time segments. Note that this is calculated on vector that is one
         element shorter than leftright.
     list
+        Sign of the velocity for each window segment.
+    list
         Time-averaged velocities at each moment in time for each of the extracted
         segments.
     """
     
-    if moving_window<5:
-        warn("Window may be too small to get a smooth velocity.")
+    if not hasattr(moving_window, '__len__'):
+        if moving_window<5:
+            warn("Window may be too small to get a smooth velocity.")
+        moving_window = (moving_window, moving_window)
     
     if isinstance(leftright, list):
         leftright = np.vstack(leftright)
@@ -207,12 +216,20 @@ def segment_by_bound_vel(leftright, zero_thresh, moving_window=10):
         leftright.shape[1]==2
 
     width = leftright[:,1] - leftright[:,0]
-    if moving_window>1:
-        swidth = fftconvolve(width, np.ones(moving_window)/moving_window, mode='same')
+    if moving_window[0]>1:
+        swidth = fftconvolve(width, np.ones(moving_window[0])/moving_window[0], mode='same')
     else:
         swidth = width
-
+    
     v = swidth[1:] - swidth[:-1]  # change width over a single time step
+    if smooth_vel:
+        rawv = v
+        v = fftconvolve(v, np.ones(moving_window[1])/moving_window[1], mode='same')
+
+    # consider the binary velocity
+    # -1 as below threshold
+    # 0 as bounded by threshold
+    # 1 as above threshold
     vsign = np.zeros(v.size, dtype=int)
     vsign[v>zero_thresh] = 1
     vsign[v<-zero_thresh] = -1
@@ -220,12 +237,15 @@ def segment_by_bound_vel(leftright, zero_thresh, moving_window=10):
     # find places where velocity switches sign
     # offset of 1 makes sure window counts to the last element of set
     ix = np.where(vsign[1:]!=vsign[:-1])[0] + 1
-    windows = [(0, ix[0])]
-    for i in range(ix.size-1):
-        windows.append((ix[i], ix[i+1]))
-    windows.append((ix[-1], vsign.size))
+    windows = [(0, ix[0])] + [(ix[i], ix[i+1]) for i in range(ix.size-1)] + [(ix[-1], vsign.size)]
+    
+    vel = []  # velocities for each window
+    velsign = []
+    for w in windows:
+        vel.append(rawv[w[0]:w[1]])  
+        velsign.append(vsign[w[0]])
 
-    return windows, v
+    return windows, velsign, vel
 
 
 
