@@ -1,11 +1,11 @@
-# ======================================================================== #
+# ====================================================================================== #
 # 1D firm innovation models
 # Author : Eddie Lee, edlee@csh.ac.at
-# ======================================================================== #
+# ====================================================================================== #
 from datetime import datetime
 import string
-from multiprocess import Pool, cpu_count
 from scipy.signal import fftconvolve
+import _pickle as cpickle
 
 from workspace.utils import save_pickle
 from .utils import *
@@ -120,6 +120,7 @@ def extract_growth_rate(fsnapshot):
     list of list of floats
         Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1}, and
         the wealth levels used to calculate the ratio.
+        Empty elements (no companies to grow) are given infinities.
     """
     
     # extract firm ids
@@ -456,24 +457,45 @@ class Simulator():
             self.storage[str(datetime.now())] = firmSnapshot, latticeSnapshot
         return firmSnapshot, latticeSnapshot
         
-    def parallel_simulate(self, nSamples, T):
+    def parallel_simulate(self, nSamples, T,
+                          min_nfirms=None,
+                          min_success=1):
         """Parallelize self.simulate() and save results into self.storage data member dict.
         
         Parameters
         ----------
         nSamples : int
         T : int
+        min_nfirms : int, None
+            Only trajectories above this min by average no. of firms are saved.
+        min_success : int, 1
+            Min no. of successful sims required.
         
         Returns
         -------
         None
         """
         
-        with Pool(cpu_count()) as pool:
-            firmSnapshot, latticeSnapshot = list(zip(*pool.map(lambda args: self.simulate(T, cache=False),
-                                                               range(nSamples))))
-        for i in range(nSamples):
-            self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+        if min_nfirms:
+            # there is a better way to do this than by running groups at a time
+            storage = {}
+            with Pool(cpu_count()) as pool:
+                while len(storage) < min_success:
+                    firmSnapshot, latticeSnapshot = list(zip(*pool.map(lambda args: self.simulate(T, cache=False),
+                                                                       range(nSamples))))
+                    for i in range(nSamples):
+                        avgn = np.mean([len(f) for f in firmSnapshot[i]])
+                        if avgn >= min_nfirms:
+                            storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+            for k, val in storage.items():
+                self.storage[k] = val
+
+        else:
+            with Pool(cpu_count()) as pool:
+                firmSnapshot, latticeSnapshot = list(zip(*pool.map(lambda args: self.simulate(T, cache=False),
+                                                                   range(nSamples))))
+            for i in range(nSamples):
+                self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
             
     def save(self, folder, name=None):
         """Save simulator instance.
@@ -498,9 +520,22 @@ class Simulator():
             return False
         
         with open(f'{folder}/{name}', 'wb') as f:
-            pickle.dump({'simulator':self}, f)
+            cpickle.dump({'simulator':self}, f)
             return True
         return False
+    
+    def info(self):
+        """Show parameters."""
+
+        print(f'grow frac cost  =\t{self.growf}')
+        print(f'depression rate =\t{self.depressionRate}')
+        print(f'connection cost =\t{self.connectionCost}')
+        print()
+
+        print('This instance has {len(self.storage)} sims run on')
+        for k in self.storage.keys():
+            print(k)
+        print()
 #end Simulator
 
 

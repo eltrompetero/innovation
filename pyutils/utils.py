@@ -9,6 +9,7 @@ import snappy
 import os
 import datetime as dt
 from warnings import warn
+from multiprocess import Pool, cpu_count
 DATADR = os.path.expanduser('~')+'/Dropbox/Research/corporations/starter_packet' 
 
 
