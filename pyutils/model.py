@@ -13,6 +13,7 @@ from .utils import *
 LETTERS = list(string.ascii_letters)
 
 
+
 # ========= #
 # Functions #
 # ========= #
@@ -123,10 +124,10 @@ def extract_growth_rate(fsnapshot):
         Empty elements (no companies to grow) are given infinities.
     """
     
-    # extract firm ids
+    # extract firm ids for each snapshot
     ids = [[f.id for f in firms] for firms in fsnapshot]
     
-    grate = []
+    grate = []  # growth rate
     for i in range(1, len(ids)):
         grate.append([])
         for j, thisid in enumerate(ids[i]):
@@ -136,7 +137,7 @@ def extract_growth_rate(fsnapshot):
                 t = fsnapshot[i][j].age
                 grate[-1].append(((w1-w0)/w0, w0, w1, t))
         if not grate[-1]:  # label empty elements with inf
-            grate[-1].append((np.inf,np.inf,np.inf,np.inf))
+            grate[-1].append((np.inf, np.inf, np.inf, np.inf))
     return grate
     
 def find_wide_segments(leftright, mn_width=50, mn_len=50):
@@ -352,6 +353,7 @@ class Simulator():
             firms.append(Firm(np.random.randint(lattice.left, lattice.right+1),
                               np.random.rand(),
                               lattice=lattice,
+                              wealth=growf,
                               connection_cost=cCost))
             lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
         lattice.push()
@@ -532,7 +534,7 @@ class Simulator():
         print(f'connection cost =\t{self.connectionCost}')
         print()
 
-        print('This instance has {len(self.storage)} sims run on')
+        print(f'This instance has {len(self.storage)} sims run on')
         for k in self.storage.keys():
             print(k)
         print()
