@@ -8,6 +8,7 @@ from scipy.signal import fftconvolve
 import _pickle as cpickle
 
 from workspace.utils import save_pickle
+from .model_ext import TopicLattice, LiteFirm
 from .utils import *
 
 LETTERS = list(string.ascii_letters)
@@ -119,8 +120,9 @@ def extract_growth_rate(fsnapshot):
     Returns
     -------
     list of list of floats
-        Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1}, and
-        the wealth levels used to calculate the ratio.
+        Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1}, the
+        wealth levels used to calculate the ratio, and firm age.
+
         Empty elements (no companies to grow) are given infinities.
     """
     
@@ -135,7 +137,7 @@ def extract_growth_rate(fsnapshot):
                 w0 = fsnapshot[i-1][ids[i-1].index(thisid)].wealth
                 w1 = fsnapshot[i][j].wealth
                 t = fsnapshot[i][j].age
-                grate[-1].append(((w1-w0)/w0, w0, w1, t))
+                grate[-1].append(((w1-w0)/w0, w0, w1, t-1))
         if not grate[-1]:  # label empty elements with inf
             grate[-1].append((np.inf, np.inf, np.inf, np.inf))
     return grate
@@ -266,7 +268,8 @@ class Simulator():
                  innMutWidth=.05,
                  replicationP=.95,
                  growf=.9,
-                 connectionCost=0.):
+                 connectionCost=0.,
+                 rng=None):
         """
         Parameters
         ----------
@@ -304,6 +307,8 @@ class Simulator():
         self.replicationP = replicationP
         self.growf = growf
         self.connectionCost = connectionCost
+        self.rng = rng or np.random
+
         self.storage = {}  # store previous sim results
 
     def simulate(self, T, cache=True):
@@ -350,32 +355,35 @@ class Simulator():
         # initialize
         for i in range(N0):
             # choose innovation tendency uniformly? how to impose selection?
-            firms.append(Firm(np.random.randint(lattice.left, lattice.right+1),
-                              np.random.rand(),
+            firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
+                              self.rng.rand(),
                               lattice=lattice,
                               wealth=growf,
-                              connection_cost=cCost))
-            lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
+                              connection_cost=cCost,
+                              rng=self.rng))
+            lattice.d_add(firms[-1].sites[0])
         lattice.push()
 
         # run sim
         for t in range(T):
             # spawn new firms either by mutating from a sample of existing firms or by random sampling
             # from a uniform distribution
-            nNew = np.random.poisson(g0)
+            nNew = self.rng.poisson(g0)
             for i in range(nNew):
-                if len(firms) and np.random.rand() <= replicationP:
+                if len(firms) and self.rng.rand() <= replicationP:
                     # mutate an existing firm's innov
-                    newInnov = np.clip(np.random.choice(firms).innov + np.random.normal(scale=innMutWidth),
+                    newInnov = np.clip(self.rng.choice(firms).innov + self.rng.normal(scale=innMutWidth),
                                        0, 1)
-                    firms.append(Firm(np.random.randint(lattice.left, lattice.right+1),
+                    firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
                                       newInnov,
-                                      lattice=lattice))
-                    lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
+                                      lattice=lattice,
+                                      rng=self.rng))
+                    lattice.d_add(firms[-1].sites[0])
                 else:
-                    firms.append(Firm(np.random.randint(lattice.left, lattice.right+1), np.random.rand(),
-                                      lattice=lattice))
-                    lattice.d_occupancy[firms[-1].sites[0]-lattice.left] += 1
+                    firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1), self.rng.rand(),
+                                      lattice=lattice,
+                                      rng=self.rng))
+                    lattice.d_add(firms[-1].sites[0])
             lattice.push()
         #     check_firms_occupancy(firms, lattice)
 
@@ -383,7 +391,8 @@ class Simulator():
             growLattice = 0  # switch for if lattice needs to be grown
             newOccupancy = 0  # count new firms occupying innovated area
             if depressionRate:
-                ix = np.random.rand(lattice.right-lattice.left+1) < depressionRate
+                # these are ordered
+                ix = self.rng.rand(lattice.right-lattice.left+1) < depressionRate
                 depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
             else:
                 depressedSites = []
@@ -398,7 +407,7 @@ class Simulator():
                 if f.wealth>(growthcost+eps) and f.rng.rand()<expandRate:
                     out = f.grow(innovSuccessRate, cost=growthcost)
                     if out[0] and not out[1]:
-                        lattice.d_occupancy[f.sites[1]-lattice.left] += 1
+                        lattice.d_add(f.sites[1])
                     elif out[0] and out[1]:
                         newOccupancy += 1
                         growLattice += out[1]
@@ -408,11 +417,11 @@ class Simulator():
             # if any firm innovated, then grow the lattice
             if growLattice:
                 lattice.extend_right()
-                lattice.occupancy[-1] = newOccupancy
+                lattice.add(lattice.right, newOccupancy)
         #     check_firms_occupancy(firms, lattice)
 
             # shrink topic lattice
-            if np.random.rand() < obsRate and lattice.left < lattice.right:
+            if self.rng.rand() < obsRate and lattice.left < lattice.right:
                 lattice.shrink_left()
                 # shrink all firms that have any value on the obsolete topic
                 # firms of size one will be delete by accounting for negative wealth next
@@ -523,12 +532,14 @@ class Simulator():
         
         with open(f'{folder}/{name}', 'wb') as f:
             cpickle.dump({'simulator':self}, f)
+            print(f'Saved as {folder}/{name}')
             return True
         return False
     
     def info(self):
         """Show parameters."""
-
+        
+        print(f'new firm rate   =\t{self.g0}')
         print(f'grow frac cost  =\t{self.growf}')
         print(f'depression rate =\t{self.depressionRate}')
         print(f'connection cost =\t{self.connectionCost}')
@@ -577,24 +588,23 @@ class Firm():
         assert 0<=innov<=1
         self.innov = innov
         self.wealth = wealth
-        self.age = 0.
+        self.age = 0
         self.connectionCost = connection_cost
         
-        if rng is None:
-            self.rng = np.random.RandomState()
-        self.id = id or ''.join(np.random.choice(LETTERS, size=20))
+        self.rng = rng or np.random.RandomState()
+        self.id = id or ''.join(self.rng.choice(LETTERS, size=20))
             
     def size(self):
         return self.sites[1]-self.sites[0]+1
 
-    def income(self, depressed_sites=[]):
+    def income(self, depressed_sites=np.arange(0)):
         """For each site, wealth grows by the amount
         (W/N) * di where di is the inverse site occupancy number. For depressed sites, wealth
         decreases by this amount.
         
         Parameters
         ----------
-        depressed_sites : list, []
+        depressed_sites : ndarray of type int, np.zeros()
             Sites that see decreased income.
             
         Returns
@@ -602,16 +612,28 @@ class Firm():
         float
             Total change in wealth for this firm over one time step.
         """
-        
+
         income = 0.
+        fwealth = self.wealth / self.size()
         for s in range(self.sites[0], self.sites[1]+1):
             if s in depressed_sites:
-                income -= (self.wealth / (self.sites[1]-self.sites[0]+1)) / self.lattice.get_occ(s)
+                income -= fwealth / self.lattice.get_occ(s)
             else:
-                income += (self.wealth / (self.sites[1]-self.sites[0]+1)) / self.lattice.get_occ(s)
-        #income -= self.wealth * self.connectionCost * np.log(self.sites[1]-self.sites[0]+1)
-        income -= self.wealth * self.connectionCost * (self.sites[1]-self.sites[0]+1)
+                income += fwealth / self.lattice.get_occ(s)
+        #income -= self.wealth * self.connectionCost * np.log(self.size())
+        income -= self.wealth * self.connectionCost * self.size()
         return income
+        
+        #dincome = (self.wealth / self.size() / 
+        #           self.lattice.get_occ(np.arange(self.sites[0], self.sites[1]+1, dtype=np.int32)))
+
+        #ix = (depressed_sites>=self.sites[0]) & (depressed_sites<=self.sites[1])
+        #ix = depressed_sites[ix] - self.sites[0]
+
+        #income = dincome.sum() - 2 * dincome[ix].sum()
+
+        #income -= self.wealth * self.connectionCost * (self.sites[1]-self.sites[0]+1)
+        #return income
         
     def grow(self, expansion_p, cost=None):
         """Attempt to expand to a neighboring site, and deplete resources whether
@@ -694,8 +716,7 @@ class Firm():
 #end Firm
 
 
-
-class LiteFirm(Firm):
+class _LiteFirm(Firm):
     """One-dimensional firm copy.
     """
     def __init__(self,
@@ -724,14 +745,14 @@ class LiteFirm(Firm):
         self.sites = sites
         self.innov = innov
         self.wealth = wealth
+        self.connection_cost = connection_cost
         self.age = age
-        self.connectionCost = connection_cost
         self.id = id
 #end LiteFirm
 
 
     
-class TopicLattice():
+class _TopicLattice():
     def __init__(self):
         """Start out one-dimensional lattice centered about 0."""
         
@@ -744,6 +765,8 @@ class TopicLattice():
     # Info functions #
     # ============== #
     def get_occ(self, i):
+        if hasattr(i, '__len__'):
+            return [self.occupancy[i_-self.left] for i_ in i]
         return self.occupancy[i-self.left]
         
     def len(self):
