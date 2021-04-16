@@ -6,16 +6,24 @@
 # 
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
-
 #!/bin/bash
 
 PYCONFIGDR=/home/eddie/anaconda3/envs/corp
 
-g++ -I$PYCONFIGDR/include \
-    -I$PYCONFIGDR/include/python3.7m \
-    -L$PYCONFIGDR/lib \
-    model_ext.cpp \
-    -Ofast -c -fpic -o model_ext.o 
+if [[ $1 = '-g' ]]; then
+  echo 'compiling for debugging...'
+  g++ -I$PYCONFIGDR/include \
+      -I$PYCONFIGDR/include/python3.7m \
+      -L$PYCONFIGDR/lib \
+      model_ext.cpp \
+      -Og -c -fpic -o model_ext.o 
+else
+  g++ -I$PYCONFIGDR/include \
+      -I$PYCONFIGDR/include/python3.7m \
+      -L$PYCONFIGDR/lib \
+      model_ext.cpp \
+      -Ofast -c -fpic -o model_ext.o 
+fi
 
 g++ -I$PYCONFIGDR/include \
     -I$PYCONFIGDR/include/python3.7m \

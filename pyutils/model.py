@@ -748,7 +748,7 @@ class _LiteFirm(Firm):
         self.connection_cost = connection_cost
         self.age = age
         self.id = id
-#end LiteFirm
+#end _LiteFirm
 
 
     

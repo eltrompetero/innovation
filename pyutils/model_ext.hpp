@@ -210,25 +210,28 @@ class TopicLattice {
 
 class LiteFirm {
     public:
-    // Parameters
-    // ----------
-    // sites : tuple
-    //     Left and right boundaries of firm. If a int, then it assumes that firm is
-    //     localized to a single site.
-    // innov : float
-    //     Innovation parameter. This determines the probability with which the firm
-    //     will choose to expand into a new region or go into an already explored region.
-    //     This is much more interesting in topic space beyond one dimension.
-    // connection_cost : float, 0.
-    // wealth : float, 1.
-    // age : int
-    // id : str
+    //Parameters
+    //----------
+    //sites : tuple
+    //    Left and right boundaries of firm. If a int, then it assumes that firm is
+    //    localized to a single site.
+    //innov : float
+    //    Innovation parameter. This determines the probability with which the firm
+    //    will choose to expand into a new region or go into an already explored region.
+    //    This is much more interesting in topic space beyond one dimension.
+    //connection_cost : float, 0.
+    //wealth : float, 1.
+    //age : int
+    //id : str
     py::object sites;
     double innov;
     double wealth;
     double connection_cost;
     int age;
     string id;
+    py::dict dict;
+
+    LiteFirm() {};
 
     LiteFirm(py::object new_sites,
              double new_innov,
@@ -246,6 +249,48 @@ class LiteFirm {
 };//end LiteFirm
 
 
+//pickle suite necessary for cpickle interface
+struct LiteFirmPickleSuite : py::pickle_suite {
+    static py::tuple getinitargs(const LiteFirm& firm)
+    {
+        return py::make_tuple(py::make_tuple(0,0), 0., 0., 0., 0, "must init");
+    }
+
+    static py::tuple getstate(py::object firm_obj)
+    {
+        LiteFirm& firm = py::extract<LiteFirm&>(firm_obj)();
+        return py::make_tuple(firm.sites,
+                              firm.innov,
+                              firm.wealth,
+                              firm.connection_cost,
+                              firm.age,
+                              firm.id);
+    }
+
+    static void setstate(py::object firm_obj, py::tuple state) {
+        if (py::len(state) != 6) {
+            PyErr_SetObject(PyExc_ValueError,
+                            ("expected 6-item tuple in call to __setstate__; got %s"
+                             % state).ptr()
+              );
+          py::throw_error_already_set();
+        }
+
+        LiteFirm& firm = py::extract<LiteFirm&>(firm_obj)();
+        firm.sites = state[0];
+        firm.innov = py::extract<double>(state[1])();
+        firm.wealth = py::extract<double>(state[2])();
+        firm.connection_cost = py::extract<double>(state[3])();
+        firm.age = py::extract<int>(state[4])();
+        firm.id = py::extract<string>(state[5])();
+
+        // restore the object's __dict__
+        //py::dict d = py::extract<py::dict>(firm_obj.attr("__dict__"))();
+        //d.update(state[0]);
+    }
+
+    static bool getstate_manages_dict() { return false; }
+  };
 
 
 /*******************************
@@ -291,5 +336,7 @@ BOOST_PYTHON_MODULE(model_ext) {
         .def_readonly("connection_cost", &LiteFirm::connection_cost)
         .def_readonly("age", &LiteFirm::age)
         .def_readonly("id", &LiteFirm::id)
+        .def_pickle(LiteFirmPickleSuite())
+        //.def_readonly("__dict__", &LiteFirm::dict)
     ;
 }

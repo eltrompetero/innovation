@@ -3,6 +3,7 @@
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import numpy as np
+import os, pickle
 from pyutils.model_ext import *
 
 
@@ -53,6 +54,7 @@ def test_TopicLattice():
     assert np.array_equal(lattice.view(), [0, 3, 0]), lattice.view()
 
 def test_LiteFirm():
+    # check initialization
     firm = LiteFirm((1,2), .1, .2, .3, 1, 'test')
     assert firm.sites==(1,2)
     assert firm.innov==.1
@@ -60,3 +62,15 @@ def test_LiteFirm():
     assert firm.connection_cost==.3
     assert firm.age==1
     assert firm.id=='test'
+
+    # check pickling
+    assert not os.path.isfile('test.p')
+    pickle.dump({'firm':firm}, open('test.p','wb'))
+    firm = pickle.load(open('test.p','rb'))['firm']
+    assert firm.sites==(1,2)
+    assert firm.innov==.1
+    assert firm.wealth==.2
+    assert firm.connection_cost==.3
+    assert firm.age==1
+    assert firm.id=='test'
+    os.remove('test.p')
