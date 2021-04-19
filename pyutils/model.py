@@ -490,25 +490,30 @@ class Simulator():
         if min_nfirms:
             # there is a better way to do this than by running groups at a time
             storage = {}
-            with Pool(cpu_count()) as pool:
-                while len(storage) < min_success:
-                    firmSnapshot, latticeSnapshot = list(zip(*pool.map(lambda args: self.simulate(T, cache=False),
-                                                                       range(nSamples))))
-                    for i in range(nSamples):
-                        avgn = np.mean([len(f) for f in firmSnapshot[i]])
-                        if avgn >= min_nfirms:
-                            storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+            with threadpool_limits(user_api='blas', limits=1):
+                with Pool(cpu_count()) as pool:
+                    while len(storage) < min_success:
+                        output = pool.map(lambda args: self.simulate(T, cache=False),
+                                          range(nSamples))
+                        firmSnapshot, latticeSnapshot = list(zip(*output))
+
+                        for i in range(nSamples):
+                            avgn = np.mean([len(f) for f in firmSnapshot[i]])
+                            if avgn >= min_nfirms:
+                                storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
             for k, val in storage.items():
                 self.storage[k] = val
 
         else:
-            with Pool(cpu_count()) as pool:
-                firmSnapshot, latticeSnapshot = list(zip(*pool.map(lambda args: self.simulate(T, cache=False),
-                                                                   range(nSamples))))
+            with threadpool_limits(user_api='blas', limits=1):
+                with Pool(cpu_count()) as pool:
+                    output = pool.map(lambda args: self.simulate(T, cache=False),
+                                      range(nSamples))
+                    firmSnapshot, latticeSnapshot = list(zip(*output))
             for i in range(nSamples):
                 self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
             
-    def save(self, folder, name=None):
+    def save(self, folder, name=None, iprint=True):
         """Save simulator instance.
         
         Parameters
@@ -516,6 +521,7 @@ class Simulator():
         folder : str
         name : str, None
             Default name is the date and time.
+        iprint : bool, True
         
         Returns
         -------
@@ -531,8 +537,8 @@ class Simulator():
             return False
         
         with open(f'{folder}/{name}', 'wb') as f:
-            cpickle.dump({'simulator':self}, f)
-            print(f'Saved as {folder}/{name}')
+            pickle.dump({'simulator':self}, f)
+            if iprint: print(f'Saved simulator instance in {folder}/{name}')
             return True
         return False
     

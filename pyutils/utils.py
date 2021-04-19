@@ -10,6 +10,8 @@ import os
 import datetime as dt
 from warnings import warn
 from multiprocess import Pool, cpu_count
+from threadpoolctl import threadpool_limits
+import dill as pickle
 DATADR = os.path.expanduser('~')+'/Dropbox/Research/corporations/starter_packet' 
 
 

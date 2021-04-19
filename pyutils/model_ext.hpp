@@ -40,7 +40,8 @@ np::ndarray vec2ndarray(const vector<int> &x) {
     Py_intptr_t shape[1] = { x.size() };
     np::ndarray result = np::zeros(1, shape, np::dtype::get_builtin<int>());
     copy(x.begin(), x.end(), reinterpret_cast<int*>(result.get_data()));
-    return result;
+    //must copy to prevent memory allocation erasure
+    return result.copy();
 };
 
 
@@ -83,8 +84,6 @@ class TopicLattice {
 
     np::ndarray view() {
         return vec2ndarray(occupancy);
-        //np::ndarray output_copy =  vec2ndarray(occupancy).copy();
-        //return output_copy;
     };
 
     /* ============= *
@@ -222,7 +221,11 @@ struct TopicLatticePickleSuite : py::pickle_suite {
     static py::tuple getstate(py::object lattice_obj)
     {
         TopicLattice& lattice = py::extract<TopicLattice&>(lattice_obj)();
-        return py::make_tuple(lattice.left, lattice.right, lattice.occupancy, lattice.d_occupancy);
+        //for pickling, we must make everything a python object
+        return py::make_tuple(lattice.left,
+                              lattice.right,
+                              vec2ndarray(lattice.occupancy),
+                              vec2ndarray(lattice.d_occupancy));
     }
 
     static void setstate(py::object lattice_obj, py::tuple state) {
@@ -235,14 +238,20 @@ struct TopicLatticePickleSuite : py::pickle_suite {
         }
 
         TopicLattice& lattice = py::extract<TopicLattice&>(lattice_obj)();
+        np::ndarray occ = py::extract<np::ndarray>(state[2])();
+        np::ndarray d_occ = py::extract<np::ndarray>(state[3])();
+        int size = occ.shape(0);
+        //these are raw pointers to the data type
+        int* occ_ref = reinterpret_cast<int*>(occ.get_data());
+        int* d_occ_ref = reinterpret_cast<int*>(d_occ.get_data());
+
         lattice.left = py::extract<int>(state[0])();
         lattice.right = py::extract<int>(state[1])();
-        lattice.occupancy = py::extract<vector<int>&>(state[2])();
-        lattice.d_occupancy = py::extract<vector<int>&>(state[3])();
-
-        // restore the object's __dict__
-        //py::dict d = py::extract<py::dict>(firm_obj.attr("__dict__"))();
-        //d.update(state[0]);
+        //convert ndarrays back into std::vector class
+        for (int i=0; i<size; i++) {
+            lattice.occupancy.push_back(*(occ_ref+i));
+            lattice.d_occupancy.push_back(*(d_occ_ref+i));
+        }
     }
 
     static bool getstate_manages_dict() { return false; }
@@ -395,6 +404,7 @@ BOOST_PYTHON_MODULE(model_ext) {
         .def("clear", &TopicLattice::clear)
         .def("d_clear", &TopicLattice::d_clear)
         .def("copy", &TopicLattice::copy)
+        .def_pickle(TopicLatticePickleSuite())
     ;
 
     class_<LiteFirm>("LiteFirm", init<py::object, double, double, double, int, string>())
