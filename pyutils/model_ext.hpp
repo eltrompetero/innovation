@@ -217,6 +217,40 @@ class TopicLattice {
 //end TopicLattice
 
 
+//pickle suite necessary for cpickle interface
+struct TopicLatticePickleSuite : py::pickle_suite {
+    static py::tuple getstate(py::object lattice_obj)
+    {
+        TopicLattice& lattice = py::extract<TopicLattice&>(lattice_obj)();
+        return py::make_tuple(lattice.left, lattice.right, lattice.occupancy, lattice.d_occupancy);
+    }
+
+    static void setstate(py::object lattice_obj, py::tuple state) {
+        if (py::len(state) != 4) {
+            PyErr_SetObject(PyExc_ValueError,
+                            ("expected 4-item tuple in call to __setstate__; got %s"
+                             % state).ptr()
+                            );
+          py::throw_error_already_set();
+        }
+
+        TopicLattice& lattice = py::extract<TopicLattice&>(lattice_obj)();
+        lattice.left = py::extract<int>(state[0])();
+        lattice.right = py::extract<int>(state[1])();
+        lattice.occupancy = py::extract<vector<int>&>(state[2])();
+        lattice.d_occupancy = py::extract<vector<int>&>(state[3])();
+
+        // restore the object's __dict__
+        //py::dict d = py::extract<py::dict>(firm_obj.attr("__dict__"))();
+        //d.update(state[0]);
+    }
+
+    static bool getstate_manages_dict() { return false; }
+};
+
+
+
+
 class LiteFirm {
     public:
     //Parameters
