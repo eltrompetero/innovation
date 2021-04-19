@@ -1,5 +1,6 @@
 /****************************************************************************************
  * Extension C++ module for 1D firm simulations. 
+ *
  * Author : Eddie Lee, edlee@csh.ac.at
  ****************************************************************************************/
 #include <stdio.h>
@@ -11,13 +12,13 @@
 #include <boost/python/module.hpp>
 #include <boost/python/def.hpp>
 #include <boost/python/numpy.hpp>
-#include <boost/format.hpp>
 
 #define BOOST_TEST_DYN_LINK
 
 using namespace std;
 namespace py = boost::python;
 namespace np = boost::python::numpy;
+
 
 
 // create numpy array
@@ -125,9 +126,11 @@ class TopicLattice {
     //    This is the coordinate and not the number of bins from the leftmost spot.
     //d : int, 1
     void remove(int i, int d=1) {
-        if ((i>=left) & (i<=right)) {
-            occupancy[i-left] -= d;
+        if ((i<left) | (i>right)) {
+             PyErr_SetString(PyExc_ValueError, "incrementing outside of lattice range");
+           py::throw_error_already_set();
         };
+        occupancy[i-left] -= d;
     };
 
     //Add one occupant to lattice site i.
@@ -138,9 +141,11 @@ class TopicLattice {
     //    This is the coordinate and not the number of bins from the leftmost spot.
     //d : int, 1       
     void add(int i, int d=1) {
-        if ((i>=left) & (i<=right)) {
-            occupancy[i-left] += d;
+        if ((i<left) | (i>right)) {
+             PyErr_SetString(PyExc_ValueError, "incrementing outside of lattice range");
+           py::throw_error_already_set();
         };
+        occupancy[i-left] += d;
     };
        
     //Remove one occupant from lattice site i for delayed occupancy.
@@ -151,9 +156,11 @@ class TopicLattice {
     //    This is the coordinate and not the number of bins from the leftmost spot.
     //d : int, 1
     void d_remove(int i, int d=1) {
-        if ((i>=left) & (i<=right)) {
-            d_occupancy[i-left] -= d;
+        if ((i<left) | (i>right)) {
+             PyErr_SetString(PyExc_ValueError, "incrementing outside of lattice range");
+           py::throw_error_already_set();
         };
+        d_occupancy[i-left] -= d;
     };
 
     //Add one occupant to lattice site i for delayed occupancy.
@@ -164,9 +171,11 @@ class TopicLattice {
     //    This is the coordinate and not the number of bins from the leftmost spot.
     //d : int, 1       
     void d_add(int i, int d=1) {
-        if ((i>=left) & (i<=right)) {
-            d_occupancy[i-left] += d;
-        };
+       if ((i<left) | (i>right)) {
+            PyErr_SetString(PyExc_ValueError, "incrementing outside of lattice range");
+          py::throw_error_already_set();
+       };
+       d_occupancy[i-left] += d;
     };
  
     //Push stored changes to occupancy and reset self.d_occupancy.
@@ -290,12 +299,37 @@ struct LiteFirmPickleSuite : py::pickle_suite {
     }
 
     static bool getstate_manages_dict() { return false; }
-  };
+};
 
 
-/*******************************
- * Wrappers for Python interface
- *******************************/
+
+/*********************************
+ * Useful functions for LiteFirm *
+ *********************************/
+//this doesn't work...all I wanted to do was to speed up a for loop in Python here
+py::list snap_firms(py::list& firms) {
+    py::object model = py::import("pyutils.model");
+
+    py::list snapshot;
+    py::object Firm = model.attr("Firm");
+    py::object f = Firm(py::make_tuple(1,2), .3);
+
+    for (int i=0; i<py::len(firms); i++) {
+        f = py::extract<py::object>(firms[i])();
+        //py::call_method<LiteFirm&>(f, "copy");
+        //f = py::extract<py::object&>(firms[i])();
+        //snapshot.append(py::extract<LiteFirm&>(PyObject_CallMethod(f, "copy", "()"))());
+        i++;
+    };
+
+    return snapshot;
+};
+
+
+
+/*********************************
+ * Wrappers for Python interface *
+ ********************************/
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(add_over, add, 1, 2);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(remove_over, remove, 1, 2);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(d_add_over, d_add, 1, 2);
@@ -337,6 +371,5 @@ BOOST_PYTHON_MODULE(model_ext) {
         .def_readonly("age", &LiteFirm::age)
         .def_readonly("id", &LiteFirm::id)
         .def_pickle(LiteFirmPickleSuite())
-        //.def_readonly("__dict__", &LiteFirm::dict)
     ;
 }
