@@ -1,10 +1,12 @@
 # ====================================================================================== #
 # 1D firm innovation models
+# 
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 from datetime import datetime
 import string
 from scipy.signal import fftconvolve
+from time import perf_counter
 import _pickle as cpickle
 
 from workspace.utils import save_pickle
@@ -392,8 +394,12 @@ class Simulator():
             newOccupancy = 0  # count new firms occupying innovated area
             if depressionRate:
                 # these are ordered
-                ix = self.rng.rand(lattice.right-lattice.left+1) < depressionRate
-                depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
+                #ix  = self.rng.rand(lattice.right-lattice.left+1) < depressionRate
+                #depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
+                #depressedSites = [i+lattice.left for i, el in enumerate(ix) if el]
+                depressedSites = [i
+                                  for i in range(lattice.left, lattice.right+1)
+                                  if self.rng.rand() < depressionRate]
             else:
                 depressedSites = []
                 
@@ -471,6 +477,7 @@ class Simulator():
     def parallel_simulate(self, nSamples, T,
                           min_nfirms=None,
                           min_success=1,
+                          iprint=True,
                           n_cpus=None):
         """Parallelize self.simulate() and save results into self.storage data member dict.
         
@@ -482,6 +489,7 @@ class Simulator():
             Only trajectories above this min by average no. of firms are saved.
         min_success : int, 1
             Min no. of successful sims required.
+        iprint : bool, True
         n_cpus : int, None
             Defaults to the max number of CPUs.
         
@@ -491,6 +499,7 @@ class Simulator():
         """
         
         n_cpus = n_cpus or cpu_count()
+        t0 = perf_counter()
 
         if min_nfirms:
             # there is a better way to do this than by running groups at a time
@@ -517,6 +526,8 @@ class Simulator():
                     firmSnapshot, latticeSnapshot = list(zip(*output))
             for i in range(nSamples):
                 self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+
+        if iprint: print(f"Runtime of {perf_counter()-t0} s.")
             
     def save(self, folder, name=None, iprint=True):
         """Save simulator instance.
@@ -608,7 +619,7 @@ class Firm():
     def size(self):
         return self.sites[1]-self.sites[0]+1
 
-    def income(self, depressed_sites=np.arange(0)):
+    def income(self, depressed_sites=[]):
         """For each site, wealth grows by the amount
         (W/N) * di where di is the inverse site occupancy number. For depressed sites, wealth
         decreases by this amount.
@@ -626,10 +637,28 @@ class Firm():
 
         income = 0.
         fwealth = self.wealth / self.size()
-        for s in range(self.sites[0], self.sites[1]+1):
-            if s in depressed_sites:
-                income -= fwealth / self.lattice.get_occ(s)
+        
+        # avoid iterating thru unnecessary depressed sites
+        counter = 0
+        while (counter < len(depressed_sites)) and (depressed_sites[counter] < self.sites[0]):
+            counter += 1
+        _depressed_sites = depressed_sites[counter:]
+        
+        go = True
+        while len(_depressed_sites) and go:
+            if _depressed_sites[-1] > self.sites[1]:
+                _depressed_sites.pop(-1)
             else:
+                go = False
+        
+        if len(_depressed_sites):
+            for s in range(self.sites[0], self.sites[1]+1):
+                if s in _depressed_sites:
+                    income -= fwealth / self.lattice.get_occ(s)
+                else:
+                    income += fwealth / self.lattice.get_occ(s)
+        else:
+            for s in range(self.sites[0], self.sites[1]+1):
                 income += fwealth / self.lattice.get_occ(s)
         #income -= self.wealth * self.connectionCost * np.log(self.size())
         income -= self.wealth * self.connectionCost * self.size()
