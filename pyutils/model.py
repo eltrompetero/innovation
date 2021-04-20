@@ -228,8 +228,8 @@ def segment_by_bound_vel(leftright, zero_thresh,
         swidth = width
     
     v = swidth[1:] - swidth[:-1]  # change width over a single time step
+    rawv = v
     if smooth_vel:
-        rawv = v
         v = fftconvolve(v, np.ones(moving_window[1])/moving_window[1], mode='same')
 
     # consider the binary velocity
@@ -263,14 +263,14 @@ class Simulator():
                  L0=20,
                  N0=20,
                  g0=.2,
-                 obsRate=.49,
-                 expandRate=.5,
-                 innovSuccessRate=.6,
-                 depressionRate=.2,
-                 innMutWidth=.05,
-                 replicationP=.95,
+                 obs_rate=.49,
+                 expand_rate=.5,
+                 innov_success_rate=.6,
+                 depression_rate=.2,
+                 inn_mut_width=.05,
+                 replication_p=.95,
                  growf=.9,
-                 connectionCost=0.,
+                 connect_cost=0.,
                  rng=None):
         """
         Parameters
@@ -281,39 +281,39 @@ class Simulator():
             Initial population size.
         g0 : float, .2
             New firm rate per site.
-        obsRate : float, .49
+        obs_rate : float, .49
             Obsolescence rate (from left).
-        expandRate : float, .5
+        expand_rate : float, .5
             Rate at which firms try to expand.
-        innovSuccessRate : float, .6
-        depressionRate : float, .2
-        innMutWidth : float, .05
+        innov_success_rate : float, .6
+        depression_rate : float, .2
+        inn_mut_width : float, .05
             Width of the normal distribution determining mutant innovation.
-        replicationP : float, .95
+        replication_p : float, .95
             Probability that new firm is a mutant replicate of an existing
             firm's innovation.
         growf : float, .9
             Growth cost fraction f. If this is higher, then it is more expensive
             to expand into new sectors.
-        connectionCost : float, 0.
+        connect_cost : float, 0.
         """
         
         self.L0 = L0
         self.N0 = N0
         self.g0 = g0
-        self.obsRate = obsRate
-        self.expandRate = expandRate
-        self.innovSuccessRate = innovSuccessRate
-        self.depressionRate = depressionRate
-        self.innMutWidth = innMutWidth
-        self.replicationP = replicationP
+        self.obs_rate = obs_rate
+        self.expand_rate = expand_rate
+        self.innov_success_rate = innov_success_rate
+        self.depression_rate = depression_rate
+        self.inn_mut_width = inn_mut_width
+        self.replication_p = replication_p
         self.growf = growf
-        self.connectionCost = connectionCost
+        self.connect_cost = connect_cost
         self.rng = rng or np.random
 
         self.storage = {}  # store previous sim results
 
-    def simulate(self, T, cache=True):
+    def simulate(self, T, cache=True, reset_rng=False):
         """Run firm simulation for T time steps.
         
         Parameters
@@ -322,6 +322,8 @@ class Simulator():
             Number of iterations starting with an initially empty lattice.
         cache : bool, True
             If True, save simulation result into self.storage dict.
+        reset_rng : bool, False
+            If True, reset the rng. Useful for parallel processing.
             
         Returns
         -------
@@ -335,18 +337,18 @@ class Simulator():
         L0 = self.L0
         N0 = self.N0
         g0 = self.g0
-        obsRate = self.obsRate
-        expandRate = self.expandRate
-        innovSuccessRate = self.innovSuccessRate
-        depressionRate = self.depressionRate
-        innMutWidth = self.innMutWidth
-        replicationP = self.replicationP
+        obs_rate = self.obs_rate
+        expand_rate = self.expand_rate
+        innov_success_rate = self.innov_success_rate
+        depression_rate = self.depression_rate
+        inn_mut_width = self.inn_mut_width
+        replication_p = self.replication_p
         growf = self.growf
-        cCost = self.connectionCost
+        c_cost = self.connect_cost
         
         # variables for tracking history
-        firmSnapshot = []
-        latticeSnapshot = []
+        firm_snapshot = []
+        lattice_snapshot = []
         
         # updated parameters
         firms = []
@@ -361,7 +363,7 @@ class Simulator():
                               self.rng.rand(),
                               lattice=lattice,
                               wealth=growf,
-                              connection_cost=cCost,
+                              connection_cost=c_cost,
                               rng=self.rng))
             lattice.d_add(firms[-1].sites[0])
         lattice.push()
@@ -372,9 +374,9 @@ class Simulator():
             # from a uniform distribution
             nNew = self.rng.poisson(g0)
             for i in range(nNew):
-                if len(firms) and self.rng.rand() <= replicationP:
+                if len(firms) and self.rng.rand() <= replication_p:
                     # mutate an existing firm's innov
-                    newInnov = np.clip(self.rng.choice(firms).innov + self.rng.normal(scale=innMutWidth),
+                    newInnov = np.clip(self.rng.choice(firms).innov + self.rng.normal(scale=inn_mut_width),
                                        0, 1)
                     firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
                                       newInnov,
@@ -390,16 +392,16 @@ class Simulator():
         #     check_firms_occupancy(firms, lattice)
 
             # calculate firm income and growth
-            growLattice = 0  # switch for if lattice needs to be grown
-            newOccupancy = 0  # count new firms occupying innovated area
-            if depressionRate:
+            grow_lattice = 0  # switch for if lattice needs to be grown
+            new_occupancy = 0  # count new firms occupying innovated area
+            if depression_rate:
                 # these are ordered
-                #ix  = self.rng.rand(lattice.right-lattice.left+1) < depressionRate
+                #ix  = self.rng.rand(lattice.right-lattice.left+1) < depression_rate
                 #depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
                 #depressedSites = [i+lattice.left for i, el in enumerate(ix) if el]
                 depressedSites = [i
                                   for i in range(lattice.left, lattice.right+1)
-                                  if self.rng.rand() < depressionRate]
+                                  if self.rng.rand() < depression_rate]
             else:
                 depressedSites = []
                 
@@ -410,24 +412,24 @@ class Simulator():
 
                 growthcost = growf * f.wealth/f.size()
                 eps = .01
-                if f.wealth>(growthcost+eps) and f.rng.rand()<expandRate:
-                    out = f.grow(innovSuccessRate, cost=growthcost)
+                if f.wealth>(growthcost+eps) and f.rng.rand()<expand_rate:
+                    out = f.grow(innov_success_rate, cost=growthcost)
                     if out[0] and not out[1]:
                         lattice.d_add(f.sites[1])
                     elif out[0] and out[1]:
-                        newOccupancy += 1
-                        growLattice += out[1]
+                        new_occupancy += 1
+                        grow_lattice += out[1]
                     elif not out[0] and out[1]:
-                        growLattice += 1
+                        grow_lattice += 1
             lattice.push()
             # if any firm innovated, then grow the lattice
-            if growLattice:
+            if grow_lattice:
                 lattice.extend_right()
-                lattice.add(lattice.right, newOccupancy)
+                lattice.add(lattice.right, new_occupancy)
         #     check_firms_occupancy(firms, lattice)
 
             # shrink topic lattice
-            if self.rng.rand() < obsRate and lattice.left < lattice.right:
+            if self.rng.rand() < obs_rate and lattice.left < lattice.right:
                 lattice.shrink_left()
                 # shrink all firms that have any value on the obsolete topic
                 # firms of size one will be delete by accounting for negative wealth next
@@ -467,14 +469,14 @@ class Simulator():
 #                    firms += babyfirms
 
             # collect data on status
-            firmSnapshot.append(snapshot_firms(firms))
-            latticeSnapshot.append(lattice.copy())
+            firm_snapshot.append(snapshot_firms(firms))
+            lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
         
         if cache:
-            self.storage[str(datetime.now())] = firmSnapshot, latticeSnapshot
-        return firmSnapshot, latticeSnapshot
+            self.storage[str(datetime.now())] = firm_snapshot, lattice_snapshot
+        return firm_snapshot, lattice_snapshot
         
-    def parallel_simulate(self, nSamples, T,
+    def parallel_simulate(self, n_samples, T,
                           min_nfirms=None,
                           min_success=1,
                           iprint=True,
@@ -483,7 +485,7 @@ class Simulator():
         
         Parameters
         ----------
-        nSamples : int
+        n_samples : int
         T : int
         min_nfirms : int, None
             Only trajectories above this min by average no. of firms are saved.
@@ -507,25 +509,25 @@ class Simulator():
             with threadpool_limits(user_api='blas', limits=1):
                 with Pool(n_cpus) as pool:
                     while len(storage) < min_success:
-                        output = pool.map(lambda args: self.simulate(T, cache=False),
-                                          range(nSamples))
-                        firmSnapshot, latticeSnapshot = list(zip(*output))
+                        output = pool.map(lambda args: self.simulate(T, cache=False, reset_rng=True),
+                                          range(n_samples))
+                        firm_snapshot, lattice_snapshot = list(zip(*output))
 
-                        for i in range(nSamples):
-                            avgn = np.mean([len(f) for f in firmSnapshot[i]])
+                        for i in range(n_samples):
+                            avgn = np.mean([len(f) for f in firm_snapshot[i]])
                             if avgn >= min_nfirms:
-                                storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+                                storage[str(datetime.now())] = firm_snapshot[i], lattice_snapshot[i]
             for k, val in storage.items():
                 self.storage[k] = val
 
         else:
             with threadpool_limits(user_api='blas', limits=1):
                 with Pool(n_cpus) as pool:
-                    output = pool.map(lambda args: self.simulate(T, cache=False),
-                                      range(nSamples))
-                    firmSnapshot, latticeSnapshot = list(zip(*output))
-            for i in range(nSamples):
-                self.storage[str(datetime.now())] = firmSnapshot[i], latticeSnapshot[i]
+                    output = pool.map(lambda args: self.simulate(T, cache=False, reset_rng=True),
+                                      range(n_samples))
+                    firm_snapshot, lattice_snapshot = list(zip(*output))
+            for i in range(n_samples):
+                self.storage[str(datetime.now())] = firm_snapshot[i], lattice_snapshot[i]
 
         if iprint: print(f"Runtime of {perf_counter()-t0} s.")
             
@@ -563,8 +565,8 @@ class Simulator():
         
         print(f'new firm rate   =\t{self.g0}')
         print(f'grow frac cost  =\t{self.growf}')
-        print(f'depression rate =\t{self.depressionRate}')
-        print(f'connection cost =\t{self.connectionCost}')
+        print(f'depression rate =\t{self.depression_rate}')
+        print(f'connection cost =\t{self.connect_cost}')
         print()
 
         print(f'This instance has {len(self.storage)} sims run on')
@@ -611,7 +613,7 @@ class Firm():
         self.innov = innov
         self.wealth = wealth
         self.age = 0
-        self.connectionCost = connection_cost
+        self.connect_cost = connection_cost
         
         self.rng = rng or np.random.RandomState()
         self.id = id or ''.join(self.rng.choice(LETTERS, size=20))
@@ -660,8 +662,8 @@ class Firm():
         else:
             for s in range(self.sites[0], self.sites[1]+1):
                 income += fwealth / self.lattice.get_occ(s)
-        #income -= self.wealth * self.connectionCost * np.log(self.size())
-        income -= self.wealth * self.connectionCost * self.size()
+        #income -= self.wealth * self.connect_cost * np.log(self.size())
+        income -= self.wealth * self.connect_cost * self.size()
         return income
         
         #dincome = (self.wealth / self.size() / 
@@ -672,7 +674,7 @@ class Firm():
 
         #income = dincome.sum() - 2 * dincome[ix].sum()
 
-        #income -= self.wealth * self.connectionCost * (self.sites[1]-self.sites[0]+1)
+        #income -= self.wealth * self.connect_cost * (self.sites[1]-self.sites[0]+1)
         #return income
         
     def grow(self, expansion_p, cost=None):
@@ -742,7 +744,7 @@ class Firm():
             babyfirms.append(Firm((ix[i],ix[i+1]),
                                   self.innov,
                                   lattice=self.lattice,
-                                  connection_cost=self.connectionCost,
+                                  connection_cost=self.connect_cost,
                                   wealth=self.wealth/n_split))
         return babyfirms
         
@@ -750,7 +752,7 @@ class Firm():
         return LiteFirm(self.sites,
                         self.innov,
                         self.wealth,
-                        self.connectionCost,
+                        self.connect_cost,
                         self.age,
                         self.id)
 #end Firm
