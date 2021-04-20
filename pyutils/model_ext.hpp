@@ -314,6 +314,14 @@ class LiteFirm {
         age = new_age;
         id = string(new_id);
     };
+
+    void info() {
+        cout << "sites:  " << py::extract<int>(sites[0])() << ", " << py::extract<int>(sites[1])() << endl;
+        cout << "innov:  " << innov << endl;
+        cout << "wealth: " << wealth << endl;
+        cout << "age:    " << age << endl;
+        cout << "id :    " << id << endl;
+    };
 };//end LiteFirm
 
 
@@ -369,25 +377,30 @@ struct LiteFirmPickleSuite : py::pickle_suite {
 /*********************************
  * Useful functions for LiteFirm *
  *********************************/
-//this doesn't work...all I wanted to do was to speed up a for loop in Python here
-//py::list snap_firms(py::list& firms) {
-//    py::object this_firm;
-//    py::list snapshot;
-//    LiteFirm lf;
-//    //py::object Firm = model.attr("Firm");
-//    //py::object f = Firm(py::make_tuple(1,2), .3);
+
+//Loop thru copying of firms into LiteFirm.
 //
-//    for (int i=0; i<py::len(firms); i++) {
-//        this_firm = py::extract<py::object>(firms[i])();
-//        lf = py::extract<LiteFirm>(this_firm.attr("copy")())();
-//        //py::call_method<LiteFirm>(f, "copy");
-//        //f = py::extract<py::object&>(firms[i])();
-//        //snapshot.append(py::extract<LiteFirm&>(PyObject_CallMethod(f, "copy", "()"))());
-//        i++;
-//    };
+//Parameters
+//----------
+//firm : list of Firm
 //
-//    return snapshot;
-//};
+//Returns
+//-------
+//list of LiteFirm
+py::list snapshot_firms(py::list& firms) {
+    py::object this_firm;
+    py::list snapshot;
+    LiteFirm lf;
+
+    for (int i=0; i<py::len(firms); i++) {
+        this_firm = py::extract<py::object>(firms[i])();
+        lf = py::extract<LiteFirm>(this_firm.attr("copy")())();
+        snapshot.append(lf);
+        i++;
+    };
+
+    return snapshot;
+};
 
 
 
@@ -437,6 +450,9 @@ BOOST_PYTHON_MODULE(model_ext) {
         .def_readonly("connection_cost", &LiteFirm::connection_cost)
         .def_readonly("age", &LiteFirm::age)
         .def_readonly("id", &LiteFirm::id)
+        .def("info", &LiteFirm::info)
         .def_pickle(LiteFirmPickleSuite())
     ;
+
+    def("snapshot_firms", snapshot_firms);
 }

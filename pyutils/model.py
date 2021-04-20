@@ -8,7 +8,7 @@ from scipy.signal import fftconvolve
 import _pickle as cpickle
 
 from workspace.utils import save_pickle
-from .model_ext import TopicLattice, LiteFirm
+from .model_ext import TopicLattice, LiteFirm, snapshot_firms
 from .utils import *
 
 LETTERS = list(string.ascii_letters)
@@ -461,7 +461,7 @@ class Simulator():
 #                    firms += babyfirms
 
             # collect data on status
-            firmSnapshot.append([f.copy() for f in firms])
+            firmSnapshot.append(snapshot_firms(firms))
             latticeSnapshot.append(lattice.copy())
         
         if cache:
@@ -720,8 +720,8 @@ class Firm():
     def copy(self):
         return LiteFirm(self.sites,
                         self.innov,
-                        self.connectionCost,
                         self.wealth,
+                        self.connectionCost,
                         self.age,
                         self.id)
 #end Firm

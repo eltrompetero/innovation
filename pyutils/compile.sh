@@ -11,7 +11,7 @@
 PYCONFIGDR=/home/eddie/anaconda3/envs/corp
 
 if [[ $1 = '-g' ]]; then
-  echo 'compiling for debugging...'
+  echo 'compiling for debugging...must be switched off for code usage'
   g++ -I$PYCONFIGDR/include \
       -I$PYCONFIGDR/include/python3.7m \
       -L$PYCONFIGDR/lib \
