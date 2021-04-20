@@ -16,3 +16,9 @@ def test_segment_by_bound_vel():
 
     windows, vsign, v = segment_by_bound_vel(leftright, .2, moving_window=2)
     assert [i[1]-i[0] for i in windows]==[1, 8, 2, 88]
+
+def test_reconstruct_lattice():
+    firm_snapshot = [[LiteFirm((0,2), 0., 0., 0., 0, "test"),
+                      LiteFirm((1,3), 0., 0., 0., 0, "test")]]
+    lattice_snapshot = reconstruct_lattice(firm_snapshot, [(0, 5)])
+    assert np.array_equal(lattice_snapshot[0].occupancy, np.array([1,2,2,1,0,0]))

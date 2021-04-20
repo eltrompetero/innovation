@@ -253,6 +253,29 @@ def segment_by_bound_vel(leftright, zero_thresh,
 
     return windows, velsign, vel
 
+def reconstruct_lattice(firm_snapshot, lattice_bds):
+    """Reconstruct lattice from lattice bounds.
+
+    Parameters
+    ----------
+    firm_snapshot : list of LiteFirm
+    lattice_bds : list of twople
+
+    Returns
+    -------
+    list of LiteTopicLattice
+    """
+    
+    lattice_snapshot = []
+
+    for firms, bds in zip(firm_snapshot, lattice_bds):
+        lattice_snapshot.append(LiteTopicLattice(bds))
+        
+        for f in firms:
+            lattice_snapshot[-1].occupancy[f.sites[0]-bds[0]:f.sites[1]+1-bds[0]] += 1
+
+    return lattice_snapshot
+
 
 
 # ======= #
@@ -891,3 +914,20 @@ class _TopicLattice():
         copy.occupancy = self.occupancy[:]
         return copy
 #end TopicLattice
+
+
+
+class LiteTopicLattice():
+    def __init__(self, bds):
+        """
+        Parameters
+        ----------
+        bds : twople
+        """
+
+        self.left = bds[0]
+        self.right = bds[1]
+        self.bds = bds
+    
+        self.occupancy = np.zeros(bds[1]-bds[0]+1, dtype=int)
+#end LiteTopicLattice
