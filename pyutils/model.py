@@ -470,7 +470,8 @@ class Simulator():
         
     def parallel_simulate(self, nSamples, T,
                           min_nfirms=None,
-                          min_success=1):
+                          min_success=1,
+                          n_cpus=None):
         """Parallelize self.simulate() and save results into self.storage data member dict.
         
         Parameters
@@ -481,17 +482,21 @@ class Simulator():
             Only trajectories above this min by average no. of firms are saved.
         min_success : int, 1
             Min no. of successful sims required.
+        n_cpus : int, None
+            Defaults to the max number of CPUs.
         
         Returns
         -------
         None
         """
         
+        n_cpus = n_cpus or cpu_count()
+
         if min_nfirms:
             # there is a better way to do this than by running groups at a time
             storage = {}
             with threadpool_limits(user_api='blas', limits=1):
-                with Pool(cpu_count()) as pool:
+                with Pool(n_cpus) as pool:
                     while len(storage) < min_success:
                         output = pool.map(lambda args: self.simulate(T, cache=False),
                                           range(nSamples))
@@ -506,7 +511,7 @@ class Simulator():
 
         else:
             with threadpool_limits(user_api='blas', limits=1):
-                with Pool(cpu_count()) as pool:
+                with Pool(n_cpus) as pool:
                     output = pool.map(lambda args: self.simulate(T, cache=False),
                                       range(nSamples))
                     firmSnapshot, latticeSnapshot = list(zip(*output))

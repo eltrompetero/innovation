@@ -53,6 +53,11 @@ class TopicLattice {
     int right = 0;
     vector<int> occupancy = vector<int>(1, 0);
     vector<int> d_occupancy = vector<int>(1, 0);
+    //for exposure to python pickling
+    py::tuple shape = py::make_tuple(1);
+    np::ndarray _occupancy = np::empty(shape, np::dtype::get_builtin<int>());
+    np::ndarray _d_occupancy = np::empty(shape, np::dtype::get_builtin<int>());
+
 
     /******************
      * Info functions *
@@ -203,14 +208,16 @@ class TopicLattice {
         
     //Copy the topic lattice.
     TopicLattice copy() {
-        TopicLattice copy;
-        copy.left = left;
-        copy.right = right;
-        copy.occupancy = vector<int>(occupancy.size(), 0);
+        TopicLattice this_copy;
+        this_copy.left = left;
+        this_copy.right = right;
+        this_copy.occupancy = vector<int>(occupancy.size(), 0);
+        this_copy.d_occupancy = vector<int>(occupancy.size(), 0);
         for (int i; i<occupancy.size(); i++) {
-            copy.occupancy[i] = occupancy[i];
+            this_copy.occupancy[i] = occupancy[i];
+            this_copy.d_occupancy[i] = d_occupancy[i];
         };
-        return copy;
+        return this_copy;
     };
 };
 //end TopicLattice
@@ -220,41 +227,51 @@ class TopicLattice {
 struct TopicLatticePickleSuite : py::pickle_suite {
     static py::tuple getstate(py::object lattice_obj)
     {
-        TopicLattice& lattice = py::extract<TopicLattice&>(lattice_obj)();
+        TopicLattice lattice = py::extract<TopicLattice>(lattice_obj)();
+        py::dict dict;
+        
+        dict["left"] = lattice_obj.attr("left");
+        dict["right"] = lattice_obj.attr("right");
+        dict["_occupancy"] = vec2ndarray(lattice.occupancy);
+        dict["_d_occupancy"] = vec2ndarray(lattice.d_occupancy);
+
         //for pickling, we must make everything a python object
-        return py::make_tuple(lattice.left,
-                              lattice.right,
-                              vec2ndarray(lattice.occupancy),
-                              vec2ndarray(lattice.d_occupancy));
+        return py::make_tuple(dict);
     }
 
     static void setstate(py::object lattice_obj, py::tuple state) {
-        if (py::len(state) != 4) {
+        if (py::len(state) != 1) {
             PyErr_SetObject(PyExc_ValueError,
-                            ("expected 4-item tuple in call to __setstate__; got %s"
+                            ("expected 1-item tuple in call to __setstate__; got %s"
                              % state).ptr()
                             );
           py::throw_error_already_set();
         }
 
         TopicLattice& lattice = py::extract<TopicLattice&>(lattice_obj)();
-        np::ndarray occ = py::extract<np::ndarray>(state[2])();
-        np::ndarray d_occ = py::extract<np::ndarray>(state[3])();
-        int size = occ.shape(0);
-        //these are raw pointers to the data type
-        int* occ_ref = reinterpret_cast<int*>(occ.get_data());
-        int* d_occ_ref = reinterpret_cast<int*>(d_occ.get_data());
+        int* occ_ref;  //raw pointers to the data type
+        int* d_occ_ref;
+        int size;
 
-        lattice.left = py::extract<int>(state[0])();
-        lattice.right = py::extract<int>(state[1])();
+        lattice.left = py::extract<int>(state[0]["left"])();
+        lattice.right = py::extract<int>(state[0]["right"])();
+        lattice._occupancy = py::extract<np::ndarray>(state[0]["_occupancy"])();
+        lattice._d_occupancy = py::extract<np::ndarray>(state[0]["_d_occupancy"])();
+        
         //convert ndarrays back into std::vector class
+        occ_ref = reinterpret_cast<int*>(lattice._occupancy.get_data());
+        d_occ_ref = reinterpret_cast<int*>(lattice._d_occupancy.get_data());
+        size = lattice._occupancy.shape(0);
+        lattice.occupancy.clear();
+        lattice.d_occupancy.clear();
+
         for (int i=0; i<size; i++) {
             lattice.occupancy.push_back(*(occ_ref+i));
             lattice.d_occupancy.push_back(*(d_occ_ref+i));
         }
     }
 
-    static bool getstate_manages_dict() { return false; }
+    static bool getstate_manages_dict() { return true; }
 };
 
 
@@ -281,7 +298,6 @@ class LiteFirm {
     double connection_cost;
     int age;
     string id;
-    py::dict dict;
 
     LiteFirm() {};
 
@@ -310,38 +326,42 @@ struct LiteFirmPickleSuite : py::pickle_suite {
 
     static py::tuple getstate(py::object firm_obj)
     {
-        LiteFirm& firm = py::extract<LiteFirm&>(firm_obj)();
-        return py::make_tuple(firm.sites,
-                              firm.innov,
-                              firm.wealth,
-                              firm.connection_cost,
-                              firm.age,
-                              firm.id);
+        py::dict dict;
+        dict["sites"] = firm_obj.attr("sites");
+        dict["innov"] = firm_obj.attr("innov");
+        dict["wealth"] = firm_obj.attr("wealth");
+        dict["connection_cost"] = firm_obj.attr("connection_cost");
+        dict["age"] = firm_obj.attr("age");
+        dict["id"] = firm_obj.attr("id");
+
+        return py::make_tuple(dict);
     }
 
     static void setstate(py::object firm_obj, py::tuple state) {
-        if (py::len(state) != 6) {
+        if (py::len(state) != 1) {
             PyErr_SetObject(PyExc_ValueError,
-                            ("expected 6-item tuple in call to __setstate__; got %s"
+                            ("expected 1-item tuple in call to __setstate__; got %s"
                              % state).ptr()
               );
           py::throw_error_already_set();
         }
 
+        //restore the object's __dict__
+        py::dict d = py::extract<py::dict>(firm_obj.attr("__dict__"))();
+        d.update(state[0]);
+        
+        //restore internal state
         LiteFirm& firm = py::extract<LiteFirm&>(firm_obj)();
-        firm.sites = state[0];
-        firm.innov = py::extract<double>(state[1])();
-        firm.wealth = py::extract<double>(state[2])();
-        firm.connection_cost = py::extract<double>(state[3])();
-        firm.age = py::extract<int>(state[4])();
-        firm.id = py::extract<string>(state[5])();
 
-        // restore the object's __dict__
-        //py::dict d = py::extract<py::dict>(firm_obj.attr("__dict__"))();
-        //d.update(state[0]);
+        firm.sites = d.get("sites");
+        firm.innov = py::extract<double>(d.get("innov"))();
+        firm.wealth = py::extract<double>(d.get("wealth"))();
+        firm.connection_cost = py::extract<double>(d.get("connection_cost"))();
+        firm.age = py::extract<int>(d.get("age"))();
+        firm.id = py::extract<string>(d.get("id"))();
     }
 
-    static bool getstate_manages_dict() { return false; }
+    static bool getstate_manages_dict() { return true; }
 };
 
 
@@ -350,23 +370,24 @@ struct LiteFirmPickleSuite : py::pickle_suite {
  * Useful functions for LiteFirm *
  *********************************/
 //this doesn't work...all I wanted to do was to speed up a for loop in Python here
-py::list snap_firms(py::list& firms) {
-    py::object model = py::import("pyutils.model");
-
-    py::list snapshot;
-    py::object Firm = model.attr("Firm");
-    py::object f = Firm(py::make_tuple(1,2), .3);
-
-    for (int i=0; i<py::len(firms); i++) {
-        f = py::extract<py::object>(firms[i])();
-        //py::call_method<LiteFirm&>(f, "copy");
-        //f = py::extract<py::object&>(firms[i])();
-        //snapshot.append(py::extract<LiteFirm&>(PyObject_CallMethod(f, "copy", "()"))());
-        i++;
-    };
-
-    return snapshot;
-};
+//py::list snap_firms(py::list& firms) {
+//    py::object this_firm;
+//    py::list snapshot;
+//    LiteFirm lf;
+//    //py::object Firm = model.attr("Firm");
+//    //py::object f = Firm(py::make_tuple(1,2), .3);
+//
+//    for (int i=0; i<py::len(firms); i++) {
+//        this_firm = py::extract<py::object>(firms[i])();
+//        lf = py::extract<LiteFirm>(this_firm.attr("copy")())();
+//        //py::call_method<LiteFirm>(f, "copy");
+//        //f = py::extract<py::object&>(firms[i])();
+//        //snapshot.append(py::extract<LiteFirm&>(PyObject_CallMethod(f, "copy", "()"))());
+//        i++;
+//    };
+//
+//    return snapshot;
+//};
 
 
 
@@ -389,6 +410,8 @@ BOOST_PYTHON_MODULE(model_ext) {
     class_<TopicLattice>("TopicLattice", init<>())
         .def_readonly("left", &TopicLattice::left)
         .def_readonly("right", &TopicLattice::right)
+        .def_readonly("_occupancy", &TopicLattice::_occupancy)
+        .def_readonly("_d_occupancy", &TopicLattice::_d_occupancy)
         .def("get_occ", &TopicLattice::get_occ)
         .def("get_occ", &TopicLattice::get_occ_vec)
         .def("len", &TopicLattice::len)

@@ -52,6 +52,16 @@ def test_TopicLattice():
 
     lattice.add(2, 3)
     assert np.array_equal(lattice.view(), [0, 3, 0]), lattice.view()
+    
+    # check pickling
+    try:
+        with open('test.p', 'wb') as f:
+            pickle.dump({'lattice':lattice}, f);
+        with open('test.p', 'rb') as f:
+            lattice = pickle.load(f)['lattice']
+        assert np.array_equal(lattice.view(), [0, 3, 0]), lattice.view()
+    finally:
+        os.remove('test.p')
 
 def test_LiteFirm():
     # check initialization
@@ -64,13 +74,15 @@ def test_LiteFirm():
     assert firm.id=='test'
 
     # check pickling
-    assert not os.path.isfile('test.p')
-    pickle.dump({'firm':firm}, open('test.p','wb'))
-    firm = pickle.load(open('test.p','rb'))['firm']
-    assert firm.sites==(1,2)
-    assert firm.innov==.1
-    assert firm.wealth==.2
-    assert firm.connection_cost==.3
-    assert firm.age==1
-    assert firm.id=='test'
-    os.remove('test.p')
+    try:
+        assert not os.path.isfile('test.p')
+        pickle.dump({'firm':firm}, open('test.p','wb'))
+        firm = pickle.load(open('test.p','rb'))['firm']
+        assert firm.sites==(1,2)
+        assert firm.innov==.1
+        assert firm.wealth==.2
+        assert firm.connection_cost==.3
+        assert firm.age==1
+        assert firm.id=='test'
+    finally:
+        os.remove('test.p')
