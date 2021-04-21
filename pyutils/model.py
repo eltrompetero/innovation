@@ -346,7 +346,7 @@ class Simulator():
         cache : bool, True
             If True, save simulation result into self.storage dict.
         reset_rng : bool, False
-            If True, reset the rng. Useful for parallel processing.
+            If True, reinitialize rng. Useful for parallel processing.
             
         Returns
         -------
@@ -355,6 +355,9 @@ class Simulator():
         list
             Lattice copies at each time step.
         """
+
+        if reset_rng:
+            self.rng = np.random.RandomState()
         
         # settings
         L0 = self.L0
