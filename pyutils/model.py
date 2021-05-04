@@ -112,8 +112,8 @@ def extract_deadfirms(fsnapshot):
 def extract_growth_rate(fsnapshot):
     """Extract list of growth rates per firm over sequential time steps.
     
-    Firms that don't survive into the next time step do not have a growth rate. They just
-    disappear from the count.
+    Firms that don't survive into the next time step have growth rate of -1. This latter
+    calculation may be somewhat slow.
     
     Parameters
     ----------
@@ -134,12 +134,24 @@ def extract_growth_rate(fsnapshot):
     grate = []  # growth rate
     for i in range(1, len(ids)):
         grate.append([])
+        selected = []
+        
+        # growth rate for all firms that survive into next time step
         for j, thisid in enumerate(ids[i]):
             if thisid in ids[i-1]:
-                w0 = fsnapshot[i-1][ids[i-1].index(thisid)].wealth
+                previx = ids[i-1].index(thisid)
+                w0 = fsnapshot[i-1][previx].wealth
                 w1 = fsnapshot[i][j].wealth
                 t = fsnapshot[i][j].age
-                grate[-1].append(((w1-w0)/w0, w0, w1, t-1))
+                grate[-1].append((w1/w0, w0, w1, t-1))
+                selected.append(previx)
+        # growth rate for firms that have died
+        for j, thisid in enumerate(ids[i-1]):
+            if not thisid in ids[i]:
+                w0 = fsnapshot[i-1][j].wealth
+                t = fsnapshot[i-1][j].age
+                grate[-1].append((0, w0, 0, t))
+
         if not grate[-1]:  # label empty elements with inf
             grate[-1].append((np.inf, np.inf, np.inf, np.inf))
     return grate
