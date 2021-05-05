@@ -11,6 +11,7 @@ import _pickle as cpickle
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
+from .organizer import SimLedger
 from .utils import *
 
 LETTERS = list(string.ascii_letters)
@@ -583,6 +584,8 @@ class Simulator():
         -------
         bool
             Whether or not save was successful.
+        str
+            Designed file name. Only returned if save was attempted.
         """
         
         if not os.path.isdir(folder):
@@ -590,13 +593,38 @@ class Simulator():
             
         name = str(datetime.now())+'.p'
         if os.path.isfile(f'{folder}/{name}'):
-            return False
+            return False, name
         
         with open(f'{folder}/{name}', 'wb') as f:
             pickle.dump({'simulator':self}, f)
             if iprint: print(f'Saved simulator instance in {folder}/{name}')
-            return True
-        return False
+            return True, name
+        return False, name
+
+    def add_to_ledger(self, f, extra_props={}):
+        """
+        Parameters
+        ----------
+        f : str
+            File name.
+        extra_props : dict, {}
+            Extra properties to add to ledger such as simulation duration.
+        """
+        
+        extra_props.update({'L0':self.L0,
+                            'N0':self.N0,
+                            'g0':self.g0,
+                            'obs_rate':self.obs_rate,
+                            'expand_rate':self.expand_rate,
+                            'innov_success_rate':self.innov_success_rate,
+                            'depression_rate':self.depression_rate,
+                            'inn_mut_width':self.inn_mut_width,
+                            'replication_p':self.replication_p,
+                            'growf':self.growf,
+                            'connect_cost':self.connect_cost,
+                            'n_sims':len(self.storage)})
+        ledger = SimLedger()
+        ledger.add(f, extra_props)
     
     def info(self):
         """Show parameters."""
