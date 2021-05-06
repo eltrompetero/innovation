@@ -571,13 +571,13 @@ class Simulator():
         if iprint: print(f"Runtime of {perf_counter()-t0} s.")
             
     def save(self, folder, name=None, iprint=True):
-        """Save simulator instance.
+        """Save simulator instance with each simulation run in a separate pickle.
         
         Parameters
         ----------
         folder : str
         name : str, None
-            Default name is the date and time.
+            Default name is the date and time. Suffix ".p" is added automatically.
         iprint : bool, True
         
         Returns
@@ -588,18 +588,61 @@ class Simulator():
             Designed file name. Only returned if save was attempted.
         """
         
-        if not os.path.isdir(folder):
-            return False
-            
-        name = str(datetime.now())+'.p'
-        if os.path.isfile(f'{folder}/{name}'):
+        name = name or str(datetime.now())
+        if os.path.isdir(f'{folder}/{name}'):
             return False, name
+        os.makedirs(f'{folder}/{name}')
         
-        with open(f'{folder}/{name}', 'wb') as f:
+        # save class instance without all of storage
+        storage = self.storage
+        self.storage = {}
+        with open(f'{folder}/{name}/top.p', 'wb') as f:
             pickle.dump({'simulator':self}, f)
-            if iprint: print(f'Saved simulator instance in {folder}/{name}')
+        
+        # save values of storage dict into separate pickles
+        self.storage = storage
+        try:
+            for k in self.storage.keys():
+                with open(f'{folder}/{name}/{k}.p', 'wb') as f:
+                    pickle.dump({'storage':self.storage[k]}, f)
+            if iprint: print(f'Saved simulator instances in {folder}/{name}')
+            self.cache_dr = f'{folder}/{name}'
             return True, name
-        return False, name
+        except:
+            return False, name
+    
+    def load_list(self):
+        """Show list of sims possible to load from cache directory.
+
+        Returns
+        -------
+        list of str
+        """
+
+        if not 'cache_dr' in self.__dict__.keys():
+            raise Exception("No cache specified.")
+
+        return ['.'.join(i.split('.')[:-1]) for i in os.listdir(self.cache_dr)]
+
+    def load(self, name):
+        """Load an individual simulation run with given name.
+
+        Parameters
+        ----------
+        name : str
+        """
+
+        if not 'cache_dr' in self.__dict__.keys():
+            raise Exception("No cache specified.")
+        if name=='top':
+            raise Exception("top file name reserved")
+        
+        if name[-2:]=='.p':
+            with open(f'{self.cache_dr}/{name}', 'rb') as f:
+                self.storage[name] = pickle.load(f)['storage']
+        else:
+            with open(f'{self.cache_dr}/{name}.p', 'rb') as f:
+                self.storage[name] = pickle.load(f)['storage']
 
     def add_to_ledger(self, f, extra_props={}):
         """
