@@ -622,7 +622,7 @@ class Simulator():
         if not 'cache_dr' in self.__dict__.keys():
             raise Exception("No cache specified.")
 
-        return ['.'.join(i.split('.')[:-1]) for i in os.listdir(self.cache_dr)]
+        return ['.'.join(i.split('.')[:-1]) for i in os.listdir(self.cache_dr) if not 'top' in i]
 
     def load(self, name):
         """Load an individual simulation run with given name.

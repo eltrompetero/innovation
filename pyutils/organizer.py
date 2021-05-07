@@ -128,7 +128,7 @@ class SimLedger():
         if isinstance(name, int):
             name = self.ledger.index[name]
 
-        with open(f'{self.cache_dr}/{name}', 'rb') as f:
+        with open(f'{self.cache_dr}/{name}/top.p', 'rb') as f:
             simulator = pickle.load(f)['simulator']
         return simulator
 #end SimLedger
