@@ -629,8 +629,13 @@ class Simulator():
 
         Parameters
         ----------
-        name : str
+        name : str or tuple of str
         """
+        
+        if not isinstance(name, str) and hasattr(name, '__len__'):
+            for n in name:
+                self.load(n)
+            return
 
         if not 'cache_dr' in self.__dict__.keys():
             raise Exception("No cache specified.")

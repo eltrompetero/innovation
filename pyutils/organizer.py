@@ -83,7 +83,7 @@ class SimLedger():
         """
         
         if not ignore_missing_file:
-            assert os.path.isfile(f'{self.cache_dr}/{name}'), "Specified cache not found."
+            assert os.path.isdir(self.cache_dr), "Specified cache not found."
         
         if force_overwrite and name in self.ledger.index:
             self.ledger[name] = pd.Series(props, index=props.keys(), name=name)
@@ -95,14 +95,21 @@ class SimLedger():
         if save_to_file:
             self.save_ledger()
 
-    def remove(self, name, save_to_file=False):
+    def remove(self, name,
+               save_to_file=False,
+               delete_cache_files=False):
         """Delete a simulation entry from the ledger.
 
         Parameters
         ----------
         name : str
         save_to_file : bool, False
+            Save ledger to file.
+        delete_cache_files : bool, False
+            Delete pickles and cache dir.
         """
+        
+        from shutil import rmtree
 
         assert name in self.ledger.index, "Ledger entry does not exist."
         
@@ -110,6 +117,8 @@ class SimLedger():
 
         if save_to_file:
             self.save_ledger()
+        if delete_cache_files:
+            rmtree(f'{self.cache_dr}/{name}')
 
     def load(self, name):
         """Load simulation with given name.
