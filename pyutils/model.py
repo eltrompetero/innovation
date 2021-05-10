@@ -650,12 +650,10 @@ class Simulator():
             with open(f'{self.cache_dr}/{name}.p', 'rb') as f:
                 self.storage[name] = pickle.load(f)['storage']
 
-    def add_to_ledger(self, f, extra_props={}):
+    def add_to_ledger(self, extra_props={}):
         """
         Parameters
         ----------
-        f : str
-            File name.
         extra_props : dict, {}
             Extra properties to add to ledger such as simulation duration.
         """
@@ -673,7 +671,7 @@ class Simulator():
                             'connect_cost':self.connect_cost,
                             'n_sims':len(self.storage)})
         ledger = SimLedger()
-        ledger.add(f, extra_props)
+        ledger.add(self.cache_dr.split('/')[-1], extra_props)
     
     def info(self):
         """Show parameters."""

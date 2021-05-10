@@ -75,6 +75,7 @@ class SimLedger():
         Parameters
         ----------
         name : str
+            Folder name in cache_dr.
         props : dict
         save_to_file : bool, True
         force_overwrite : bool, False
