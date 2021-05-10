@@ -8,6 +8,7 @@ import string
 from scipy.signal import fftconvolve
 from time import perf_counter
 import _pickle as cpickle
+from time import sleep
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -307,7 +308,8 @@ class Simulator():
                  replication_p=.95,
                  growf=.9,
                  connect_cost=0.,
-                 rng=None):
+                 rng=None,
+                 cache_dr=None):
         """
         Parameters
         ----------
@@ -346,11 +348,13 @@ class Simulator():
         self.growf = growf
         self.connect_cost = connect_cost
         self.rng = rng or np.random
+        self.cache_dr = cache_dr
 
         self.storage = {}  # store previous sim results
 
     def simulate(self, T, cache=True, reset_rng=False):
-        """Run firm simulation for T time steps.
+        """Run firm simulation for T time steps. To minimize memory and cost of saving sim
+        results, only LiteFirms and lattice boundaries are stored.
         
         Parameters
         ----------
@@ -434,7 +438,7 @@ class Simulator():
             grow_lattice = 0  # switch for if lattice needs to be grown
             new_occupancy = 0  # count new firms occupying innovated area
             if depression_rate:
-                # these are ordered
+                # these are ordered (previous attempts at speedup)
                 #ix  = self.rng.rand(lattice.right-lattice.left+1) < depression_rate
                 #depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
                 #depressedSites = [i+lattice.left for i, el in enumerate(ix) if el]
@@ -516,7 +520,7 @@ class Simulator():
         return firm_snapshot, lattice_snapshot
         
     def parallel_simulate(self, n_samples, T,
-                          min_nfirms=None,
+                          min_nfirms=0,
                           min_success=1,
                           iprint=True,
                           n_cpus=None):
@@ -526,7 +530,7 @@ class Simulator():
         ----------
         n_samples : int
         T : int
-        min_nfirms : int, None
+        min_nfirms : int, 0
             Only trajectories above this min by average no. of firms are saved.
         min_success : int, 1
             Min no. of successful sims required.
@@ -539,77 +543,74 @@ class Simulator():
         None
         """
         
+        assert len(self.storage)==0, "Avoid piping large members."
+
         n_cpus = n_cpus or cpu_count()
         t0 = perf_counter()
 
+        def loop_wrapper(args, self=self, T=T, min_nfirms=min_nfirms):
+            firm_snapshot, lattice_snapshot = self.simulate(T, cache=True, reset_rng=True)
+
+            avgn = np.mean([len(f) for f in firm_snapshot])
+            if avgn >= min_nfirms:
+                self.save()
+                return True
+            return False
+
         if min_nfirms:
-            # there is a better way to do this than by running groups at a time
+            # TODO: there is a better way to do this than by running groups at a time
             storage = {}
             with threadpool_limits(user_api='blas', limits=1):
                 with Pool(n_cpus) as pool:
-                    while len(storage) < min_success:
-                        output = pool.map(lambda args: self.simulate(T, cache=False, reset_rng=True),
-                                          range(n_samples))
-                        firm_snapshot, lattice_snapshot = list(zip(*output))
+                    success_count = 0
+                    while success_count < min_success:
+                        success_count += sum(list(pool.map(loop_wrapper, range(n_samples))))
 
-                        for i in range(n_samples):
-                            avgn = np.mean([len(f) for f in firm_snapshot[i]])
-                            if avgn >= min_nfirms:
-                                storage[str(datetime.now())] = firm_snapshot[i], lattice_snapshot[i]
             for k, val in storage.items():
                 self.storage[k] = val
 
         else:
             with threadpool_limits(user_api='blas', limits=1):
                 with Pool(n_cpus) as pool:
-                    output = pool.map(lambda args: self.simulate(T, cache=False, reset_rng=True),
-                                      range(n_samples))
-                    firm_snapshot, lattice_snapshot = list(zip(*output))
-            for i in range(n_samples):
-                self.storage[str(datetime.now())] = firm_snapshot[i], lattice_snapshot[i]
+                    pool.map(loop_wrapper, range(n_samples))
 
         if iprint: print(f"Runtime of {perf_counter()-t0} s.")
             
-    def save(self, folder, name=None, iprint=True):
+    def save(self, iprint=True):
         """Save simulator instance with each simulation run in a separate pickle.
+        Ledger must be updated separately.
         
         Parameters
         ----------
-        folder : str
-        name : str, None
-            Default name is the date and time. Suffix ".p" is added automatically.
         iprint : bool, True
-        
-        Returns
-        -------
-        bool
-            Whether or not save was successful.
-        str
-            Designed file name. Only returned if save was attempted.
         """
         
-        name = name or str(datetime.now())
-        if os.path.isdir(f'{folder}/{name}'):
-            return False, name
-        os.makedirs(f'{folder}/{name}')
+        assert not self.cache_dr is None
+        if not os.path.isdir(self.cache_dr):
+            os.makedirs(self.cache_dr)
         
-        # save class instance without all of storage
-        storage = self.storage
-        self.storage = {}
-        with open(f'{folder}/{name}/top.p', 'wb') as f:
-            pickle.dump({'simulator':self}, f)
+        if not os.path.isfile(f'{self.cache_dr}/top.p'):
+            while os.path.isdir(f'{self.cache_dr}/lock'):
+                print(f"Directory {self.cache_dr} is locked. Waiting 1 second...")
+                sleep(1)
+            with open(f'{self.cache_dr}/lock', 'w') as f:
+                f.write('')
+
+            # save class info without all of storage
+            storage = self.storage
+            self.storage = {}
+            with open(f'{self.cache_dr}/top.p', 'wb') as f:
+                pickle.dump({'simulator':self}, f)
+
+            os.remove(f'{self.cache_dr}/lock')
+            self.storage = storage
         
         # save values of storage dict into separate pickles
-        self.storage = storage
-        try:
-            for k in self.storage.keys():
-                with open(f'{folder}/{name}/{k}.p', 'wb') as f:
-                    pickle.dump({'storage':self.storage[k]}, f)
-            if iprint: print(f'Saved simulator instances in {folder}/{name}')
-            self.cache_dr = f'{folder}/{name}'
-            return True, name
-        except:
-            return False, name
+        for k in self.storage.keys():
+            with open(f'{self.cache_dr}/{k}.p', 'wb') as f:
+                pickle.dump({'storage':self.storage[k]}, f)
+
+        if iprint: print(f"Saved simulator instances in cache.")
     
     def load_list(self):
         """Show list of sims possible to load from cache directory.
