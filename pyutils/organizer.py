@@ -141,4 +141,23 @@ class SimLedger():
         with open(f'{self.cache_dr}/{name}/top.p', 'rb') as f:
             simulator = pickle.load(f)['simulator']
         return simulator
+
+    def info(self, cols):
+        """
+        Parameters
+        ----------
+        cols : list of str
+
+        Returns
+        -------
+        pd.DataFrame
+        """
+
+        dfcopy = pd.concat((pd.Series(range(len(self.ledger)),
+                                      name='count',
+                                      index=self.ledger.index),
+                                      self.ledger[cols]),
+                                      ignore_index=False,
+                                      axis=1)
+        return dfcopy
 #end SimLedger

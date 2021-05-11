@@ -9,13 +9,12 @@ from scipy.signal import fftconvolve
 from time import perf_counter
 import _pickle as cpickle
 from time import sleep
+from uuid import uuid4
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
 from .organizer import SimLedger
 from .utils import *
-
-LETTERS = list(string.ascii_letters)
 
 
 
@@ -114,7 +113,7 @@ def extract_deadfirms(fsnapshot):
 def extract_growth_rate(fsnapshot):
     """Extract list of growth rates per firm over sequential time steps.
     
-    Firms that don't survive into the next time step have growth rate of -1. This latter
+    Firms that don't survive into the next time step have growth rate of 0. This latter
     calculation may be somewhat slow.
     
     Parameters
@@ -124,7 +123,7 @@ def extract_growth_rate(fsnapshot):
     Returns
     -------
     list of list of floats
-        Relative growth rate from previous time step, or (w_t - w_{t-1}) / w_{t-1}, the
+        Relative growth rate from previous time step, or w_t / w_{t-1}, the
         wealth levels used to calculate the ratio, and firm age.
 
         Empty elements (no companies to grow) are given infinities.
@@ -669,7 +668,7 @@ class Simulator():
                             'replication_p':self.replication_p,
                             'growf':self.growf,
                             'connect_cost':self.connect_cost,
-                            'n_sims':len(self.storage)})
+                            'n_sims':len(os.listdir(self.cache_dr))-1})
         ledger = SimLedger()
         ledger.add(self.cache_dr.split('/')[-1], extra_props)
     
@@ -729,7 +728,7 @@ class Firm():
         self.connect_cost = connection_cost
         
         self.rng = rng or np.random.RandomState()
-        self.id = id or ''.join(self.rng.choice(LETTERS, size=20))
+        self.id = id or str(uuid4())
             
     def size(self):
         return self.sites[1]-self.sites[0]+1

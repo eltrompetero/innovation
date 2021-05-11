@@ -8,5 +8,6 @@ from statsmodels.distributions import ECDF
 from threadpoolctl import threadpool_limits
 
 # from .data import *
+from .model import *
 from .utils import *
 from .organizer import SimLedger
