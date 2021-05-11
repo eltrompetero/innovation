@@ -396,7 +396,6 @@ py::list snapshot_firms(py::list& firms) {
         this_firm = py::extract<py::object>(firms[i])();
         lf = py::extract<LiteFirm>(this_firm.attr("copy")())();
         snapshot.append(lf);
-        i++;
     };
 
     return snapshot;

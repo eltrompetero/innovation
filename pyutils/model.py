@@ -511,7 +511,7 @@ class Simulator():
 #                    firms += babyfirms
 
             # collect data on status
-            firm_snapshot.append(snapshot_firms(firms)[:])
+            firm_snapshot.append(snapshot_firms(firms))
             lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
         
         if cache:
