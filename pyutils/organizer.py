@@ -103,7 +103,7 @@ class SimLedger():
 
         Parameters
         ----------
-        name : str
+        name : str or int
         save_to_file : bool, False
             Save ledger to file.
         delete_cache_files : bool, False
@@ -112,14 +112,19 @@ class SimLedger():
         
         from shutil import rmtree
 
-        assert name in self.ledger.index, "Ledger entry does not exist."
-        
+        if isinstance(name, int):
+            name = self.ledger.index[name]
+        else: 
+            assert name in self.ledger.index, "Ledger entry does not exist."
+
         self.ledger = self.ledger.drop(index=name)
 
         if save_to_file:
             self.save_ledger()
         if delete_cache_files:
             rmtree(f'{self.cache_dr}/{name}')
+        else:
+            print("Cached files not removed.")
 
     def load(self, name):
         """Load simulation with given name.
