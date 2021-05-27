@@ -15,6 +15,7 @@ from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
 from .organizer import SimLedger
 from .utils import *
+from . import sql
 
 
 
@@ -576,7 +577,7 @@ class Simulator():
         if iprint: print(f"Runtime of {perf_counter()-t0} s.")
             
     def save(self, iprint=True):
-        """Save simulator instance with each simulation run in a separate pickle.
+        """Save simulator instance with each simulation run in a separate parquet file.
         Ledger must be updated separately.
         
         Parameters
@@ -606,8 +607,8 @@ class Simulator():
         
         # save values of storage dict into separate pickles
         for k in self.storage.keys():
-            with open(f'{self.cache_dr}/{k}.p', 'wb') as f:
-                pickle.dump({'storage':self.storage[k]}, f)
+            sql.parquet_firms(self.storage[k][0], self.cache_dr, k)
+            sql.parquet_lattice(reconstruct_lattice(*self.storage[k]), self.cache_dr, k)
 
         if iprint: print(f"Saved simulator instances in cache.")
     
@@ -621,9 +622,10 @@ class Simulator():
 
         if not 'cache_dr' in self.__dict__.keys():
             raise Exception("No cache specified.")
-
-        return sorted(['.'.join(i.split('.')[:-1]) for i in os.listdir(self.cache_dr)
-                       if (not 'top' in i) and (not 'parquet' in i)])
+        
+        # get all unique cache names
+        return sorted(set(['.'.join(i.split('.')[:-1]) for i in os.listdir(self.cache_dr)
+                           if (not 'top' in i) and (not '_lattice' in i)]))
 
     def load(self, name):
         """Load an individual simulation run with given name.
@@ -669,7 +671,7 @@ class Simulator():
                             'replication_p':self.replication_p,
                             'growf':self.growf,
                             'connect_cost':self.connect_cost,
-                            'n_sims':len(os.listdir(self.cache_dr))-1})
+                            'n_sims':(len(os.listdir(self.cache_dr))-1)//2})
         ledger = SimLedger()
         ledger.add(self.cache_dr.split('/')[-1], extra_props)
     
