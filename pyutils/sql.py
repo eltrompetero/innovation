@@ -74,8 +74,8 @@ def parquet_firms(firm_snapshot,
     df = pd.DataFrame({'ids':np.array(ids),
                        'wealth':np.array(w),
                        'innov':np.array(innov),
-                       'left':np.array(left),
-                       'right':np.array(right),
+                       'fleft':np.array(left),
+                       'fright':np.array(right),
                        'age':np.array(age),
                        't':np.array(t)})
 
@@ -104,7 +104,7 @@ def parquet_lattice(lattice_snapshot,
         t.append([i]*occupancy[-1].size)
 
     df = pd.DataFrame({'occupancy':np.concatenate(occupancy),
-                       'index':np.concatenate(index),
+                       'ix':np.concatenate(index),
                        't':np.concatenate(t)})
 
     fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 100_000,
@@ -117,7 +117,7 @@ class QueryRouter():
         self.con = duckdb.connect(database=':memory:', read_only=False)
         self.simledger = SimLedger()
 
-    def wealth_by_firm(self, ix, tbds=None, mn_nfirms=10):
+    def wealth(self, ix, tbds=None, mn_nfirms=10):
         """Set of wealth for all firms per time step.
 
         Parameters
@@ -168,6 +168,42 @@ class QueryRouter():
             wealth.append(self.con.execute(query).fetchdf().values)
         return wealth
 
+    def wealth_by_firm(self, ix, tbds=None, iprint=False):
+        """Set of wealth for all firms per time step.
+
+        Parameters
+        ----------
+        ix : int
+        tbds : twople, None
+
+        Returns
+        -------
+        list of ndarray
+            Each list is for a simulation instance.
+        """
+
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__'):
+            tbds = (tbds, 10_000_000)
+
+        simulator = self.simledger.load(ix)
+        simlist = simulator.load_list()
+        
+        wealth = []
+        for thiskey in simlist:
+            if iprint: print(f"Loading {thiskey}...")
+            # there seems to be a bug in duckdb with columns for firm.fleft and right
+            query = f'''
+                     SELECT ids, t, wealth, (fright-fleft+1) AS fsize
+                     FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
+                     WHERE (firm.t>={tbds[0]}) AND (firm.t<{tbds[1]})
+                     ORDER BY firm.ids, firm.t
+                     '''
+            wealth.append(self.con.execute(query).fetchdf())
+
+        return wealth
+
     def total_wealth(self, ix, tbds=None):
         """Total wealth summed over all firms per time step.
         """
@@ -204,7 +240,7 @@ class QueryRouter():
         width = []
         for thiskey in simlist:
             query = f'''
-                     SELECT lattice.t, MAX(lattice.index) - MIN(lattice.index)
+                     SELECT lattice.t, MAX(lattice.ix) - MIN(lattice.ix)
                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet') lattice
                      WHERE t>={tbds[0]} AND t<{tbds[1]}
                      GROUP BY lattice.t
@@ -228,7 +264,7 @@ class QueryRouter():
         wealth = []
         for thiskey in simlist:
             query = f'''
-                     SELECT lattice.t, SUM(wealth)/(MAX(lattice.index) - MIN(lattice.index) + 1) as wealth
+                     SELECT lattice.t, SUM(wealth)/(MAX(lattice.ix) - MIN(lattice.ix) + 1) as wealth
                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
                      INNER JOIN parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet') lattice
                         ON firm.t = lattice.t
@@ -254,7 +290,7 @@ class QueryRouter():
         wealth = []
         for thiskey in simlist:
             query = f'''
-                     SELECT t, firm.wealth / (firm.right - firm.left + 1) as wealth
+                     SELECT t, firm.wealth / (firm.fright - firm.fleft + 1) as wealth
                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
                      WHERE t>={tbds[0]} AND t<{tbds[1]}
                      ORDER BY t
@@ -278,12 +314,12 @@ class QueryRouter():
         for thiskey in simlist:
             query = f'''
                      SELECT firm.t,
-                            firm.left,
-                            firm.right,
-                            lattice.left as lat_left,
-                            lattice.right as lat_right
+                            firm.fleft,
+                            firm.fright,
+                            lattice.lleft as lat_left,
+                            lattice.lright as lat_right
                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
-                     INNER JOIN (SELECT t, MIN(index) as left, MAX(index) as right
+                     INNER JOIN (SELECT t, MIN(index) as lleft, MAX(index) as lright
                                  FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
                                  GROUP BY t) lattice
                      ON firm.t = lattice.t
