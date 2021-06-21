@@ -10,11 +10,12 @@ from .utils import *
 
 
 
-def setup_parquet(do_firms=True, do_lattice=True):
+def setup_parquet(ix_range, do_firms=True, do_lattice=True):
     """Set up parquet files from pickles.
 
     Parameters
     ----------
+    ix_range : list
     do_firms : bool, True
     do_lattice : bool, True
     """
@@ -23,7 +24,7 @@ def setup_parquet(do_firms=True, do_lattice=True):
 
     simledger = SimLedger()
 
-    for ix in range(len(simledger.ledger)):
+    for ix in ix_range:
         sims = simledger.load(ix)
         loadlist = sims.load_list()
 
@@ -36,7 +37,7 @@ def setup_parquet(do_firms=True, do_lattice=True):
                 parquet_firms(firm_snapshot, sims.cache_dr, key)
                
             if do_lattice:
-                parquet_firms(lattice_snapshot, sims.cache_dr, key)
+                parquet_lattice(lattice_snapshot, sims.cache_dr, key)
             
             # clear RAM
             del sims.storage[key]
@@ -109,7 +110,7 @@ def parquet_lattice(lattice_snapshot,
 
     fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 100_000,
              compression='SNAPPY')
-    
+
 
 
 class QueryRouter():
@@ -228,7 +229,7 @@ class QueryRouter():
             wealth.append(self.con.execute(query).fetchdf().values)
         return wealth
 
-    def lattice_width(self, ix, tbds=None):
+    def lattice_width(self, ix, tbds=None, return_lr=False):
         if tbds is None:
             tbds = 0
         if not hasattr(tbds, '__len__'):
@@ -238,15 +239,29 @@ class QueryRouter():
         simlist = simulator.load_list()
 
         width = []
-        for thiskey in simlist:
-            query = f'''
-                     SELECT lattice.t, MAX(lattice.ix) - MIN(lattice.ix)
-                     FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet') lattice
-                     WHERE t>={tbds[0]} AND t<{tbds[1]}
-                     GROUP BY lattice.t
-                     ORDER BY lattice.t
-                     '''
-            width.append(self.con.execute(query).fetchdf().values)
+        if return_lr:
+            for thiskey in simlist:
+                query = f'''
+                         SELECT lattice.t,
+                                MAX(lattice.ix) - MIN(lattice.ix) AS width,
+                                MIN(lattice.ix) as lleft,
+                                MAX(lattice.ix) as lright
+                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet') lattice
+                         WHERE t>={tbds[0]} AND t<{tbds[1]}
+                         GROUP BY lattice.t
+                         ORDER BY lattice.t
+                         '''
+                width.append(self.con.execute(query).fetchdf().values)
+        else:
+            for thiskey in simlist:
+                query = f'''
+                         SELECT lattice.t, MAX(lattice.ix) - MIN(lattice.ix)
+                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet') lattice
+                         WHERE t>={tbds[0]} AND t<{tbds[1]}
+                         GROUP BY lattice.t
+                         ORDER BY lattice.t
+                         '''
+                width.append(self.con.execute(query).fetchdf().values)
         return width
 
     def total_wealth_per_lattice(self, ix, tbds=None):
@@ -319,7 +334,7 @@ class QueryRouter():
                             lattice.lleft as lat_left,
                             lattice.lright as lat_right
                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
-                     INNER JOIN (SELECT t, MIN(index) as lleft, MAX(index) as lright
+                     INNER JOIN (SELECT t, MIN(ix) as lleft, MAX(ix) as lright
                                  FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
                                  GROUP BY t) lattice
                      ON firm.t = lattice.t
@@ -328,6 +343,73 @@ class QueryRouter():
                      '''
             bds.append(self.con.execute(query).fetchdf())
         return bds
+
+    def density(self, ix, tbds=None, side=None):
+        """Density of firms on lattice. Options to count only left or right most sides.
+
+        TODO: speed up the loops?
+
+        Parameters
+        ----------
+        ix : int
+        tbds : tuple or int, None
+        side : str, None
+            'left', 'right'
+
+        Returns
+        -------
+        list
+        """
+
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+
+        simulator = self.simledger.load(ix)
+        simlist = simulator.load_list()
+        
+        bds = self.bounds(ix, tbds)
+
+        if side is None:
+            def loop_wrapper(bds_):
+                # for each time step in sim, create a vector of size of lattice, and
+                # iterate thru each firm counting up any site it occupies
+                density = []
+                for t, group in bds_.groupby('t'):
+                    lat_left = group.iloc[0]['lat_left']
+                    thisdensity = np.zeros(group.iloc[0]['lat_right']-lat_left+1,
+                                           dtype=np.int64)
+                    for i, row in group.iterrows():
+                        thisdensity[row['fleft']-lat_left:row['fright']-lat_left+1] += 1
+                    density.append(thisdensity)
+                return density
+        elif side=='left':
+            def loop_wrapper(bds_):
+                density = []
+                for t, group in bds_.groupby('t'):
+                    lat_left = group.iloc[0]['lat_left']
+                    thisdensity = np.bincount(group['fleft']-lat_left,
+                                              minlength=group.iloc[0]['lat_right']-lat_left+1)
+                    density.append(thisdensity)
+                return density
+        elif side=='right':
+            def loop_wrapper(bds_):
+                density = []
+                for t, group in bds_.groupby('t'):
+                    lat_left = group.iloc[0]['lat_left']
+                    lat_right = group.iloc[0]['lat_right']
+                    thisdensity = np.bincount(group['fright']-lat_left,
+                                              minlength=lat_right-lat_left+1) 
+                    density.append(thisdensity)
+                return density
+        else:
+            raise NotImplementedError
+
+        with Pool() as pool:
+            density = pool.map(loop_wrapper, bds)
+
+        return density
 
     def query(self, ix, q):
         """A general query.
