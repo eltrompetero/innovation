@@ -468,8 +468,9 @@ class QueryRouter():
                                 for i in self.con.execute(query).fetchdf().groupby('t')])
 
         else:
+            bds = self.bounds(ix, tbds, mn_width=mn_width)
+
             if side=='left':
-                bds = self.bounds(ix, tbds, mn_width=mn_width)
                 def loop_wrapper(args):
                     t, group = args
                     lat_left = group.iloc[0]['lat_left']
@@ -478,13 +479,12 @@ class QueryRouter():
                     return thisdensity
 
             elif side=='right':
-                bds = self.bounds(ix, tbds, mn_width=mn_width)
                 def loop_wrapper(args):
                     t, group = args
                     lat_left = group.iloc[0]['lat_left']
                     lat_right = group.iloc[0]['lat_right']
                     thisdensity = np.bincount(group['fright']-lat_left,
-                                              minlength=lat_right-lat_left+2) 
+                                              minlength=lat_right-lat_left+1) 
                     return thisdensity
 
             else:
