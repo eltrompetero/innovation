@@ -302,10 +302,9 @@ class Simulator():
                  g0=.2,
                  obs_rate=.49,
                  expand_rate=.5,
-                 innov_success_rate=.6,
+                 innov_rate=.5,
+                 exploit_rate=.6,
                  depression_rate=.2,
-                 inn_mut_width=.05,
-                 replication_p=.95,
                  growf=.9,
                  connect_cost=0.,
                  rng=None,
@@ -323,13 +322,11 @@ class Simulator():
             Obsolescence rate (from left).
         expand_rate : float, .5
             Rate at which firms try to expand.
-        innov_success_rate : float, .6
+        innov_rate : float, .5
+            Probability of successful innovation.
+        exploit_rate : float, .6
+            Probability of successfully exploiting innovated area.
         depression_rate : float, .2
-        inn_mut_width : float, .05
-            Width of the normal distribution determining mutant innovation.
-        replication_p : float, .95
-            Probability that new firm is a mutant replicate of an existing
-            firm's innovation.
         growf : float, .9
             Growth cost fraction f. If this is higher, then it is more expensive
             to expand into new sectors.
@@ -341,10 +338,9 @@ class Simulator():
         self.g0 = g0
         self.obs_rate = obs_rate
         self.expand_rate = expand_rate
-        self.innov_success_rate = innov_success_rate
+        self.innov_rate = innov_rate
+        self.exploit_rate = exploit_rate
         self.depression_rate = depression_rate
-        self.inn_mut_width = inn_mut_width
-        self.replication_p = replication_p
         self.growf = growf
         self.connect_cost = connect_cost
         self.rng = rng or np.random
@@ -382,10 +378,9 @@ class Simulator():
         g0 = self.g0
         obs_rate = self.obs_rate
         expand_rate = self.expand_rate
-        innov_success_rate = self.innov_success_rate
+        innov_rate = self.innov_rate
+        exploit_rate = self.exploit_rate
         depression_rate = self.depression_rate
-        inn_mut_width = self.inn_mut_width
-        replication_p = self.replication_p
         growf = self.growf
         c_cost = self.connect_cost
         
@@ -403,9 +398,9 @@ class Simulator():
         for i in range(N0):
             # choose innovation tendency uniformly? how to impose selection?
             firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
-                              self.rng.rand(),
+                              innov_rate,
                               lattice=lattice,
-                              wealth=growf,
+                              wealth=1,
                               connection_cost=c_cost,
                               rng=self.rng))
             lattice.d_add(firms[-1].sites[0])
@@ -415,22 +410,14 @@ class Simulator():
         for t in range(T):
             # spawn new firms either by mutating from a sample of existing firms or by random sampling
             # from a uniform distribution
-            nNew = self.rng.poisson(g0)
+            # each site has a typical rate of firm generation
+            nNew = self.rng.poisson(g0 * lattice.len())
             for i in range(nNew):
-                if len(firms) and self.rng.rand() <= replication_p:
-                    # mutate an existing firm's innov
-                    newInnov = np.clip(self.rng.choice(firms).innov + self.rng.normal(scale=inn_mut_width),
-                                       0, 1)
-                    firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
-                                      newInnov,
-                                      lattice=lattice,
-                                      rng=self.rng))
-                    lattice.d_add(firms[-1].sites[0])
-                else:
-                    firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1), self.rng.rand(),
-                                      lattice=lattice,
-                                      rng=self.rng))
-                    lattice.d_add(firms[-1].sites[0])
+                firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
+                                  innov_rate,
+                                  lattice=lattice,
+                                  rng=self.rng))
+                lattice.d_add(firms[-1].sites[0])
             lattice.push()
         #     check_firms_occupancy(firms, lattice)
 
@@ -458,7 +445,7 @@ class Simulator():
                 # only grow if satisfying min wealth requirement and
                 # expansion happens
                 if f.wealth>(growthcost+eps) and f.rng.rand()<expand_rate:
-                    out = f.grow(innov_success_rate, cost=growthcost)
+                    out = f.grow(exploit_rate, cost=growthcost)
                     if out[0] and not out[1]:
                         lattice.d_add(f.sites[1])
                     elif out[0] and out[1]:
@@ -656,6 +643,8 @@ class Simulator():
 
     def add_to_ledger(self, extra_props={}):
         """
+        Add this simulation instance to the ledger described in organizer.py.
+
         Parameters
         ----------
         extra_props : dict, {}
@@ -667,10 +656,9 @@ class Simulator():
                             'g0':self.g0,
                             'obs_rate':self.obs_rate,
                             'expand_rate':self.expand_rate,
-                            'innov_success_rate':self.innov_success_rate,
+                            'innov_rate':self.innov_rate,
+                            'exploit_rate':self.exploit_rate,
                             'depression_rate':self.depression_rate,
-                            'inn_mut_width':self.inn_mut_width,
-                            'replication_p':self.replication_p,
                             'growf':self.growf,
                             'connect_cost':self.connect_cost,
                             'n_sims':(len(os.listdir(self.cache_dr))-1)//2})
@@ -681,6 +669,7 @@ class Simulator():
         """Show parameters."""
         
         print(f'new firm rate   =\t{self.g0}')
+        print(f'innov rate      =\t{self.innov_rate}')
         print(f'grow frac cost  =\t{self.growf}')
         print(f'depression rate =\t{self.depression_rate}')
         print(f'connection cost =\t{self.connect_cost}')

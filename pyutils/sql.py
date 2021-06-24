@@ -285,6 +285,12 @@ class QueryRouter():
         return wealth
 
     def lattice_width(self, ix, tbds=None, return_lr=False):
+        """
+        Returns
+        -------
+        list of ndarray
+            cols (t, width)
+        """
         if tbds is None:
             tbds = 0
         if not hasattr(tbds, '__len__'):

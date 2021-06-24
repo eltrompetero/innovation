@@ -31,11 +31,14 @@ class SimLedger():
             self.ledger = pd.DataFrame(columns=['L0',
                                                 'g0',
                                                 'obs_rate',
-                                                'replication_p',
+                                                'expand_rate',
+                                                'innov_rate',
+                                                'exploit_rate',
                                                 'growf',
                                                 'depression_rate',
                                                 'connect_cost',
-                                                'n_sims'])
+                                                'n_sims',
+                                                'T'])
             self.ledger['L0'] = self.ledger['L0'].astype(int)
             self.ledger['n_sims'] = self.ledger['n_sims'].astype(int)
 
