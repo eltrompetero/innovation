@@ -455,6 +455,8 @@ class Simulator():
 
                 growthcost = growf * f.wealth/f.size()
                 eps = .01
+                # only grow if satisfying min wealth requirement and
+                # expansion happens
                 if f.wealth>(growthcost+eps) and f.rng.rand()<expand_rate:
                     out = f.grow(innov_success_rate, cost=growthcost)
                     if out[0] and not out[1]:
@@ -825,7 +827,7 @@ class Firm():
             
         # consider tendency to innovate and the prob of exploiting it
         # innovation may be rewarding but not necessarily
-        assert self.sites[1]<=lattice.right
+        #assert self.sites[1]<=lattice.right
         if self.sites[1]==lattice.right:
             if self.rng.random() < self.innov:  # successful innovation?
                 if self.rng.random() < expansion_p:  # successful exploitation?

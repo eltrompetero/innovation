@@ -120,17 +120,24 @@ def parquet_density(ix):
     """
     
     from itertools import chain
-
+    
+    # set up
     simledger = SimLedger()
     simulator = simledger.load(ix)
     simlist = simulator.load_list()
     qr = QueryRouter()
+
+    # get boundaries of lattice and firms
     bds = qr.bounds(ix)
 
     def loop_wrapper(args):
+        """For each time step of sim.
+        """
+
         # for each time step in sim, create a vector of size of lattice, and
         # iterate thru each firm counting up any site it occupies
         t, group = args
+        # lattice bounds
         lat_left = group.iloc[0]['lat_left']
         lat_right = group.iloc[0]['lat_right']
         thisdensity = np.zeros(lat_right-lat_left+1, dtype=np.int64)
@@ -393,8 +400,8 @@ class QueryRouter():
                                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
                                      WHERE t>={tbds[0]} AND t<{tbds[1]}
                                      GROUP BY t) lattice
-                         ON firm.t = lattice.t
-                         WHERE (lattice.lright-lattice.lleft)>={mn_width}
+                            ON firm.t = lattice.t
+                         WHERE (lattice.lright-lattice.lleft+1)>={mn_width}
                          ORDER BY lattice.t
                          '''
                 bds.append(self.con.execute(query).fetchdf())
@@ -411,7 +418,7 @@ class QueryRouter():
                                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
                                      WHERE t>={tbds[0]} AND t<{tbds[1]}
                                      GROUP BY t) lattice
-                         ON firm.t = lattice.t
+                            ON firm.t = lattice.t
                          ORDER BY lattice.t
                          '''
                 bds.append(self.con.execute(query).fetchdf())
