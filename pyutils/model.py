@@ -625,7 +625,7 @@ class Simulator():
         
         # get all unique cache names
         return sorted(set(['.'.join(i.split('.')[:-1]) for i in os.listdir(self.cache_dr)
-                           if (not 'top' in i) and (not '_lattice' in i)]))
+                           if (not 'top' in i) and (not '_lattice' in i) and (not 'density' in i)]))
 
     def load(self, name):
         """Load an individual simulation run with given name.
