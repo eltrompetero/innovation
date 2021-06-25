@@ -411,7 +411,7 @@ class Simulator():
             # spawn new firms either by mutating from a sample of existing firms or by random sampling
             # from a uniform distribution
             # each site has a typical rate of firm generation
-            nNew = self.rng.poisson(g0 * lattice.len())
+            nNew = self.rng.poisson(g0)# * lattice.len())
             for i in range(nNew):
                 firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
                                   innov_rate,
@@ -576,7 +576,10 @@ class Simulator():
         
         assert not self.cache_dr is None
         if not os.path.isdir(self.cache_dr):
-            os.makedirs(self.cache_dr)
+            try:
+                os.makedirs(self.cache_dr)
+            except FileExistsError:
+                pass
         
         if not os.path.isfile(f'{self.cache_dr}/top.p'):
             while os.path.isdir(f'{self.cache_dr}/lock'):

@@ -503,8 +503,31 @@ class QueryRouter():
                     density.append(list(pool.map(loop_wrapper, bds_.groupby('t'))))
 
         return density
+    
+    def no_firms(self, ix, tbds=None):
+        """Number of firms at each time step with at least one firm.
+        """
 
-    def query(self, ix, q):
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+
+        simulator = self.simledger.load(ix)
+        simlist = self.subsample(simulator.load_list())
+        
+        nfirms = []
+        for thiskey in simlist:
+            query = f'''
+                     SELECT t, COUNT(*) AS nfirms
+                     FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet')
+                     GROUP BY t
+                     ORDER BY t
+                     '''
+            nfirms.append(self.con.execute(query).fetchdf())
+        return nfirms
+
+    def query(self, ix, q, tbds=None):
         """A general query.
         
         Parameters
