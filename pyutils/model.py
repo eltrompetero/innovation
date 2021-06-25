@@ -10,6 +10,7 @@ from time import perf_counter
 import _pickle as cpickle
 from time import sleep
 from uuid import uuid4
+from multiprocess import Lock
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -444,7 +445,8 @@ class Simulator():
                 eps = .01
                 # only grow if satisfying min wealth requirement and
                 # expansion happens
-                if f.wealth>(growthcost+eps) and f.rng.rand()<expand_rate:
+                #if f.wealth>(growthcost+eps) and f.rng.rand()<expand_rate:
+                if f.rng.rand()<expand_rate:
                     out = f.grow(exploit_rate, cost=growthcost)
                     if out[0] and not out[1]:
                         lattice.d_add(f.sites[1])
@@ -536,21 +538,29 @@ class Simulator():
 
         n_cpus = n_cpus or cpu_count()
         t0 = perf_counter()
+        thislock = Lock()
+
+        def init(thislock):
+            """Only for generating lock shared amongst processes for file writing."""
+            global lock
+            lock = thislock
 
         def loop_wrapper(args, self=self, T=T, min_nfirms=min_nfirms):
             firm_snapshot, lattice_snapshot = self.simulate(T, cache=True, reset_rng=True)
 
             avgn = np.mean([len(f) for f in firm_snapshot])
             if avgn >= min_nfirms:
+                lock.acquire()  # only save one sim result at a time
                 self.save()
+                lock.release()
                 return True
             return False
-
+        
         if min_nfirms:
             # TODO: there is a better way to do this than by running groups at a time
             storage = {}
             with threadpool_limits(user_api='blas', limits=1):
-                with Pool(n_cpus) as pool:
+                with Pool(n_cpus, initializer=init, initargs=(thislock,)) as pool:
                     success_count = 0
                     while success_count < min_success:
                         success_count += sum(list(pool.map(loop_wrapper, range(n_samples))))
@@ -560,7 +570,7 @@ class Simulator():
 
         else:
             with threadpool_limits(user_api='blas', limits=1):
-                with Pool(n_cpus) as pool:
+                with Pool(n_cpus, initializer=init, initargs=(thislock,)) as pool:
                     pool.map(loop_wrapper, range(n_samples))
 
         if iprint: print(f"Runtime of {perf_counter()-t0} s.")
@@ -582,19 +592,12 @@ class Simulator():
                 pass
         
         if not os.path.isfile(f'{self.cache_dr}/top.p'):
-            while os.path.isdir(f'{self.cache_dr}/lock'):
-                print(f"Directory {self.cache_dr} is locked. Waiting 1 second...")
-                sleep(1)
-            with open(f'{self.cache_dr}/lock', 'w') as f:
-                f.write('')
-
             # save class info without all of storage
             storage = self.storage
             self.storage = {}
             with open(f'{self.cache_dr}/top.p', 'wb') as f:
                 pickle.dump({'simulator':self}, f)
 
-            os.remove(f'{self.cache_dr}/lock')
             self.storage = storage
         
         # save values of storage dict into separate pickles
