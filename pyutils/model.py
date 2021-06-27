@@ -478,10 +478,8 @@ class Simulator():
                     lattice.remove(i)
         #     check_firms_occupancy(firms, lattice)
 
-            # spawn new firms either by mutating from a sample of existing firms or by random sampling
-            # from a uniform distribution
-            # each site has a typical rate of firm generation
-            nNew = self.rng.poisson(g0)# * lattice.len())
+            # spawn new firms
+            nNew = self.rng.poisson(g0)
             for i in range(nNew):
                 firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
                                   innov_rate,
@@ -826,8 +824,8 @@ class Firm():
         else:
             self.wealth -= cost
             # if wealth becomes negative, then no growth
-            if self.wealth<0:
-                return 0, 0
+            #if self.wealth<0:
+            #    return 0, 0
             
         # consider tendency to innovate and the prob of exploiting it
         # innovation may be rewarding but not necessarily
