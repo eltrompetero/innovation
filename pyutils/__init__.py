@@ -1,6 +1,6 @@
 # ====================================================================================== #
 # Module for studying firms info acquisition.
-# Author: Eddie Lee, edlee@santafe.edu
+# Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import dill as pickle
 import numpy as np

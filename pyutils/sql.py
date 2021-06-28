@@ -117,6 +117,7 @@ def parquet_density(ix):
     Parameters
     ----------
     ix : int
+        Index of simulation in sim ledger.
     """
     
     from itertools import chain
@@ -161,6 +162,7 @@ def parquet_density(ix):
 
 
 class QueryRouter():
+    """Class for routing queries through SQL to access parquet database for simulation results."""
     def __init__(self):
         self.con = duckdb.connect(database=':memory:', read_only=False)
         self.simledger = SimLedger()

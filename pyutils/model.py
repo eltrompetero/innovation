@@ -410,10 +410,10 @@ class Simulator():
         # run sim
         # 1. determine depressed sites
         # 2a. calculate each firm income
-        # 2b. try to grow each firm
+        # 2b. try to grow each firm (no dependence on current wealth)
         # 3. grow/shrink lattice
         # 4. eliminate firms with neg wealth
-        # 5. new firms (including at innov front)
+        # 5. spawn new firms (including at innov front)
         for t in range(T):
             # calculate firm income and growth
             grow_lattice = 0  # switch for if lattice needs to be grown
@@ -435,17 +435,20 @@ class Simulator():
                 f.age += 1
 
                 growthcost = growf * f.wealth/f.size()
-                #eps = .01
                 # only grow if satisfying min wealth requirement and
                 # expansion happens
+                #eps = .01
                 #if f.wealth>(growthcost+eps) and f.rng.rand()<expand_rate:
                 if f.rng.rand() < expand_rate:
                     out = f.grow(exploit_rate, cost=growthcost)
+                    # if the firm grows and lattice does not
                     if out[0] and not out[1]:
                         lattice.d_add(f.sites[1])
+                    # if the firm grows and the lattice grows
                     elif out[0] and out[1]:
-                        new_occupancy += 1
+                        new_occupancy += 1  # keep track of total frontier density
                         grow_lattice += out[1]
+                    # if the firm does not grow and the lattice does
                     elif not out[0] and out[1]:
                         grow_lattice += 1
             lattice.push()
@@ -459,7 +462,7 @@ class Simulator():
             if self.rng.rand() < obs_rate and lattice.left < lattice.right:
                 lattice.shrink_left()
                 # shrink all firms that have any value on the obsolete topic
-                # firms of size one will be delete by accounting for negative wealth next
+                # firms of size one will be deleted by accounting for negative wealth next
                 for i, f in enumerate(firms):
                     if f.sites[0]<=lattice.left:  # s.t. lattice of size 1 incurs loss!
                         # lose fraction of wealth invested in that site
