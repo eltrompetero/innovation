@@ -49,8 +49,8 @@ np::ndarray vec2ndarray(const vector<int> &x) {
 class TopicLattice {
     public: 
 
-    int left = 0;
-    int right = 0;
+    int left = 0;  //location of the obsolescence front
+    int right = 0;  //to the left of the innovation front
     vector<int> occupancy = vector<int>(1, 0);
     vector<int> d_occupancy = vector<int>(1, 0);
     //for exposure to python pickling
@@ -95,7 +95,7 @@ class TopicLattice {
      * Mod functions *
      * ============= */
     void shrink_left(int n=1) {
-        if ((n>=1) &  (left+n<=right)) {
+        if ((n>=1) & ((left+n)<=right)) {
             left += n;
             occupancy.erase(occupancy.begin(), occupancy.begin()+n);
             d_occupancy.erase(d_occupancy.begin(), d_occupancy.begin()+n);

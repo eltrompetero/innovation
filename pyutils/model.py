@@ -333,6 +333,8 @@ class Simulator():
             to expand into new sectors.
         connect_cost : float, 0.
         """
+
+        assert L0>0
         
         self.L0 = L0
         self.N0 = N0
@@ -393,12 +395,12 @@ class Simulator():
         firms = []
         lattice = TopicLattice()
         # initialize empty lattice
-        lattice.extend_right(L0-1)
+        lattice.extend_right(L0)
 
         # initialize
         for i in range(N0):
             # choose innovation tendency uniformly? how to impose selection?
-            firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
+            firms.append(Firm(self.rng.randint(lattice.left+1, lattice.right+1),
                               innov_rate,
                               lattice=lattice,
                               wealth=1,
@@ -424,7 +426,7 @@ class Simulator():
                 #depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
                 #depressedSites = [i+lattice.left for i, el in enumerate(ix) if el]
                 depressedSites = [i
-                                  for i in range(lattice.left, lattice.right+1)
+                                  for i in range(lattice.left+1, lattice.right+1)
                                   if self.rng.rand() < depression_rate]
             else:
                 depressedSites = []
@@ -459,21 +461,22 @@ class Simulator():
         #     check_firms_occupancy(firms, lattice)
 
             # shrink topic lattice
-            if self.rng.rand() < obs_rate and lattice.left < lattice.right:
+            if (lattice.left < (lattice.right-1)) and (self.rng.rand() < obs_rate):
                 lattice.shrink_left()
                 # shrink all firms that have any value on the obsolete topic
                 # firms of size one will be deleted by accounting for negative wealth next
+                # firms that have left boundary pass right will be deleted next
                 for i, f in enumerate(firms):
-                    if f.sites[0]<=lattice.left:  # s.t. lattice of size 1 incurs loss!
+                    if f.sites[0] <= lattice.left:  # s.t. lattice of size 1 incurs loss!
                         # lose fraction of wealth invested in that site
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
         #     check_firms_occupancy(firms, lattice)
 
-            # kill all firms with negative wealth
+            # kill all firms with negative wealth or obselete
             removeix = []
             for i, f in enumerate(firms):
-                if f.wealth <= 0:
+                if f.wealth <= 0 or f.sites[1] == lattice.left:
                     removeix.append(i)
             for count, ix in enumerate(removeix):
                 f = firms.pop(ix - count)
@@ -484,7 +487,7 @@ class Simulator():
             # spawn new firms
             nNew = self.rng.poisson(g0)
             for i in range(nNew):
-                firms.append(Firm(self.rng.randint(lattice.left, lattice.right+1),
+                firms.append(Firm(self.rng.randint(lattice.left+1, lattice.right+1),
                                   innov_rate,
                                   lattice=lattice,
                                   rng=self.rng))
