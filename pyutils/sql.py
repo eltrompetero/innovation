@@ -137,6 +137,8 @@ def parquet_density(ix):
 
         # for each time step in sim, create a vector of size of lattice, and
         # iterate thru each firm counting up any site it occupies
+        # if there are no firms, then this adds nothing to the density (this is b/c 
+        # the returned bounds only have an entry if there are firms)
         t, group = args
         # lattice bounds
         lat_left = group.iloc[0]['lat_left']
@@ -293,6 +295,7 @@ class QueryRouter():
         list of ndarray
             cols (t, width)
         """
+
         if tbds is None:
             tbds = 0
         if not hasattr(tbds, '__len__'):
