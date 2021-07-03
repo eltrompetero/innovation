@@ -161,7 +161,12 @@ class SimLedger():
         Returns
         -------
         pd.DataFrame
+            Return specified columns and count col, which always counts from 0
+            sequentially up to the last entry.
         """
+        
+        if type(cols) is str:
+            cols = [cols]
 
         dfcopy = pd.concat((pd.Series(range(len(self.ledger)),
                                       name='count',

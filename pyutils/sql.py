@@ -160,7 +160,56 @@ def parquet_density(ix):
             density = pd.DataFrame(density, columns=['t','ix','density'])
             fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
                      compression='SNAPPY')
-   
+  
+def death_rate(df, fill_in_missing_t=False):
+    """Death rate for all firms over the entire lattice, i.e. fraction of firms that do not
+    appear in the next time step.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        With each firm id and time of measurement.
+    fill_in_missing_t : bool, False
+
+    Returns
+    -------
+    ndarray
+    """
+
+    rate_deaths = []
+    
+    t_group = df.groupby('t')
+    for i, (t, group) in enumerate(t_group):
+        if i==0:
+            prevt = t
+            prevgroup = group
+        else:
+            if (t-prevt)>1 and not fill_in_missing_t:
+                # all firms died; don't count
+                pass
+            elif (t-prevt)>1 and fill_in_missing_t:
+                rate_deaths.append(np.nan)
+            else:
+                # count which firms died
+                counter = 0
+                for fid in prevgroup.ids:
+                    if not fid in group.ids.values:
+                        counter += 1
+                rate_deaths.append(counter/len(prevgroup))
+
+            prevt = t
+            prevgroup = group
+
+    rate_deaths = np.array(rate_deaths)
+
+    if fill_in_missing_t:
+        temp = np.zeros(df['t'].iloc[-1] - df['t'].iloc[0]) + np.nan
+        temp[np.array(list(t_group.groups.keys()))[:-1]-df['t'].min()] = rate_deaths
+        rate_deaths = temp
+        
+    return rate_deaths
+
+
 
 
 class QueryRouter():
@@ -289,7 +338,15 @@ class QueryRouter():
         return wealth
 
     def lattice_width(self, ix, tbds=None, return_lr=False):
-        """
+        """Width of lattice. Not counting leftmost lattice point, which is the absorbing
+        boundary.
+
+        Parameters
+        ----------
+        ix : int
+        tbds : tuple, None
+        return_lr : bool, False
+
         Returns
         -------
         list of ndarray
@@ -401,7 +458,7 @@ class QueryRouter():
         if mn_width:
             for thiskey in simlist:
                 query = f'''
-                         SELECT firm.t,
+                         SELECT lattice.t,
                                 firm.fleft,
                                 firm.fright,
                                 lattice.lleft as lat_left,
@@ -435,7 +492,7 @@ class QueryRouter():
                 bds.append(self.con.execute(query).fetchdf())
         return bds
 
-    def density(self, ix, tbds=None, side=None, mn_width=0):
+    def density(self, ix, tbds=None, side=None, mn_width=0, fill_in_missing_t=False):
         """Density of firms on lattice. Options to count only left or right most sides.
 
         TODO: speed up the loops?
@@ -447,6 +504,8 @@ class QueryRouter():
         side : str, None
             'left', 'right'
         mn_width : int, 0
+        fill_in_missing_t : bool, False
+            This only does something when side is not None.
 
         Returns
         -------
@@ -485,17 +544,15 @@ class QueryRouter():
                 def loop_wrapper(args):
                     t, group = args
                     lat_left = group.iloc[0]['lat_left']
-                    thisdensity = np.bincount(group['fleft']-lat_left,
-                                              minlength=group.iloc[0]['lat_right']-lat_left+1)
+                    # remember that left is always set to 0
+                    thisdensity = ((group['fleft']+1)==lat_left).sum()
                     return thisdensity
 
             elif side=='right':
                 def loop_wrapper(args):
                     t, group = args
-                    lat_left = group.iloc[0]['lat_left']
                     lat_right = group.iloc[0]['lat_right']
-                    thisdensity = np.bincount(group['fright']-lat_left,
-                                              minlength=lat_right-lat_left+1) 
+                    thisdensity = (group['fright']==lat_right).sum()
                     return thisdensity
 
             else:
@@ -505,7 +562,15 @@ class QueryRouter():
                 # this form of the loop is more memory efficient than par-looping over bds
                 density = []
                 for bds_ in bds:
-                    density.append(list(pool.map(loop_wrapper, bds_.groupby('t'))))
+                    t_group = bds_.groupby('t')
+                    density.append(np.array(list(pool.map(loop_wrapper, t_group))))
+                    
+                    # create an empty array of the full length of the time series and copy
+                    # in the entries that we have; the rest must be zero
+                    if fill_in_missing_t:
+                        temp = np.zeros(tbds[1] - tbds[0], dtype=int)
+                        temp[np.array(list(t_group.groups.keys())) - tbds[0]] = density[-1]
+                        density[-1] = temp
 
         return density
     
@@ -531,6 +596,103 @@ class QueryRouter():
                      '''
             nfirms.append(self.con.execute(query).fetchdf())
         return nfirms
+
+    def firm_ids(self, ix, tbds=None, return_lr=False):
+        """Ids of all firms per time step.
+        
+        Parameters
+        ----------
+        ix : int
+        tbds : tuple, None
+        return_lr : bool, False
+
+        Returns
+        -------
+        list of pd.DataFrame
+        """
+
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+
+        simulator = self.simledger.load(ix)
+        simlist = self.subsample(simulator.load_list())
+        
+        ids = []
+        if return_lr:
+            for thiskey in simlist:
+                query = f'''
+                         SELECT firm.t, firm.ids, fleft, fright
+                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
+                         WHERE firm.t>={tbds[0]} AND firm.t<{tbds[1]}
+                         ORDER BY firm.t
+                         '''
+                ids.append(self.con.execute(query).fetchdf())
+        else:
+            for thiskey in simlist:
+                query = f'''
+                         SELECT firm.t, firm.ids
+                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
+                         WHERE firm.t>={tbds[0]} AND firm.t<{tbds[1]}
+                         ORDER BY firm.t
+                         '''
+                ids.append(self.con.execute(query).fetchdf())
+
+        return ids
+
+    def lattice_death_rate(self, ix, tbds=None):
+        """Death rate for each lattice point.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        ndarray
+        """
+
+        lattice_width = self.lattice_width(ix, tbds=tbds, return_lr=True)
+        lleft = [i[:,2] for i in lattice_width]
+        lright = [i[:,3] for i in lattice_width]
+        
+        def loop_wrapper(args):
+            df, lleft, lright = args
+
+            death_count = []
+            t_group = df.groupby('t')
+            for i, (t, group) in enumerate(t_group):
+                if i==0:
+                    prevt = t
+                    prevgroup = group
+                else:
+                    if (t-prevt)>1:
+                        # all firms died; don't count
+                        pass
+                    else:
+                        # count which firms died
+                        thislatleft = lleft[t-tbds[0]]
+                        thislatright = lright[t-tbds[0]]
+                        death_count.append(np.zeros(thislatright-thislatleft, dtype=int)) 
+
+                        for fid in prevgroup.ids:
+                            if not fid in group.ids.values:
+                                left = prevgroup.loc[prevgroup['ids']==fid]['fleft'].values[0]
+                                right = prevgroup.loc[prevgroup['ids']==fid]['fright'].values[0]
+                                for j in range(left, right+1):
+                                    death_count[-1][j-thislatleft-1] -= 1
+
+                    prevt = t
+                    prevgroup = group
+
+            return death_count
+        
+        with Pool() as pool:
+            rate_deaths = list(pool.map(loop_wrapper, zip(self.firm_ids(ix, tbds, return_lr=True),
+                                                          lleft,
+                                                          lright)))
+
+        return rate_deaths
 
     def query(self, ix, q, tbds=None):
         """A general query.
