@@ -7,6 +7,7 @@ import fastparquet as fp
 from itertools import chain
 
 from .organizer import SimLedger
+from .mft import density_bounds
 from .utils import *
 
 
@@ -121,8 +122,6 @@ def parquet_density(ix):
         Index of simulation in sim ledger.
     """
     
-    from itertools import chain
-    
     # set up
     simledger = SimLedger()
     simulator = simledger.load(ix)
@@ -144,9 +143,9 @@ def parquet_density(ix):
         # lattice bounds
         lat_left = group.iloc[0]['lat_left']
         lat_right = group.iloc[0]['lat_right']
-        thisdensity = np.zeros(lat_right-lat_left+1, dtype=np.int64)
-        thisldensity = np.zeros(lat_right-lat_left+1, dtype=np.int64)
-        thisrdensity = np.zeros(lat_right-lat_left+1, dtype=np.int64)
+        thisdensity = np.zeros(lat_right-lat_left+1, dtype=np.int32)
+        thisldensity = np.zeros(lat_right-lat_left+1, dtype=np.int32)
+        thisrdensity = np.zeros(lat_right-lat_left+1, dtype=np.int32)
 
         for i, row in group.iterrows():
             thisdensity[row['fleft']-lat_left:row['fright']-lat_left+1] += 1
@@ -570,8 +569,6 @@ class QueryRouter():
         else:
             raise Exception("Invalid side argument.")
 
-
-
         return density
     
     def no_firms(self, ix, tbds=None):
@@ -757,6 +754,40 @@ class QueryRouter():
                                                           lright)))
 
         return rate_deaths
+
+    def innov_velocity(self, simix, windows):
+        """Time-averaged innovation front velocity.
+        
+        Parameters
+        ----------
+        simix : int
+        windows : list of twoples
+            Start and end times for windows over which to time-average.
+        tbds : twople, None
+        
+        Returns
+        -------
+        ndarray
+            MFT predicted right speed for each random trajectory.
+        ndarray
+            Innovation front velocities for random trajectories. Each row is a sim.
+        """
+        
+        def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
+            # to make this work, must declare copy of QR instance inside loop
+            qr = QueryRouter()
+            density = qr.density(simix, window)
+
+            # assuming that vo and vg are the typical ones
+            mft, sim = density_bounds(density, window[1]-window[0], vi)
+            return mft, sim
+        
+        with Pool() as pool:
+            loop_wrapper(windows[1]);
+            mft, sim = list(zip(*pool.map(loop_wrapper, windows)))
+            mft = np.array(mft)
+            sim = np.vstack(sim).T
+        return mft, sim
 
     def query(self, ix, q, tbds=None):
         """A general query.

@@ -5,11 +5,10 @@
 from scipy.optimize import minimize
 
 from .utils import *
-from .sql import QueryRouter
 
 
 def density_bounds(density, dt, vi, vo=.49, vg=.5):
-    """Innovation front min bound for density as derived from MFT and compared with
+    """Min density bound for nnovation front as derived from MFT and compared with
     simulation results.
     
     Depends on obsolescence and growth rates. Make sure that density has already been

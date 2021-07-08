@@ -3,6 +3,7 @@
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 from time import sleep
+from glob import glob
 
 from .utils import *
 
@@ -124,8 +125,12 @@ class SimLedger():
 
         if save_to_file:
             self.save_ledger()
-        if delete_cache_files:
+
+        if delete_cache_files is True:
             rmtree(f'{self.cache_dr}/{name}')
+        elif delete_cache_files=='density':
+            for f in glob(f'{self.cache_dr}/{name}/*_density.parquet'):
+                os.remove(f)
         else:
             print("Cached files not removed.")
 
