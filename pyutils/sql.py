@@ -47,7 +47,8 @@ def setup_parquet(ix_range, do_firms=True, do_lattice=True):
 
 def parquet_firms(firm_snapshot,
                   cache_dr,
-                  key):
+                  key,
+                  t0=0):
     """Meat of setup_parquet().
 
     Parameters
@@ -55,6 +56,8 @@ def parquet_firms(firm_snapshot,
     firm_snapshot : list
     cache_dr : str
     key : str
+    t0 : int, 0
+        Time offset.
     """
     
     # write firms to parquet file
@@ -68,7 +71,7 @@ def parquet_firms(firm_snapshot,
     for i, firms in enumerate(firm_snapshot):
         ids.extend([f.id for f in firms])
         w.extend([f.wealth for f in firms])
-        t.extend([i]*len(firms))
+        t.extend([i+t0]*len(firms))
         innov.extend([f.innov for f in firms])
         left.extend([f.sites[0] for f in firms])
         right.extend([f.sites[1] for f in firms])
@@ -81,13 +84,18 @@ def parquet_firms(firm_snapshot,
                        'fright':np.array(right),
                        'age':np.array(age),
                        't':np.array(t)})
-
-    fp.write(f'{cache_dr}/{key}.parquet', df, 100_000,
-             compression='SNAPPY')
     
+    if os.path.isfile(f'{cache_dr}/{key}.parquet'):
+        fp.write(f'{cache_dr}/{key}.parquet', df, 1_000_000,
+                 compression='SNAPPY', append=True)
+    else:
+        fp.write(f'{cache_dr}/{key}.parquet', df, 1_000_000,
+                 compression='SNAPPY')
+ 
 def parquet_lattice(lattice_snapshot,
                     cache_dr,
-                    key):
+                    key,
+                    t0=0):
     """Meat of setup_parquet().
 
     Parameters
@@ -95,6 +103,8 @@ def parquet_lattice(lattice_snapshot,
     lattice_snapshot : list
     cache_dr : str
     key : str
+    t0 : int, 0
+        Time offset.
     """
        
     # write lattice to parquet file
@@ -104,14 +114,18 @@ def parquet_lattice(lattice_snapshot,
     for i, lattice in enumerate(lattice_snapshot):
         occupancy.append(lattice.occupancy)
         index.append(np.arange(lattice.left, lattice.right+1))
-        t.append([i]*occupancy[-1].size)
+        t.append([i+t0]*occupancy[-1].size)
 
     df = pd.DataFrame({'occupancy':np.concatenate(occupancy),
                        'ix':np.concatenate(index),
                        't':np.concatenate(t)})
-
-    fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 100_000,
-             compression='SNAPPY')
+    
+    if os.path.isfile(f'{cache_dr}/{key}_lattice.parquet'):
+        fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 1_000_000,
+                 compression='SNAPPY', append=True)
+    else:
+        fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 1_000_000,
+                 compression='SNAPPY')
 
 def parquet_density(ix):
     """Create parquet file storing density for specified cache in simulator.
@@ -785,7 +799,8 @@ class QueryRouter():
         with Pool() as pool:
             loop_wrapper(windows[1]);
             mft, sim = list(zip(*pool.map(loop_wrapper, windows)))
-            mft = np.array(mft)
+            # mft density is determined by parameters of sim so they're all the same
+            mft = mft[0]
             sim = np.vstack(sim).T
         return mft, sim
 

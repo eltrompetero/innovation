@@ -388,6 +388,7 @@ class Simulator():
         c_cost = self.connect_cost
         
         # variables for tracking history
+        save_key = ''
         firm_snapshot = []
         lattice_snapshot = []
         
@@ -515,14 +516,27 @@ class Simulator():
             # collect data on status
             firm_snapshot.append(snapshot_firms(firms))
             lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
-        
+            
+            # if cache, export results to file every few thousand steps
+            if cache and len(firm_snapshot) > 4_000:
+                if not save_key:
+                    save_key = str(datetime.now())
+                self.storage[save_key] = firm_snapshot, lattice_snapshot
+                # this will save to file and clear the lists
+                self.save(t)
+                firm_snapshot, lattice_snapshot = self.storage[save_key] 
+
         if cache:
-            self.storage[str(datetime.now())] = firm_snapshot, lattice_snapshot
+            if not save_key:
+                save_key = str(datetime.now())
+            self.storage[save_key] = firm_snapshot, lattice_snapshot
+            self.save(t)
+            firm_snapshot, lattice_snapshot = self.storage[save_key] 
+        
+        # this only returns something non-empty if cache is off
         return firm_snapshot, lattice_snapshot
         
     def parallel_simulate(self, n_samples, T,
-                          min_nfirms=0,
-                          min_success=1,
                           iprint=True,
                           n_cpus=None):
         """Parallelize self.simulate() and save results into self.storage data member dict.
@@ -531,10 +545,6 @@ class Simulator():
         ----------
         n_samples : int
         T : int
-        min_nfirms : int, 0
-            Only trajectories above this min by average no. of firms are saved.
-        min_success : int, 1
-            Min no. of successful sims required.
         iprint : bool, True
         n_cpus : int, None
             Defaults to the max number of CPUs.
@@ -550,57 +560,14 @@ class Simulator():
         t0 = perf_counter()
         thislock = Lock()
 
-        def init(thislock):
-            """Only for generating lock shared amongst processes for file writing."""
-            global lock
-            lock = thislock
-
-        def loop_wrapper(args, self=self, T=T, min_nfirms=min_nfirms):
-            firm_snapshot, lattice_snapshot = self.simulate(T, cache=True, reset_rng=True)
-
-            avgn = np.mean([len(f) for f in firm_snapshot])
-            if avgn >= min_nfirms:
-                lock.acquire()  # only save one sim result at a time
-                self.save()
-                lock.release()
-                return True
-            return False
-        
-        if min_nfirms:
-            # TODO: there is a better way to do this than by running groups at a time
-            storage = {}
-            with threadpool_limits(user_api='blas', limits=1):
-                with Pool(n_cpus, initializer=init, initargs=(thislock,)) as pool:
-                    success_count = 0
-                    while success_count < min_success:
-                        success_count += sum(list(pool.map(loop_wrapper, range(n_samples))))
-
-            for k, val in storage.items():
-                self.storage[k] = val
-
-        else:
-            with threadpool_limits(user_api='blas', limits=1):
-                with Pool(n_cpus, initializer=init, initargs=(thislock,)) as pool:
-                    pool.map(loop_wrapper, range(n_samples))
-
-        if iprint: print(f"Runtime of {perf_counter()-t0} s.")
-            
-    def save(self, iprint=True):
-        """Save simulator instance with each simulation run in a separate parquet file.
-        Ledger must be updated separately.
-        
-        Parameters
-        ----------
-        iprint : bool, True
-        """
-        
         assert not self.cache_dr is None
         if not os.path.isdir(self.cache_dr):
             try:
                 os.makedirs(self.cache_dr)
             except FileExistsError:
                 pass
-        
+
+        # save file with sim instance for info on the settings
         if not os.path.isfile(f'{self.cache_dr}/top.p'):
             # save class info without all of storage
             storage = self.storage
@@ -609,11 +576,44 @@ class Simulator():
                 pickle.dump({'simulator':self}, f)
 
             self.storage = storage
+
+        def init(thislock):
+            """Only for generating lock shared amongst processes for file writing."""
+            global lock
+            lock = thislock
+
+        def loop_wrapper(args, self=self, T=T):
+            firm_snapshot, lattice_snapshot = self.simulate(T, cache=True, reset_rng=True)
+            assert len(firm_snapshot)==0 and len(lattice_snapshot)==0
+            if iprint: print("Done with one rand trajectory.")
+            #lock.acquire()  # only save one sim result at a time
+            #self.save()
+            #lock.release()
         
+        if iprint: print("Starting simulations...")
+        with threadpool_limits(user_api='blas', limits=1):
+            with Pool(n_cpus, initializer=init, initargs=(thislock,)) as pool:
+                pool.map(loop_wrapper, range(n_samples))
+
+        if iprint: print(f"Runtime of {perf_counter()-t0} s.")
+            
+    def save(self, t0, iprint=False):
+        """Save simulator instance with each simulation run in a separate parquet file.
+        Ledger must be updated separately.
+        
+        Parameters
+        ----------
+        t0 : int
+        iprint : bool, False
+        """
+       
         # save values of storage dict into separate pickles
         for k in self.storage.keys():
-            sql.parquet_firms(self.storage[k][0], self.cache_dr, k)
-            sql.parquet_lattice(reconstruct_lattice(*self.storage[k]), self.cache_dr, k)
+            sql.parquet_firms(self.storage[k][0], self.cache_dr, k, t0)
+            sql.parquet_lattice(reconstruct_lattice(*self.storage[k]), self.cache_dr, k, t0)
+
+            # clear storage
+            self.storage[k] = [], []
 
         if iprint: print(f"Saved simulator instances in cache.")
     
