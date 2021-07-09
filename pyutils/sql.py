@@ -127,13 +127,14 @@ def parquet_lattice(lattice_snapshot,
         fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 1_000_000,
                  compression='SNAPPY')
 
-def parquet_density(ix):
+def parquet_density(ix, n_cpus):
     """Create parquet file storing density for specified cache in simulator.
 
     Parameters
     ----------
     ix : int
         Index of simulation in sim ledger.
+    n_cpus : int 
     """
     
     # set up
@@ -141,9 +142,6 @@ def parquet_density(ix):
     simulator = simledger.load(ix)
     simlist = simulator.load_list()
     qr = QueryRouter()
-
-    # get boundaries of lattice and firms
-    bds = qr.bounds(ix)
 
     def loop_wrapper(args):
         """For each time step of sim.
@@ -172,14 +170,26 @@ def parquet_density(ix):
                         thisldensity,
                         thisrdensity))
 
-    with Pool() as pool:
+    with Pool(n_cpus) as pool:
+        # get boundaries of lattice and firms in 5_000 step increments
+        bds = qr.bounds(ix, tbds=(0, 5_000))
+
         # this form of the loop is more memory efficient than par-looping over bds which
-        # is indexed by the random trajecory (if slower)
-        for bds_, key in zip(bds, simlist):
-            density = list(chain(*pool.map(loop_wrapper, bds_.groupby('t'))))
-            density = pd.DataFrame(density, columns=['t','ix','density','ldensity','rdensity'])
-            fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
-                     compression='SNAPPY')
+        # is indexed by the random trajectory (if slower)
+        counter = 0 
+        while len(bds[0]):
+            for bds_, key in zip(bds, simlist):
+                density = list(chain(*pool.map(loop_wrapper, bds_.groupby('t'))))
+                density = pd.DataFrame(density, columns=['t','ix','density','ldensity','rdensity'])
+                if counter:
+                    fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
+                             compression='SNAPPY', append=True)
+                else:
+                    fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
+                             compression='SNAPPY')
+ 
+            counter += 1 
+            bds = qr.bounds(ix, tbds=(5_000*counter, 5_000*(counter+1)))
   
 def death_rate(df, fill_in_missing_t=False):
     """Death rate for all firms over the entire lattice, i.e. fraction of firms that do not
@@ -512,7 +522,7 @@ class QueryRouter():
                 bds.append(self.con.execute(query).fetchdf())
         return bds
 
-    def density(self, ix, tbds=None, side=None, mn_width=0, fill_in_missing_t=False):
+    def density(self, ix, tbds=None, side=None, mn_width=0, n_cpus=None):
         """Density of firms on lattice. Options to count only left or right most sides.
 
         TODO: speed up the loops?
@@ -524,8 +534,7 @@ class QueryRouter():
         side : str, None
             'left', 'right'
         mn_width : int, 0
-        fill_in_missing_t : bool, False
-            This only does something when side is not None.
+        n_cpus : int, None
 
         Returns
         -------
@@ -542,7 +551,7 @@ class QueryRouter():
         
         if not os.path.isfile(f'{simulator.cache_dr}/{simlist[0]}_density.parquet'):
             print("Caching parquet file...", end='')
-            parquet_density(ix)
+            parquet_density(ix, n_cpus)
             print('done!')
         
         if side is None:

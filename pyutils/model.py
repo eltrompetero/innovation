@@ -11,6 +11,7 @@ import _pickle as cpickle
 from time import sleep
 from uuid import uuid4
 from multiprocess import Lock
+from psutil import virtual_memory
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -389,6 +390,7 @@ class Simulator():
         
         # variables for tracking history
         save_key = ''
+        save_every = 1_000  # this will dynamically change
         firm_snapshot = []
         lattice_snapshot = []
         
@@ -518,13 +520,22 @@ class Simulator():
             lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
             
             # if cache, export results to file every few thousand steps
-            if cache and len(firm_snapshot) > 4_000:
+            if cache and len(firm_snapshot) > save_every:
                 if not save_key:
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
                 # this will save to file and clear the lists
                 self.save(t)
                 firm_snapshot, lattice_snapshot = self.storage[save_key] 
+                
+                # save less frequently if less than 20% of RAM available
+                # save more frequently if more than 50% of RAM available
+                if (virtual_memory().available/virtual_memory().total) > .5:
+                    save_every *= 2
+                    save_every = min(save_every, 8_000)
+                elif (virtual_memory().available/virtual_memory().total) < .2:
+                    save_every /= 2
+                    save_every = max(save_every, 500)
 
         if cache:
             if not save_key:
