@@ -38,7 +38,7 @@ def density_bounds(density, dt, vi, vo=.49, vg=.5):
     right_density = [[i[-1] for i in d] for d in density]
     
     # histogram this
-    y = [np.bincount(d) for d in right_density]
+    y = [np.bincount(d, minlength=1) for d in right_density]
     # account for time points that do not appear in the parquet file (this happens when
     # no firms exist in the simulation)
     for y_ in y:

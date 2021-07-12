@@ -309,6 +309,7 @@ class Simulator():
                  depression_rate=.2,
                  growf=.9,
                  connect_cost=0.,
+                 min_wealth=1e-4,
                  rng=None,
                  cache_dr=None):
         """
@@ -333,6 +334,11 @@ class Simulator():
             Growth cost fraction f. If this is higher, then it is more expensive
             to expand into new sectors.
         connect_cost : float, 0.
+        min_wealth : float, 1e-4
+            Min wealth permitted for firm survival. Doesn't seem to make sense to allow
+            this to be infinitely small.
+        rng : np.RandomState
+        cache_dr : str, None
         """
 
         assert L0>0
@@ -347,6 +353,8 @@ class Simulator():
         self.depression_rate = depression_rate
         self.growf = growf
         self.connect_cost = connect_cost
+        self.min_wealth = min_wealth
+
         self.rng = rng or np.random
         self.cache_dr = cache_dr
 
@@ -479,7 +487,7 @@ class Simulator():
             # kill all firms with negative wealth or obselete
             removeix = []
             for i, f in enumerate(firms):
-                if f.wealth <= 0 or f.sites[1] == lattice.left:
+                if f.wealth <= self.min_wealth or f.sites[1] == lattice.left:
                     removeix.append(i)
             for count, ix in enumerate(removeix):
                 f = firms.pop(ix - count)
