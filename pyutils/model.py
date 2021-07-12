@@ -309,7 +309,7 @@ class Simulator():
                  depression_rate=.2,
                  growf=.9,
                  connect_cost=0.,
-                 min_wealth=1e-4,
+                 min_wealth=1e-10,
                  rng=None,
                  cache_dr=None):
         """
@@ -528,12 +528,12 @@ class Simulator():
             lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
             
             # if cache, export results to file every few thousand steps
-            if cache and len(firm_snapshot) > save_every:
+            if cache and (len(firm_snapshot) > save_every):
                 if not save_key:
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
                 # this will save to file and clear the lists
-                self.save(t)
+                self.save(t-len(firm_snapshot)+1)
                 firm_snapshot, lattice_snapshot = self.storage[save_key] 
                 
                 # save less frequently if less than 20% of RAM available
@@ -549,7 +549,7 @@ class Simulator():
             if not save_key:
                 save_key = str(datetime.now())
             self.storage[save_key] = firm_snapshot, lattice_snapshot
-            self.save(t)
+            self.save(t-len(firm_snapshot)+1)
             firm_snapshot, lattice_snapshot = self.storage[save_key] 
         
         # this only returns something non-empty if cache is off
