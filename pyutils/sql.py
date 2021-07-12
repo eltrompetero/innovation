@@ -87,10 +87,10 @@ def parquet_firms(firm_snapshot,
     
     if os.path.isfile(f'{cache_dr}/{key}.parquet'):
         fp.write(f'{cache_dr}/{key}.parquet', df, 1_000_000,
-                 compression='SNAPPY', append=True)
+                 compression='lz4', append=True)
     else:
         fp.write(f'{cache_dr}/{key}.parquet', df, 1_000_000,
-                 compression='SNAPPY')
+                 compression='lz4')
  
 def parquet_lattice(lattice_snapshot,
                     cache_dr,
@@ -122,10 +122,10 @@ def parquet_lattice(lattice_snapshot,
     
     if os.path.isfile(f'{cache_dr}/{key}_lattice.parquet'):
         fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 1_000_000,
-                 compression='SNAPPY', append=True)
+                 compression='lz4', append=True)
     else:
         fp.write(f'{cache_dr}/{key}_lattice.parquet', df, 1_000_000,
-                 compression='SNAPPY')
+                 compression='lz4')
 
 def parquet_density(ix, n_cpus):
     """Create parquet file storing density for specified cache in simulator.
@@ -183,10 +183,10 @@ def parquet_density(ix, n_cpus):
                 density = pd.DataFrame(density, columns=['t','ix','density','ldensity','rdensity'])
                 if counter:
                     fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
-                             compression='SNAPPY', append=True)
+                             compression='lz4', append=True)
                 else:
                     fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
-                             compression='SNAPPY')
+                             compression='lz4')
  
             counter += 1 
             bds = qr.bounds(ix, tbds=(5_000*counter, 5_000*(counter+1)))
