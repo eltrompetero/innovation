@@ -87,8 +87,16 @@ class TopicLattice {
         return occupancy.size();
     };
 
+    int d_len() {
+        return d_occupancy.size();
+    };
+
     np::ndarray view() {
         return vec2ndarray(occupancy);
+    };
+
+    np::ndarray d_view() {
+        return vec2ndarray(d_occupancy);
     };
 
     /* ============= *
@@ -99,6 +107,9 @@ class TopicLattice {
             left += n;
             occupancy.erase(occupancy.begin(), occupancy.begin()+n);
             d_occupancy.erase(d_occupancy.begin(), d_occupancy.begin()+n);
+
+            occupancy[0] = 0;
+            d_occupancy[0] = 0;
         };
     };
 
@@ -167,6 +178,25 @@ class TopicLattice {
         d_occupancy[i-left] -= d;
     };
 
+    //Remove one occupant from range of lattice sites for delayed occupancy.
+    // 
+    //Parameters
+    //----------
+    //i : int
+    //    This is the left coordinate (not the number of bins from the leftmost spot).
+    //j : int
+    //    This is the right inclusive coordinate (this site is subtracted from as well).
+    //d : int, 1
+    void d_remove_range(int i, int j, int d=1) {
+        if (((i<left) | (i>right)) & ((j<left) | (j>right))) {
+             PyErr_SetString(PyExc_ValueError, "incrementing outside of lattice range");
+           py::throw_error_already_set();
+        };
+        for (int counter=i; counter<=j; counter++) {
+            d_occupancy[counter-left] -= d;
+        };
+    };
+
     //Add one occupant to lattice site i for delayed occupancy.
     //
     //Parameters
@@ -184,7 +214,7 @@ class TopicLattice {
  
     //Push stored changes to occupancy and reset self.d_occupancy.
     void push() {
-        for (int i; i<occupancy.size(); i++) {
+        for (int i=0; i<occupancy.size(); i++) {
             occupancy[i] += d_occupancy[i];
             d_occupancy[i] = 0;
         };
@@ -213,7 +243,7 @@ class TopicLattice {
         this_copy.right = right;
         this_copy.occupancy = vector<int>(occupancy.size(), 0);
         this_copy.d_occupancy = vector<int>(occupancy.size(), 0);
-        for (int i; i<occupancy.size(); i++) {
+        for (int i=0; i<occupancy.size(); i++) {
             this_copy.occupancy[i] = occupancy[i];
             this_copy.d_occupancy[i] = d_occupancy[i];
         };
@@ -409,7 +439,8 @@ py::list snapshot_firms(py::list& firms) {
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(add_over, add, 1, 2);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(remove_over, remove, 1, 2);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(d_add_over, d_add, 1, 2);
-BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(d_add_remove, d_remove, 1, 2);
+BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(ol_d_remove, d_remove, 1, 2);
+BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(ol_d_remove_range, d_remove_range, 2, 3);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(shrink_left_over, shrink_left, 0, 1);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(extend_left_over, extend_left, 0, 1);
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(extend_right_over, extend_right, 0, 1);
@@ -427,14 +458,17 @@ BOOST_PYTHON_MODULE(model_ext) {
         .def("get_occ", &TopicLattice::get_occ)
         .def("get_occ", &TopicLattice::get_occ_vec)
         .def("len", &TopicLattice::len)
+        .def("d_len", &TopicLattice::d_len)
         .def("view", &TopicLattice::view)
+        .def("d_view", &TopicLattice::d_view)
         .def("shrink_left", &TopicLattice::shrink_left, shrink_left_over())
         .def("extend_left", &TopicLattice::extend_left, extend_left_over())
         .def("extend_right", &TopicLattice::extend_right, extend_right_over())
         .def("add", &TopicLattice::add, add_over())
         .def("remove", &TopicLattice::remove, remove_over())
         .def("d_add", &TopicLattice::d_add, d_add_over())
-        .def("d_remove", &TopicLattice::d_remove)
+        .def("d_remove", &TopicLattice::d_remove, ol_d_remove())
+        .def("d_remove_range", &TopicLattice::d_remove_range, ol_d_remove_range())
         .def("push", &TopicLattice::push)
         .def("clear", &TopicLattice::clear)
         .def("d_clear", &TopicLattice::d_clear)

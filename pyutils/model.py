@@ -31,16 +31,24 @@ def check_firms_occupancy(firms, lattice, iprint=False):
     ----------
     firms : list of Firm
     lattice : TopicLattice
+    iprint : bool, False
     """
     
-    occupancy = [0] * len(lattice.occupancy)
+    # for Python extension
+    #occupancy = [0] * len(lattice.occupancy)
+    # for CPP extension
+    loccupancy = lattice.view()
+    occupancy = np.zeros_like(loccupancy)
+
     for f in firms:
         for ix in range(f.sites[0], f.sites[1]+1):
             occupancy[ix-lattice.left] += 1
+
     if iprint:
         print("firms:  ", occupancy)
-        print("lattice:", lattice.occupancy)
-    assert occupancy==lattice.occupancy
+        print("lattice:", loccupancy)
+        print()
+    assert (occupancy==loccupancy).all()
 
 def snapshot_occupancy(firms, xbds):
     """Measure occupancy for a particular range.
@@ -376,9 +384,9 @@ class Simulator():
         Returns
         -------
         list
-            LiteFirm copies at each time step.
+            LiteFirm copies at each time step (non-empty if cache=False).
         list
-            Lattice copies at each time step.
+            Lattice copies at each time step (non-empty if cache=False).
         """
 
         if reset_rng:
@@ -398,7 +406,7 @@ class Simulator():
         
         # variables for tracking history
         save_key = ''
-        save_every = 1_000  # this will dynamically change
+        save_every = 1_000  # this will dynamically change depending on RAM available
         firm_snapshot = []
         lattice_snapshot = []
         
@@ -469,12 +477,12 @@ class Simulator():
             if grow_lattice:
                 lattice.extend_right()
                 lattice.add(lattice.right, new_occupancy)
-        #     check_firms_occupancy(firms, lattice)
 
             # shrink topic lattice
             if (lattice.left < (lattice.right-1)) and (self.rng.rand() < obs_rate):
                 lattice.shrink_left()
-                # shrink all firms that have any value on the obsolete topic
+                # shrink all firms that have any value on the obsolete topic since lattice
+                # is now empty on obsolescent site
                 # firms of size one will be deleted by accounting for negative wealth next
                 # firms that have left boundary pass right will be deleted next
                 for i, f in enumerate(firms):
@@ -482,18 +490,17 @@ class Simulator():
                         # lose fraction of wealth invested in that site
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
-        #     check_firms_occupancy(firms, lattice)
 
             # kill all firms with negative wealth or obselete
             removeix = []
             for i, f in enumerate(firms):
-                if f.wealth <= self.min_wealth or f.sites[1] == lattice.left:
+                if (f.wealth <= self.min_wealth) or (f.sites[1] == lattice.left):
                     removeix.append(i)
             for count, ix in enumerate(removeix):
                 f = firms.pop(ix - count)
-                for i in range(f.sites[0], f.sites[1]+1):
-                    lattice.remove(i)
-        #     check_firms_occupancy(firms, lattice)
+                lattice.d_remove_range(f.sites[0], f.sites[1])
+            lattice.push()
+            # check_firms_occupancy(firms, lattice, iprint=True)
 
             # spawn new firms
             nNew = self.rng.poisson(g0)
@@ -504,7 +511,7 @@ class Simulator():
                                   rng=self.rng))
                 lattice.d_add(firms[-1].sites[0])
             lattice.push()
-        #     check_firms_occupancy(firms, lattice)
+            # check_firms_occupancy(firms, lattice, iprint=True)
         
             # if there are at least two firms
             # split up any firm making up >10% of total wealth and occupying >10 sites
@@ -523,11 +530,11 @@ class Simulator():
 #                            counter += 1
 #                    firms += babyfirms
 
-            # collect data on status
+            # collect status
             firm_snapshot.append(snapshot_firms(firms))
             lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
             
-            # if cache, export results to file every few thousand steps
+            # export results to file every few thousand steps
             if cache and (len(firm_snapshot) > save_every):
                 if not save_key:
                     save_key = str(datetime.now())
@@ -544,15 +551,16 @@ class Simulator():
                 elif (virtual_memory().available/virtual_memory().total) < .2:
                     save_every /= 2
                     save_every = max(save_every, 500)
-
+        
         if cache:
+            # save any remnants of lists that were not saved to disk
             if not save_key:
                 save_key = str(datetime.now())
             self.storage[save_key] = firm_snapshot, lattice_snapshot
             self.save(t-len(firm_snapshot)+1)
+            # this will save to file and clear the lists
             firm_snapshot, lattice_snapshot = self.storage[save_key] 
         
-        # this only returns something non-empty if cache is off
         return firm_snapshot, lattice_snapshot
         
     def parallel_simulate(self, n_samples, T,
@@ -802,6 +810,7 @@ class Firm():
                     income += fwealth / self.lattice.get_occ(s)
         else:
             for s in range(self.sites[0], self.sites[1]+1):
+                #assert self.lattice.get_occ(s)>0, (s, self.lattice.left, self.lattice.right)
                 income += fwealth / self.lattice.get_occ(s)
         #income -= self.wealth * self.connect_cost * np.log(self.size())
         income -= self.wealth * self.connect_cost * self.size()
