@@ -18,7 +18,9 @@ def density_bounds(density, dt, vi, vo=.49, vg=.5):
     ----------
     density : list of ndarray
     dt : int
-        Number of time steps recorded in each trajectory.
+        Number of time steps recorded in each trajectory. Needed because the density
+        measurements are not taken at every time point (missing values when no firms are
+        present in lattice).
     vi : float
         Innovation rate (success at innovating).
     vo : float, .49
@@ -40,7 +42,7 @@ def density_bounds(density, dt, vi, vo=.49, vg=.5):
     # histogram this
     y = [np.bincount(d, minlength=1) for d in right_density]
     # account for time points that do not appear in the parquet file (this happens when
-    # no firms exist in the simulation)
+    # no firms exist in the simulation) and they correspond to measurements of zero density
     for y_ in y:
         y_[0] += dt - y_.sum()
 

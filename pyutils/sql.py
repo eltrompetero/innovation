@@ -669,10 +669,13 @@ class QueryRouter():
 
         Parameters
         ----------
+        ix : int
+        tbds : twople, None
 
         Returns
         -------
         ndarray
+            Death count for each time point it could be measured.
         """
 
         lattice_width = self.lattice_width(ix, tbds=tbds, return_lr=True)
@@ -778,8 +781,8 @@ class QueryRouter():
 
         return rate_deaths
 
-    def innov_velocity(self, simix, windows):
-        """Time-averaged innovation front velocity.
+    def innov_density(self, simix, windows):
+        """Time-averaged innovation front density.
         
         Parameters
         ----------
@@ -797,7 +800,7 @@ class QueryRouter():
         """
         
         def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
-            # to make this work, must declare copy of QR instance inside loop
+            # to make this work, must declare copy of QR instance inside loop b/c it doesn't pickle well
             qr = QueryRouter()
             density = qr.density(simix, window)
 
