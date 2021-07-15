@@ -381,6 +381,7 @@ class QueryRouter():
         -------
         list of ndarray
             cols (t, width)
+            additional optional (left, right) cols
         """
 
         if tbds is None:
@@ -488,7 +489,7 @@ class QueryRouter():
         if mn_width:
             for thiskey in simlist:
                 query = f'''
-                         SELECT lattice.t,
+                         SELECT firm.t,
                                 firm.fleft,
                                 firm.fright,
                                 lattice.lleft as lat_left,
@@ -500,7 +501,7 @@ class QueryRouter():
                                      GROUP BY t) lattice
                             ON firm.t = lattice.t
                          WHERE (lattice.lright-lattice.lleft+1)>={mn_width}
-                         ORDER BY lattice.t
+                         ORDER BY firm.t
                          '''
                 bds.append(self.con.execute(query).fetchdf())
         else:
@@ -517,12 +518,13 @@ class QueryRouter():
                                      WHERE t>={tbds[0]} AND t<{tbds[1]}
                                      GROUP BY t) lattice
                             ON firm.t = lattice.t
-                         ORDER BY lattice.t
+                         ORDER BY firm.t
                          '''
                 bds.append(self.con.execute(query).fetchdf())
         return bds
 
-    def density(self, ix, tbds=None, side=None, mn_width=0, n_cpus=None):
+    def density(self, ix, tbds=None, side=None, mn_width=0, n_cpus=None,
+                fill_in_missing_t=False):
         """Density of firms on lattice. Options to count only left or right most sides.
 
         TODO: speed up the loops?
@@ -535,6 +537,7 @@ class QueryRouter():
             'left', 'right'
         mn_width : int, 0
         n_cpus : int, None
+        fill_in_missing_t : bool, False
 
         Returns
         -------
@@ -554,8 +557,10 @@ class QueryRouter():
             parquet_density(ix, n_cpus)
             print('done!')
         
+        density = []
+        t = []
+
         if side is None:
-            density = []
             for thiskey in simlist:
                 query = f'''
                          SELECT t, density
@@ -563,11 +568,11 @@ class QueryRouter():
                          WHERE t>={tbds[0]} AND t<{tbds[1]}
                          ORDER BY t, ix
                         '''
-                density.append([i[1]['density'].values
-                                for i in self.con.execute(query).fetchdf().groupby('t')])
+                groups = self.con.execute(query).fetchdf().groupby('t')
+                t.append(list(groups.groups.keys()))
+                density.append([i[1]['density'].values for i in groups])
 
         elif side=='left':
-            density = []
             for thiskey in simlist:
                 query = f'''
                          SELECT t, ldensity
@@ -575,11 +580,11 @@ class QueryRouter():
                          WHERE t>={tbds[0]} AND t<{tbds[1]}
                          ORDER BY t, ix
                         '''
-                density.append([i[1]['ldensity'].values
-                                for i in self.con.execute(query).fetchdf().groupby('t')])
+                groups = self.con.execute(query).fetchdf().groupby('t')
+                t.append(list(groups.groups.keys()))
+                density.append([i[1]['ldensity'].values for i in groups])
 
         elif side=='right':
-            density = []
             for thiskey in simlist:
                 query = f'''
                          SELECT t, rdensity
@@ -587,10 +592,30 @@ class QueryRouter():
                          WHERE t>={tbds[0]} AND t<{tbds[1]}
                          ORDER BY t, ix
                         '''
-                density.append([i[1]['rdensity'].values
-                                for i in self.con.execute(query).fetchdf().groupby('t')])
+                groups = self.con.execute(query).fetchdf().groupby('t')
+                t.append(list(groups.groups.keys()))
+                density.append([i[1]['rdensity'].values for i in groups])
         else:
             raise Exception("Invalid side argument.")
+        
+        if fill_in_missing_t:
+            # get lattice width for every single time point and use it to fill in empty density vectors
+            lat_width = self.lattice_width(ix, tbds)
+            
+            for i in range(len(lat_width)):
+                counter = 0
+                for t_ in t[i]:
+                    while (t_-tbds[0]) > counter:
+                        density[i].insert(counter+1, np.zeros(lat_width[i][counter,1]+1, dtype=int))
+                        counter += 1
+                    counter += 1
+
+                # must handle case taking us to the end of tbds
+                t_ = tbds[1]
+                while (t_-tbds[0]) > counter:
+                    density[i].insert(counter+1, np.zeros(lat_width[i][counter,1]+1, dtype=int))
+                    counter += 1
+                counter += 1
 
         return density
     
@@ -678,6 +703,11 @@ class QueryRouter():
             Death count for each time point it could be measured.
         """
 
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+
         lattice_width = self.lattice_width(ix, tbds=tbds, return_lr=True)
         lleft = [i[:,2] for i in lattice_width]
         lright = [i[:,3] for i in lattice_width]
@@ -694,9 +724,14 @@ class QueryRouter():
                     prevlatright = lright[t-tbds[0]]
                 else:
                     nowlatright = lright[t-tbds[0]]
-                    if (t-prevt)>1:
-                        # no firms; don't count
-                        pass
+                    if (t-prevt) > 1:
+                        # no firms, meaning that all firms previously died in one time step
+                        # any firm touching right side should contribute to death rate
+                        for fid in prevgroup.ids:
+                            prev_at_right = prevgroup.loc[prevgroup['ids']==fid]['fright'].values[0]==prevlatright
+                            # we only care about firms that were previously touching right front
+                            if prev_at_right:
+                                death_count.append(-1)
                     else:
                         # count which firms died
                         # a firm has "died" only if it was previously touching the innovation front and is no

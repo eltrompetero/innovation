@@ -510,7 +510,8 @@ class Simulator():
                                   lattice=lattice,
                                   rng=self.rng))
                 lattice.d_add(firms[-1].sites[0])
-            lattice.push()
+            if nNew:
+                lattice.push()
             # check_firms_occupancy(firms, lattice, iprint=True)
         
             # if there are at least two firms
