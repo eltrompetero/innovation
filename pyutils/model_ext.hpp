@@ -320,13 +320,13 @@ class LiteFirm {
     //    This is much more interesting in topic space beyond one dimension.
     //connection_cost : float, 0.
     //wealth : float, 1.
-    //age : int
+    //age : double
     //id : str
     py::object sites;
     double innov;
     double wealth;
     double connection_cost;
-    int age;
+    double age;
     string id;
 
     LiteFirm() {};
@@ -335,7 +335,7 @@ class LiteFirm {
              double new_innov,
              double new_wealth,
              double new_connection_cost,
-             int new_age,
+             double new_age,
              string new_id) {
         sites = new_sites;
         innov = new_innov;
@@ -395,7 +395,7 @@ struct LiteFirmPickleSuite : py::pickle_suite {
         firm.innov = py::extract<double>(d.get("innov"))();
         firm.wealth = py::extract<double>(d.get("wealth"))();
         firm.connection_cost = py::extract<double>(d.get("connection_cost"))();
-        firm.age = py::extract<int>(d.get("age"))();
+        firm.age = py::extract<double>(d.get("age"))();
         firm.id = py::extract<string>(d.get("id"))();
     }
 
@@ -476,7 +476,7 @@ BOOST_PYTHON_MODULE(model_ext) {
         .def_pickle(TopicLatticePickleSuite())
     ;
 
-    class_<LiteFirm>("LiteFirm", init<py::object, double, double, double, int, string>())
+    class_<LiteFirm>("LiteFirm", init<py::object, double, double, double, double, string>())
         .def_readonly("sites", &LiteFirm::sites)
         .def_readonly("innov", &LiteFirm::innov)
         .def_readonly("wealth", &LiteFirm::wealth)

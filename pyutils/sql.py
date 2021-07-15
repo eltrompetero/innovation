@@ -152,6 +152,8 @@ def parquet_density(ix, n_cpus):
         # if there are no firms, then this adds nothing to the density (this is b/c 
         # the returned bounds only have an entry if there are firms)
         t, group = args
+        # get rid of time col
+        group = group.iloc[:,1:]
         # lattice bounds
         lat_left = group.iloc[0]['lat_left']
         lat_right = group.iloc[0]['lat_right']

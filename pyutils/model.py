@@ -318,6 +318,7 @@ class Simulator():
                  growf=.9,
                  connect_cost=0.,
                  min_wealth=1e-10,
+                 dt=0.1,
                  rng=None,
                  cache_dr=None):
         """
@@ -345,11 +346,13 @@ class Simulator():
         min_wealth : float, 1e-4
             Min wealth permitted for firm survival. Doesn't seem to make sense to allow
             this to be infinitely small.
+        dt : float, .1
+            Time step size.
         rng : np.RandomState
         cache_dr : str, None
         """
 
-        assert L0>0
+        assert L0>0 and N0>=0 and g0>0 and dt>0
         
         self.L0 = L0
         self.N0 = N0
@@ -362,20 +365,24 @@ class Simulator():
         self.growf = growf
         self.connect_cost = connect_cost
         self.min_wealth = min_wealth
-
+        
+        self.dt = dt
         self.rng = rng or np.random
         self.cache_dr = cache_dr
 
         self.storage = {}  # store previous sim results
 
-    def simulate(self, T, cache=True, reset_rng=False):
+    def simulate(self, T, save_every, cache=True, reset_rng=False):
         """Run firm simulation for T time steps. To minimize memory and cost of saving sim
         results, only LiteFirms and lattice boundaries are stored.
         
         Parameters
         ----------
-        T : int
-            Number of iterations starting with an initially empty lattice.
+        T : float
+            Total duration of simulation.
+        save_every : int
+            Number of time steps to wait before saving. Time elapsed between saves is dt *
+            save_every.
         cache : bool, True
             If True, save simulation result into self.storage dict.
         reset_rng : bool, False
@@ -403,10 +410,11 @@ class Simulator():
         depression_rate = self.depression_rate
         growf = self.growf
         c_cost = self.connect_cost
+        dt = self.dt
         
         # variables for tracking history
         save_key = ''
-        save_every = 1_000  # this will dynamically change depending on RAM available
+        cache_every = 1_000  # this will dynamically change depending on RAM available
         firm_snapshot = []
         lattice_snapshot = []
         
@@ -435,7 +443,9 @@ class Simulator():
         # 3. grow/shrink lattice
         # 4. eliminate firms with neg wealth
         # 5. spawn new firms (including at innov front)
-        for t in range(T):
+        t = 0
+        counter = 0
+        while t < T:
             # calculate firm income and growth
             grow_lattice = 0  # switch for if lattice needs to be grown
             new_occupancy = 0  # count new firms occupying innovated area
@@ -446,22 +456,20 @@ class Simulator():
                 #depressedSites = [i+lattice.left for i, el in enumerate(ix) if el]
                 depressedSites = [i
                                   for i in range(lattice.left+1, lattice.right+1)
-                                  if self.rng.rand() < depression_rate]
+                                  if self.rng.rand() < (depression_rate * dt)]
             else:
                 depressedSites = []
                 
             for f in firms:
-                income = f.income(depressedSites)
+                income = f.income(depressedSites) * dt
                 f.wealth += income
-                f.age += 1
+                f.age += dt
 
-                growthcost = growf * f.wealth/f.size()
+                growthcost = growf * f.wealth/f.size() * dt
                 # only grow if satisfying min wealth requirement and
                 # expansion happens
-                #eps = .01
-                if f.wealth > growthcost and f.rng.rand() < expand_rate:
-                #if f.rng.rand() < expand_rate:
-                    out = f.grow(exploit_rate, cost=growthcost)
+                if f.wealth > growthcost and f.rng.rand() < (expand_rate * dt):
+                    out = f.grow(exploit_rate * dt, cost=growthcost)
                     # if the firm grows and lattice does not
                     if out[0] and not out[1]:
                         lattice.d_add(f.sites[1])
@@ -479,7 +487,7 @@ class Simulator():
                 lattice.add(lattice.right, new_occupancy)
 
             # shrink topic lattice
-            if (lattice.left < (lattice.right-1)) and (self.rng.rand() < obs_rate):
+            if (lattice.left < (lattice.right-1)) and (self.rng.rand() < (obs_rate * dt)):
                 lattice.shrink_left()
                 # shrink all firms that have any value on the obsolete topic since lattice
                 # is now empty on obsolescent site
@@ -503,7 +511,7 @@ class Simulator():
             # check_firms_occupancy(firms, lattice, iprint=True)
 
             # spawn new firms
-            nNew = self.rng.poisson(g0)
+            nNew = self.rng.poisson(g0 * dt)
             for i in range(nNew):
                 firms.append(Firm(self.rng.randint(lattice.left+1, lattice.right+1),
                                   innov_rate,
@@ -532,11 +540,12 @@ class Simulator():
 #                    firms += babyfirms
 
             # collect status
-            firm_snapshot.append(snapshot_firms(firms))
-            lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
+            if (counter%save_every)==0:
+                firm_snapshot.append(snapshot_firms(firms))
+                lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
             
             # export results to file every few thousand steps
-            if cache and (len(firm_snapshot) > save_every):
+            if cache and (len(firm_snapshot) > cache_every):
                 if not save_key:
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
@@ -547,13 +556,17 @@ class Simulator():
                 # save less frequently if less than 20% of RAM available
                 # save more frequently if more than 50% of RAM available
                 if (virtual_memory().available/virtual_memory().total) > .5:
-                    save_every *= 2
-                    save_every = min(save_every, 8_000)
+                    cache_every *= 2
+                    cache_every = min(cache_every, 8_000)
                 elif (virtual_memory().available/virtual_memory().total) < .2:
-                    save_every /= 2
-                    save_every = max(save_every, 500)
+                    cache_every /= 2
+                    cache_every = max(cache_every, 500)
+            
+            # update time
+            t += dt
+            counter += 1
         
-        if cache:
+        if cache and len(firm_snapshot):
             # save any remnants of lists that were not saved to disk
             if not save_key:
                 save_key = str(datetime.now())
@@ -564,7 +577,7 @@ class Simulator():
         
         return firm_snapshot, lattice_snapshot
         
-    def parallel_simulate(self, n_samples, T,
+    def parallel_simulate(self, n_samples, T, save_every,
                           iprint=True,
                           n_cpus=None):
         """Parallelize self.simulate() and save results into self.storage data member dict.
@@ -572,7 +585,11 @@ class Simulator():
         Parameters
         ----------
         n_samples : int
+            Number of random trajectories to sample.
         T : int
+            Total simulation duration.
+        save_every : int
+            How often to snapshot simulation.
         iprint : bool, True
         n_cpus : int, None
             Defaults to the max number of CPUs.
@@ -611,7 +628,7 @@ class Simulator():
             lock = thislock
 
         def loop_wrapper(args, self=self, T=T):
-            firm_snapshot, lattice_snapshot = self.simulate(T, cache=True, reset_rng=True)
+            firm_snapshot, lattice_snapshot = self.simulate(T, save_every, cache=True, reset_rng=True)
             assert len(firm_snapshot)==0 and len(lattice_snapshot)==0
             if iprint: print("Done with one rand trajectory.")
             #lock.acquire()  # only save one sim result at a time
