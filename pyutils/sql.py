@@ -298,7 +298,6 @@ class QueryRouter():
                          SELECT otable.t, wealth
                          FROM (select t, COUNT(ids) as n_firms
                                FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet')
-                               WHERE t>={tbds[0]} AND t<{tbds[1]}
                                GROUP BY t) ctable
                                INNER JOIN parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') otable
                                ON ctable.t = otable.t
@@ -499,7 +498,6 @@ class QueryRouter():
                          FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
                          INNER JOIN (SELECT t, MIN(ix) as lleft, MAX(ix) as lright
                                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
-                                     WHERE t>={tbds[0]} AND t<{tbds[1]}
                                      GROUP BY t) lattice
                             ON firm.t = lattice.t
                          WHERE (lattice.lright-lattice.lleft+1)>={mn_width}
@@ -517,7 +515,6 @@ class QueryRouter():
                          FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
                          INNER JOIN (SELECT t, MIN(ix) as lleft, MAX(ix) as lright
                                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
-                                     WHERE t>={tbds[0]} AND t<{tbds[1]}
                                      GROUP BY t) lattice
                             ON firm.t = lattice.t
                          ORDER BY firm.t
@@ -645,7 +642,8 @@ class QueryRouter():
         return nfirms
 
     def firm_ids(self, ix, tbds=None, return_lr=False):
-        """Ids of all firms per time step.
+        """Ids of all firms per time step. When there are no firms, the time is not
+        included.
         
         Parameters
         ----------
@@ -710,12 +708,25 @@ class QueryRouter():
         if not hasattr(tbds, '__len__') or len(tbds)==1:
             tbds = (tbds, 10_000_000)
 
-        lattice_width = self.lattice_width(ix, tbds=tbds, return_lr=True)
-        lleft = [i[:,2] for i in lattice_width]
-        lright = [i[:,3] for i in lattice_width]
-        
-        def loop_wrapper(args):
-            df, lleft, lright = args
+        simulator = self.simledger.load(ix)
+        simlist = self.subsample(simulator.load_list())
+ 
+        def loop_wrapper(thiskey):
+            query = f'''
+                     SELECT firm.t, firm.ids, firm.fleft, firm.fright, lattice.lleft, lattice.lright
+                     FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
+                     INNER JOIN (SELECT t, MIN(ix) AS lleft, MAX(ix) AS lright
+                                 FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
+                                 GROUP BY t)
+                                 AS lattice
+                        ON firm.t = lattice.t
+                     WHERE firm.t>={tbds[0]} AND firm.t<{tbds[1]}
+                     '''
+            qr = QueryRouter()
+            df = qr.con.execute(query).fetchdf()
+            lleft = df['lleft']
+            lright = df['lright']
+            dt = np.diff(np.unique(df['t'])[:2])  # assuming that all time diffs are equal
 
             death_count = []
             t_group = df.groupby('t')
@@ -723,10 +734,10 @@ class QueryRouter():
                 if i==0:
                     prevt = t
                     prevgroup = group
-                    prevlatright = lright[t-tbds[0]]
+                    prevlatright = group['lright'].iloc[0]
                 else:
-                    nowlatright = lright[t-tbds[0]]
-                    if (t-prevt) > 1:
+                    nowlatright = group['lright'].iloc[0]
+                    if not np.isclose(t-prevt, dt):
                         # no firms, meaning that all firms previously died in one time step
                         # any firm touching right side should contribute to death rate
                         for fid in prevgroup.ids:
@@ -759,9 +770,7 @@ class QueryRouter():
             return np.array(death_count)
         
         with Pool() as pool:
-            rate_deaths = list(pool.map(loop_wrapper, zip(self.firm_ids(ix, tbds, return_lr=True),
-                                                          lleft,
-                                                          lright)))
+            rate_deaths = list(pool.map(loop_wrapper, simlist))
 
         return rate_deaths
 
