@@ -50,7 +50,8 @@ def setup_parquet(ix_range, do_firms=True, do_lattice=True):
 def parquet_firms(firm_snapshot,
                   cache_dr,
                   key,
-                  t0=0):
+                  t0=0,
+                  dt=1):
     """Meat of setup_parquet().
 
     Parameters
@@ -58,8 +59,10 @@ def parquet_firms(firm_snapshot,
     firm_snapshot : list
     cache_dr : str
     key : str
-    t0 : int or float, 0
+    t0 : float, 0
         Time offset.
+    dt : float
+        Time step width.
     """
     
     # write firms to parquet file
@@ -73,7 +76,7 @@ def parquet_firms(firm_snapshot,
     for i, firms in enumerate(firm_snapshot):
         ids.extend([f.id for f in firms])
         w.extend([f.wealth for f in firms])
-        t.extend([i+t0]*len(firms))
+        t.extend([i*dt+t0]*len(firms))
         innov.extend([f.innov for f in firms])
         left.extend([f.sites[0] for f in firms])
         right.extend([f.sites[1] for f in firms])
@@ -97,7 +100,8 @@ def parquet_firms(firm_snapshot,
 def parquet_lattice(lattice_snapshot,
                     cache_dr,
                     key,
-                    t0=0):
+                    t0=0,
+                    dt=1):
     """Meat of setup_parquet().
 
     Parameters
@@ -107,6 +111,8 @@ def parquet_lattice(lattice_snapshot,
     key : str
     t0 : int or float, 0
         Time offset.
+    dt : float, 0
+        Time step size.
     """
        
     # write lattice to parquet file
@@ -116,7 +122,7 @@ def parquet_lattice(lattice_snapshot,
     for i, lattice in enumerate(lattice_snapshot):
         occupancy.append(lattice.occupancy)
         index.append(np.arange(lattice.left, lattice.right+1))
-        t.append([i+t0]*occupancy[-1].size)
+        t.append([i*dt+t0]*occupancy[-1].size)
 
     df = pd.DataFrame({'occupancy':np.concatenate(occupancy),
                        'ix':np.concatenate(index),

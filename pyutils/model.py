@@ -444,7 +444,7 @@ class Simulator():
         # 4. eliminate firms with neg wealth
         # 5. spawn new firms (including at innov front)
         t = 0
-        counter = 0
+        counter = 1
         while t < T:
             # calculate firm income and growth
             grow_lattice = 0  # switch for if lattice needs to be grown
@@ -550,7 +550,7 @@ class Simulator():
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
                 # this will save to file and clear the lists
-                self.save(t - dt * (len(firm_snapshot) - 1))
+                self.save(t - save_every * dt * (len(firm_snapshot) - 1), dt*save_every)
                 firm_snapshot, lattice_snapshot = self.storage[save_key] 
                 
                 # save less frequently if less than 20% of RAM available
@@ -571,7 +571,7 @@ class Simulator():
             if not save_key:
                 save_key = str(datetime.now())
             self.storage[save_key] = firm_snapshot, lattice_snapshot
-            self.save(t - dt * (len(firm_snapshot) - 1))
+            self.save(t - save_every * dt * (len(firm_snapshot) - 2), dt*save_every)
             # this will save to file and clear the lists
             firm_snapshot, lattice_snapshot = self.storage[save_key] 
         
@@ -642,20 +642,21 @@ class Simulator():
 
         if iprint: print(f"Runtime of {perf_counter()-t0} s.")
             
-    def save(self, t0, iprint=False):
+    def save(self, t0, dt, iprint=False):
         """Save simulator instance with each simulation run in a separate parquet file.
         Ledger must be updated separately.
         
         Parameters
         ----------
-        t0 : int or float
+        t0 : float
+        dt : float
         iprint : bool, False
         """
        
         # save values of storage dict into separate pickles
         for k in self.storage.keys():
-            sql.parquet_firms(self.storage[k][0], self.cache_dr, k, t0)
-            sql.parquet_lattice(reconstruct_lattice(*self.storage[k]), self.cache_dr, k, t0)
+            sql.parquet_firms(self.storage[k][0], self.cache_dr, k, t0, dt)
+            sql.parquet_lattice(reconstruct_lattice(*self.storage[k]), self.cache_dr, k, t0, dt)
 
             # clear storage
             self.storage[k] = [], []
