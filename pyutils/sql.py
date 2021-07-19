@@ -5,6 +5,8 @@
 import duckdb
 import fastparquet as fp
 from itertools import chain
+from uuid import uuid4
+import shutil
 
 from .organizer import SimLedger
 from .mft import density_bounds
@@ -56,7 +58,7 @@ def parquet_firms(firm_snapshot,
     firm_snapshot : list
     cache_dr : str
     key : str
-    t0 : int, 0
+    t0 : int or float, 0
         Time offset.
     """
     
@@ -103,7 +105,7 @@ def parquet_lattice(lattice_snapshot,
     lattice_snapshot : list
     cache_dr : str
     key : str
-    t0 : int, 0
+    t0 : int or float, 0
         Time offset.
     """
        
@@ -142,6 +144,8 @@ def parquet_density(ix, n_cpus):
     simulator = simledger.load(ix)
     simlist = simulator.load_list()
     qr = QueryRouter()
+    tmpfile = dict([(i, f'/fastcache/corp/{uuid4()}.parquet') for i in simlist])
+    assert all([not os.path.isfile(i) for i in tmpfile.values()])
 
     def loop_wrapper(args):
         """For each time step of sim.
@@ -173,26 +177,30 @@ def parquet_density(ix, n_cpus):
                         thisrdensity))
 
     with Pool(n_cpus) as pool:
-        # get boundaries of lattice and firms in 5_000 step increments
-        bds = qr.bounds(ix, tbds=(0, 5_000))
+        # get boundaries of lattice and firms in 10_000 step increments
+        bds = qr.bounds(ix, tbds=(0, 10_000))
 
         # this form of the loop is more memory efficient than par-looping over bds which
         # is indexed by the random trajectory (if slower)
         counter = 0 
-        while len(bds[0]):
+        while any([len(i) for i in bds]):
             for bds_, key in zip(bds, simlist):
                 density = list(chain(*pool.map(loop_wrapper, bds_.groupby('t'))))
                 density = pd.DataFrame(density, columns=['t','ix','density','ldensity','rdensity'])
                 if counter:
-                    fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
+                    fp.write(tmpfile[key], density, 1_000_000,
                              compression='SNAPPY', append=True)
                 else:
-                    fp.write(f'{simulator.cache_dr}/{key}_density.parquet', density, 1_000_000,
+                    fp.write(tmpfile[key], density, 1_000_000,
                              compression='SNAPPY')
  
             counter += 1 
-            bds = qr.bounds(ix, tbds=(5_000*counter, 5_000*(counter+1)))
-  
+            bds = qr.bounds(ix, tbds=(10_000*counter, 10_000*(counter+1)))
+    
+    for key, f in tmpfile.items():
+        # move from fastcache to cache
+        shutil.move(f, f'./{simulator.cache_dr}/{key}_density.parquet')
+
 def death_rate(df, fill_in_missing_t=False):
     """Death rate for all firms over the entire lattice, i.e. fraction of firms that do not
     appear in the next time step.
@@ -500,7 +508,8 @@ class QueryRouter():
                                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
                                      GROUP BY t) lattice
                             ON firm.t = lattice.t
-                         WHERE (lattice.lright-lattice.lleft+1)>={mn_width}
+                         WHERE (lattice.lright-lattice.lleft+1)>={mn_width} AND
+                               lattice.t>={tbds[0]} AND lattice.t<{tbds[1]}
                          ORDER BY firm.t
                          '''
                 bds.append(self.con.execute(query).fetchdf())
@@ -517,6 +526,7 @@ class QueryRouter():
                                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
                                      GROUP BY t) lattice
                             ON firm.t = lattice.t
+                         WHERE lattice.t>={tbds[0]} AND lattice.t<{tbds[1]}
                          ORDER BY firm.t
                          '''
                 bds.append(self.con.execute(query).fetchdf())

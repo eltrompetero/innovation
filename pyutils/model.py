@@ -550,7 +550,7 @@ class Simulator():
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
                 # this will save to file and clear the lists
-                self.save(t-len(firm_snapshot)+1)
+                self.save(t - dt * (len(firm_snapshot) - 1))
                 firm_snapshot, lattice_snapshot = self.storage[save_key] 
                 
                 # save less frequently if less than 20% of RAM available
@@ -571,7 +571,7 @@ class Simulator():
             if not save_key:
                 save_key = str(datetime.now())
             self.storage[save_key] = firm_snapshot, lattice_snapshot
-            self.save(t-len(firm_snapshot)+1)
+            self.save(t - dt * (len(firm_snapshot) - 1))
             # this will save to file and clear the lists
             firm_snapshot, lattice_snapshot = self.storage[save_key] 
         
@@ -648,7 +648,7 @@ class Simulator():
         
         Parameters
         ----------
-        t0 : int
+        t0 : int or float
         iprint : bool, False
         """
        
@@ -789,9 +789,12 @@ class Firm():
         return self.sites[1]-self.sites[0]+1
 
     def income(self, depressed_sites=[]):
-        """For each site, wealth grows by the amount
+        """Income for a time step of duration 1. For each site, wealth grows by the amount
         (W/N) * di where di is the inverse site occupancy number. For depressed sites, wealth
         decreases by this amount.
+
+        For time steps of duration shorter than 1, we simply take a linear interpolation
+        of the income with dt.
         
         Parameters
         ----------
