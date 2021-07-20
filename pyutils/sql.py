@@ -616,21 +616,26 @@ class QueryRouter():
         if fill_in_missing_t:
             # get lattice width for every single time point and use it to fill in empty density vectors
             lat_width = self.lattice_width(ix, tbds)
-            
+            dt = min([np.diff(t_).min() for t_ in t]) # assuming that this returns in the original spacing in time...
+                                                      # works better on dense time series
+
             for i in range(len(lat_width)):
                 counter = 0
                 for t_ in t[i]:
-                    while (t_-tbds[0]) > counter:
-                        density[i].insert(counter+1, np.zeros(lat_width[i][counter,1]+1, dtype=int))
+                    while (t_ - tbds[0]) > (counter * dt):
+                        density[i].insert(counter+1, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
                         counter += 1
                     counter += 1
 
                 # must handle case taking us to the end of tbds
                 t_ = tbds[1]
-                while (t_-tbds[0]) > counter:
-                    density[i].insert(counter+1, np.zeros(lat_width[i][counter,1]+1, dtype=int))
+                while (t_ - tbds[0]) > (counter * dt):
+                    density[i].insert(counter+1, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
                     counter += 1
                 counter += 1
+            
+            # an extra check given the heuristic estimate for dt 
+            assert all([len(d)==len(density[0]) for d in density[1:]]) 
 
         return density
     
@@ -702,16 +707,22 @@ class QueryRouter():
 
         return ids
 
-    def innov_front_death_rate(self, ix, tbds=None):
-        """Effective death rate on innovation front. This counts the rate at which any
-        single firm disappears from the right front, i.e. it may still be alive but no
-        longer occupying the innovation front. This is the effective death rate term in
-        the density equation.
+    def innov_front_death_rate(self, ix, tbds=None, dt=None):
+        """Effective death rate on innovation front as in formulation of MFT, where there
+        is a constant term for death on the innovation front. This counts the rate at
+        which any firm dies.
+
+        Note that when there are 0 firms, the death rate is 0 because the density cannot
+        be negative. This also means that the death rate returned should be of equal
+        length to the time boundaries given.
 
         Parameters
         ----------
         ix : int
         tbds : twople, None
+        dt : float, None
+            Specify time spacing used in simulation to correctly interpolate missing
+            entries from when no firms exist on lattice.
 
         Returns
         -------
@@ -727,7 +738,7 @@ class QueryRouter():
         simulator = self.simledger.load(ix)
         simlist = self.subsample(simulator.load_list())
  
-        def loop_wrapper(thiskey):
+        def loop_wrapper(thiskey, dt=dt):
             query = f'''
                      SELECT firm.t, firm.ids, firm.fleft, firm.fright, lattice.lleft, lattice.lright
                      FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
@@ -742,12 +753,19 @@ class QueryRouter():
             df = qr.con.execute(query).fetchdf()
             lleft = df['lleft']
             lright = df['lright']
-            dt = np.diff(np.unique(df['t'])[:2])  # assuming that all time diffs are equal
+            dt = dt or np.diff(np.unique(df['t'])).min()  # assuming that all time diffs are equal
 
             death_count = []
             t_group = df.groupby('t')
             for i, (t, group) in enumerate(t_group):
                 if i==0:
+                    # fill in missing time points as corresponding to cases where no firms died, so effective
+                    # death rate is 0 including this time point since there was only growth
+                    counter = 0
+                    while not np.isclose(t - tbds[0] - dt*counter, 0):
+                        death_count.append(0)
+                        counter += 1
+
                     prevt = t
                     prevgroup = group
                     prevlatright = group['lright'].iloc[0]
@@ -756,32 +774,50 @@ class QueryRouter():
                     if not np.isclose(t-prevt, dt):
                         # no firms, meaning that all firms previously died in one time step
                         # any firm touching right side should contribute to death rate
+                        this_death_count = 0
                         for fid in prevgroup.ids:
                             prev_at_right = prevgroup.loc[prevgroup['ids']==fid]['fright'].values[0]==prevlatright
                             # we only care about firms that were previously touching right front
                             if prev_at_right:
-                                death_count.append(-1)
+                                this_death_count -= 1
+                        death_count.append(this_death_count)
+
+                        # fill in missing time points as corresponding to cases where no firms died, so effective
+                        # death rate is 0 including this time point since there was only growth (but must
+                        # again offset by one because there was complete death counted in the preceding lines)
+                        counter = 0
+                        while not np.isclose(t - prevt - dt*counter, dt):
+                            death_count.append(0)
+                            counter += 1
                     else:
                         # count which firms died
                         # a firm has "died" only if it was previously touching the innovation front and is no
                         # longer
+                        this_death_count = 0
                         for fid in prevgroup.ids:
                             prev_at_right = prevgroup.loc[prevgroup['ids']==fid]['fright'].values[0]==prevlatright
                             # we only care about firms that were previously touching right front
                             if prev_at_right:
                                 # firm died
                                 if not fid in group.ids.values:
-                                    death_count.append(-1)
+                                    this_death_count -= 1
                                 else:
                                     now_at_right = group.loc[group['ids']==fid]['fright'].values[0]==nowlatright
-                                    if now_at_right:  # firm maintains innov edge
-                                        death_count.append(0)
-                                    else:  # firm falls behind
-                                        death_count.append(-1)
+                                    if not now_at_right:  # firm falls behind
+                                        this_death_count -= 1
+
+                        death_count.append(this_death_count)
 
                     prevt = t
                     prevgroup = group
                     prevlatright = nowlatright
+
+            # fill in missing time points as corresponding to cases where no firms died, so effective
+            # death rate is 0
+            counter = 0
+            while not np.isclose(tbds[1] - prevt - dt*counter, dt):
+                death_count.append(0)
+                counter += 1
 
             return np.array(death_count)
         
