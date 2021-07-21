@@ -621,19 +621,17 @@ class QueryRouter():
             for i in range(len(lat_width)):
                 counter = 0
                 for t_ in t[i]:
-                    while not np.isclose(t_ - tbds[0], counter * dt):
+                    while (t_ - tbds[0] - 1e-5) > (counter * dt):
                         density[i].insert(counter+1, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
                         counter += 1
                     counter += 1
-
-                # must handle case taking us to the end of tbds
-                while not np.isclose(tbds[1] - tbds[0], counter * dt):
+                
+                # take til end of time series
+                while len(density[i]) < len(lat_width[i]):
                     density[i].append(np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
-                    counter += 1
-                counter += 1
             
             # an extra check
-            assert all([len(d)==len(lat_width[0]) for d in density]), len(lat_width[0])
+            assert all([len(d)==len(lat_width[0]) for d in density]), [len(d) for d in density]
 
         return density
     
@@ -895,10 +893,10 @@ class QueryRouter():
         def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
             # to make this work, must declare copy of QR instance inside loop b/c it doesn't pickle well
             qr = QueryRouter()
-            density = qr.density(simix, window)
+            density = qr.density(simix, window, fill_in_missing_t=True)
 
             # assuming that vo and vg are the typical ones
-            mft, sim = density_bounds(density, window[1]-window[0], vi)
+            mft, sim = density_bounds(density, vi)
             return mft, sim
         
         with Pool() as pool:

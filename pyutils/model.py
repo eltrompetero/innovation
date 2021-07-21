@@ -545,12 +545,12 @@ class Simulator():
                 lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
             
             # export results to file every few thousand steps
-            if cache and (len(firm_snapshot) > cache_every):
+            if cache and (len(lattice_snapshot) > cache_every):
                 if not save_key:
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
                 # this will save to file and clear the lists
-                self.save(t - save_every * dt * (len(firm_snapshot) - 1), dt*save_every)
+                self.save(t - save_every * dt * len(firm_snapshot), dt*save_every)
                 firm_snapshot, lattice_snapshot = self.storage[save_key] 
                 
                 # save less frequently if less than 20% of RAM available
@@ -566,12 +566,12 @@ class Simulator():
             t += dt
             counter += 1
         
-        if cache and len(firm_snapshot):
+        if cache and len(lattice_snapshot):
             # save any remnants of lists that were not saved to disk
             if not save_key:
                 save_key = str(datetime.now())
             self.storage[save_key] = firm_snapshot, lattice_snapshot
-            self.save(t - save_every * dt * (len(firm_snapshot) - 2), dt*save_every)
+            self.save(t - save_every * dt * len(firm_snapshot), dt*save_every)
             # this will save to file and clear the lists
             firm_snapshot, lattice_snapshot = self.storage[save_key] 
         

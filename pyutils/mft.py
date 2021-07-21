@@ -7,7 +7,11 @@ from scipy.optimize import minimize
 from .utils import *
 
 
-def density_bounds(density, dt, vi, vo=.49, vg=.5):
+def density_bounds(density, wi,
+                   vo=.49,
+                   ve=.5,
+                   dt=.1,
+                   exact=False):
     """Min density bound for nnovation front as derived from MFT and compared with
     simulation results.
     
@@ -17,23 +21,25 @@ def density_bounds(density, dt, vi, vo=.49, vg=.5):
     Parameters
     ----------
     density : list of ndarray
-    dt : int
-        Number of time steps recorded in each trajectory. Needed because the density
-        measurements are not taken at every time point (missing values when no firms are
-        present in lattice).
-    vi : float
-        Innovation rate (success at innovating).
+    wi : float
+        Innovation probability at each attempt.
     vo : float, .49
         Obsolescence rate per unit time.
-    vg : float, .5
+    ve : float, .5
         Firm growth rate per unit time (attempt at moving to the right).
+    dt : float, None
+        Size of simulation time step.
+    exact : bool, False
+        If True, use exact formulation. Else use small dt approximation. Make sure that dt
+        corresponds to the actual time step in the simulation and not the rate at which
+        samples were recorded.
     
     Returns
     -------
     float
         MFT min density bound for innovation front to keep moving.
     list
-        Avg density for each simulation.
+        Ave density for each simulation.
     """
     
     # number of firms on right boundary for each random trajectory
@@ -41,14 +47,14 @@ def density_bounds(density, dt, vi, vo=.49, vg=.5):
     
     # histogram this
     y = [np.bincount(d, minlength=1) for d in right_density]
-    # account for time points that do not appear in the parquet file (this happens when
-    # no firms exist in the simulation) and they correspond to measurements of zero density
-    for y_ in y:
-        y_[0] += dt - y_.sum()
 
     sim_density = np.array([i.dot(range(i.size))/i.sum() for i in y])
     # min density required to progress
-    mft_bound = np.log(1 - vo) / np.log(1 - vi * vg)
+    if exact:
+        assert not dt is None
+        mft_bound = np.log(1 - vo * dt) / np.log(1 - wi * ve * dt)
+    else: 
+        mft_bound = vo / wi / ve
 
     return mft_bound, sim_density
 
