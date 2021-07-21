@@ -444,7 +444,7 @@ class Simulator():
         # 4. eliminate firms with neg wealth
         # 5. spawn new firms (including at innov front)
         t = 0
-        counter = 1
+        counter = 0
         while t < T:
             # calculate firm income and growth
             grow_lattice = 0  # switch for if lattice needs to be grown

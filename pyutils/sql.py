@@ -705,7 +705,7 @@ class QueryRouter():
 
         return ids
 
-    def innov_front_death_rate(self, ix, tbds=None, dt=None):
+    def innov_front_death_rate(self, ix, tbds=None):
         """Effective death rate on innovation front as in formulation of MFT, where there
         is a constant term for death on the innovation front. This counts the rate at
         which any firm dies.
@@ -718,9 +718,6 @@ class QueryRouter():
         ----------
         ix : int
         tbds : twople, None
-        dt : float, None
-            Specify time spacing used in simulation to correctly interpolate missing
-            entries from when no firms exist on lattice.
 
         Returns
         -------
@@ -735,6 +732,7 @@ class QueryRouter():
 
         simulator = self.simledger.load(ix)
         simlist = self.subsample(simulator.load_list())
+        dt = self.dt(ix)
  
         def loop_wrapper(thiskey, dt=dt):
             query = f'''
@@ -751,7 +749,6 @@ class QueryRouter():
             df = qr.con.execute(query).fetchdf()
             lleft = df['lleft']
             lright = df['lright']
-            dt = dt or np.diff(np.unique(df['t'])).min()  # assuming that all time diffs are equal
 
             death_count = []
             t_group = df.groupby('t')
@@ -760,7 +757,7 @@ class QueryRouter():
                     # fill in missing time points as corresponding to cases where no firms died, so effective
                     # death rate is 0 including this time point since there was only growth
                     counter = 0
-                    while not np.isclose(t - tbds[0] - dt*counter, 0):
+                    while not np.isclose(t - tbds[0] - dt*counter, 0, atol=1e-5):
                         death_count.append(0)
                         counter += 1
 
@@ -769,7 +766,7 @@ class QueryRouter():
                     prevlatright = group['lright'].iloc[0]
                 else:
                     nowlatright = group['lright'].iloc[0]
-                    if not np.isclose(t-prevt, dt):
+                    if not np.isclose(t-prevt, dt, atol=1e-5):
                         # no firms, meaning that all firms previously died in one time step
                         # any firm touching right side should contribute to death rate
                         this_death_count = 0
@@ -784,7 +781,7 @@ class QueryRouter():
                         # death rate is 0 including this time point since there was only growth (but must
                         # again offset by one because there was complete death counted in the preceding lines)
                         counter = 0
-                        while not np.isclose(t - prevt - dt*counter, dt):
+                        while not np.isclose(t - prevt - dt*counter, dt, atol=1e-5):
                             death_count.append(0)
                             counter += 1
                     else:
@@ -813,7 +810,7 @@ class QueryRouter():
             # fill in missing time points as corresponding to cases where no firms died, so effective
             # death rate is 0
             counter = 0
-            while not np.isclose(tbds[1] - prevt - dt*counter, dt):
+            while not np.isclose(tbds[1] - prevt - dt*counter, dt, atol=1e-5):
                 death_count.append(0)
                 counter += 1
 
