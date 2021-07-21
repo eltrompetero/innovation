@@ -629,9 +629,12 @@ class QueryRouter():
                 # take til end of time series
                 while len(density[i]) < len(lat_width[i]):
                     density[i].append(np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
+                # I'm not sure why this is necessary
+                while len(density[i]) > len(lat_width[i]):
+                    density[i].pop(-1)
             
             # an extra check
-            assert all([len(d)==len(lat_width[0]) for d in density]), [len(d) for d in density]
+            assert all([len(d)==len(w) for d, w in zip(density, lat_width)]), [len(d)-len(w) for d, w in zip(density, lat_width)]
 
         return density
     
@@ -824,6 +827,8 @@ class QueryRouter():
 
         Parameters
         ----------
+        ix : int
+        tbds : twople, None
 
         Returns
         -------
