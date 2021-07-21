@@ -616,26 +616,24 @@ class QueryRouter():
         if fill_in_missing_t:
             # get lattice width for every single time point and use it to fill in empty density vectors
             lat_width = self.lattice_width(ix, tbds)
-            dt = min([np.diff(t_).min() for t_ in t]) # assuming that this returns in the original spacing in time...
-                                                      # works better on dense time series
+            dt = self.dt(ix)
 
             for i in range(len(lat_width)):
                 counter = 0
                 for t_ in t[i]:
-                    while (t_ - tbds[0]) > (counter * dt):
+                    while not np.isclose(t_ - tbds[0], counter * dt):
                         density[i].insert(counter+1, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
                         counter += 1
                     counter += 1
 
                 # must handle case taking us to the end of tbds
-                t_ = tbds[1]
-                while (t_ - tbds[0]) > (counter * dt):
-                    density[i].insert(counter+1, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
+                while not np.isclose(tbds[1] - tbds[0], counter * dt):
+                    density[i].append(np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
                     counter += 1
                 counter += 1
             
-            # an extra check given the heuristic estimate for dt 
-            assert all([len(d)==len(density[0]) for d in density[1:]]) 
+            # an extra check
+            assert all([len(d)==len(lat_width[0]) for d in density]), len(lat_width[0])
 
         return density
     
@@ -913,6 +911,46 @@ class QueryRouter():
             mft = mft[0]
             sim = np.vstack(sim).T
         return mft, sim
+
+    def dt(self, ix, run_checks=False):
+        """Simulation time step using the fact that the lattice is recorded every time step.
+
+        Parameters
+        ----------
+        ix : int
+        run_checks : bool, False
+
+        Returns
+        -------
+        float
+            Time step duration dt.
+        """
+        
+        simulator = self.simledger.load(ix)
+        simlist = self.subsample(simulator.load_list())
+
+        if run_checks:
+            t = []
+            for thiskey in simlist:
+                query = f'''
+                         SELECT lattice.t
+                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet') lattice
+                         ORDER BY lattice.t
+                         '''
+                t.append(self.con.execute(query).fetchdf().values)
+
+            dt = [np.diff(np.unique(t_)).min() for t_ in t]
+            assert all([dt[0]==dt_ for dt_ in dt[1:]])
+            return dt[0]
+
+        thiskey = simlist[0]
+        query = f'''
+                 SELECT t
+                 FROM parquet_scan('{simulator.cache_dr}/{thiskey}_lattice.parquet')
+                 ORDER BY t
+                 '''
+        dt = np.diff(np.unique(self.con.execute(query).fetchdf().values)).min()
+        return dt
 
     def query(self, ix, q, tbds=None):
         """A general query.
