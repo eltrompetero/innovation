@@ -39,7 +39,8 @@ class SimLedger():
                                                 'depression_rate',
                                                 'connect_cost',
                                                 'n_sims',
-                                                'T'])
+                                                'T',
+                                                'dt'])
             self.ledger['L0'] = self.ledger['L0'].astype(int)
             self.ledger['n_sims'] = self.ledger['n_sims'].astype(int)
 

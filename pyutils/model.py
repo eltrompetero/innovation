@@ -723,7 +723,8 @@ class Simulator():
                             'depression_rate':self.depression_rate,
                             'growf':self.growf,
                             'connect_cost':self.connect_cost,
-                            'n_sims':(len(os.listdir(self.cache_dr))-1)//2})
+                            'n_sims':(len(os.listdir(self.cache_dr))-1)//2,
+                            'dt':self.dt})
         ledger = SimLedger()
         ledger.add(self.cache_dr.split('/')[-1], extra_props)
     
