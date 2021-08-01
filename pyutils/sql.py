@@ -753,37 +753,12 @@ class QueryRouter():
             t_group = df.groupby('t')
             for i, (t, group) in enumerate(t_group):
                 if i==0:
-                    # fill in missing time points as corresponding to cases where no firms died, so effective
-                    # death rate is 0 including this time point since there was only growth
-                    counter = 0
-                    while not np.isclose(t - tbds[0] - dt*counter, 0, atol=1e-5):
-                        death_count.append(0)
-                        counter += 1
-
                     prevt = t
                     prevgroup = group
                     prevlatright = group['lright'].iloc[0]
                 else:
                     nowlatright = group['lright'].iloc[0]
-                    if not np.isclose(t-prevt, dt, atol=1e-5):
-                        # no firms, meaning that all firms previously died in one time step
-                        # any firm touching right side should contribute to death rate
-                        this_death_count = 0
-                        for fid in prevgroup.ids:
-                            prev_at_right = prevgroup.loc[prevgroup['ids']==fid]['fright'].values[0]==prevlatright
-                            # we only care about firms that were previously touching right front
-                            if prev_at_right:
-                                this_death_count -= 1
-                        death_count.append(this_death_count)
-
-                        # fill in missing time points as corresponding to cases where no firms died, so effective
-                        # death rate is 0 including this time point since there was only growth (but must
-                        # again offset by one because there was complete death counted in the preceding lines)
-                        counter = 0
-                        while not np.isclose(t - prevt - dt*counter, dt, atol=1e-5):
-                            death_count.append(0)
-                            counter += 1
-                    else:
+                    if np.isclose(t-prevt, dt, atol=1e-5):
                         # count which firms died
                         # a firm has "died" only if it was previously touching the innovation front and is no
                         # longer
@@ -808,10 +783,7 @@ class QueryRouter():
 
             # fill in missing time points as corresponding to cases where no firms died, so effective
             # death rate is 0
-            counter = 0
-            while not np.isclose(tbds[1] - prevt - dt*counter, dt, atol=1e-5):
-                death_count.append(0)
-                counter += 1
+            death_count += [0] * ((tbds[1]-tbds[0])//dt - len(t_group))
 
             return np.array(death_count)
         
@@ -903,11 +875,11 @@ class QueryRouter():
             return mft, sim
         
         with Pool() as pool:
-            loop_wrapper(windows[1]);
             mft, sim = list(zip(*pool.map(loop_wrapper, windows)))
             # mft density is determined by parameters of sim so they're all the same
             mft = mft[0]
             sim = np.vstack(sim).T
+
         return mft, sim
 
     def dt(self, ix, run_checks=False):
