@@ -382,7 +382,7 @@ class QueryRouter():
             wealth.append(self.con.execute(query).fetchdf().values)
         return wealth
 
-    def lattice_width(self, ix, tbds=None, return_lr=False):
+    def lattice_width(self, ix, tbds=None, return_lr=False, run_checks=False):
         """Width of lattice. Not counting leftmost lattice point, which is the absorbing
         boundary.
 
@@ -431,6 +431,9 @@ class QueryRouter():
                          ORDER BY lattice.t
                          '''
                 width.append(self.con.execute(query).fetchdf().values)
+
+        if run_checks: assert all([len(width[0])==len(i) for i in width[1:]])
+
         return width
 
     def total_wealth_per_lattice(self, ix, tbds=None):
@@ -617,24 +620,19 @@ class QueryRouter():
             # get lattice width for every single time point and use it to fill in empty density vectors
             lat_width = self.lattice_width(ix, tbds)
             dt = self.dt(ix)
-
-            for i in range(len(lat_width)):
-                counter = 0
-                for t_ in t[i]:
-                    while (t_ - tbds[0] - 1e-5) > (counter * dt):
-                        density[i].insert(counter+1, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
-                        counter += 1
-                    counter += 1
-                
-                # take til end of time series
-                while len(density[i]) < len(lat_width[i]):
-                    density[i].append(np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
-                # I'm not sure why this is necessary
-                while len(density[i]) > len(lat_width[i]):
-                    density[i].pop(-1)
             
-            # an extra check
-            assert all([len(d)==len(w) for d, w in zip(density, lat_width)]), [len(d)-len(w) for d, w in zip(density, lat_width)]
+            for i in range(len(lat_width)):
+                #tcopy = t[i][:]
+                for counter, t_ in enumerate(lat_width[i][:,0]):
+                    if not t_ in t[i]:
+                        #tcopy.insert(counter, t_)
+                        density[i].insert(counter, np.zeros(int(lat_width[i][counter,1]+1), dtype=int))
+
+                # extra check (comparing all entries)
+                #assert np.array_equal(lat_width[i][:,0], tcopy) 
+                
+            # an extra check (only checking length)
+            assert all([len(d)==len(w) for d, w in zip(density, lat_width)])
 
         return density
     

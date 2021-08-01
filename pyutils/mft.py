@@ -27,7 +27,7 @@ def density_bounds(density, wi,
         Obsolescence rate per unit time.
     ve : float, .5
         Firm growth rate per unit time (attempt at moving to the right).
-    dt : float, None
+    dt : float, .1
         Size of simulation time step.
     exact : bool, False
         If True, use exact formulation. Else use small dt approximation. Make sure that dt
