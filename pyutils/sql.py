@@ -757,7 +757,7 @@ class QueryRouter():
                     prevgroup = group
                     prevlatright = group['lright'].iloc[0]
                 else:
-                    nowlatright = group['lright'].iloc[0]
+                    latright = group['lright'].iloc[0]
                     if np.isclose(t-prevt, dt, atol=1e-5):
                         # count which firms died
                         # a firm has "died" only if it was previously touching the innovation front and is no
@@ -771,7 +771,7 @@ class QueryRouter():
                                 if not fid in group.ids.values:
                                     this_death_count -= 1
                                 else:
-                                    now_at_right = group.loc[group['ids']==fid]['fright'].values[0]==nowlatright
+                                    now_at_right = group.loc[group['ids']==fid]['fright'].values[0]==latright
                                     if not now_at_right:  # firm falls behind
                                         this_death_count -= 1
 
@@ -779,11 +779,11 @@ class QueryRouter():
 
                     prevt = t
                     prevgroup = group
-                    prevlatright = nowlatright
+                    prevlatright = latright
 
             # fill in missing time points as corresponding to cases where no firms died, so effective
             # death rate is 0
-            death_count += [0] * ((tbds[1]-tbds[0])//dt - len(t_group))
+            death_count += [0] * (int((tbds[1]-tbds[0])//float(dt)) - len(t_group))
 
             return np.array(death_count)
         
@@ -921,6 +921,27 @@ class QueryRouter():
                  '''
         dt = np.diff(np.unique(self.con.execute(query).fetchdf().values)).min()
         return dt
+
+    def innov_velocity(self, ix, tbds=None):
+        """Velocity of innovation frontier.
+
+        Parameters
+        ----------
+        ix : int
+        tbds : twople, None
+
+        Returns
+        -------
+        list of float
+        """
+
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+        
+        width = self.lattice_width(ix, tbds, return_lr=True)
+        return [np.mean(np.diff(i[:,3])) for i in width]
 
     def query(self, ix, q, tbds=None):
         """A general query.
