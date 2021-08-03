@@ -758,22 +758,22 @@ class QueryRouter():
                     prevlatright = group['lright'].iloc[0]
                 else:
                     latright = group['lright'].iloc[0]
-                    if np.isclose(t-prevt, dt, atol=1e-5):
+                    if abs(abs(t-prevt)-dt) < 1e-5:
                         # count which firms died
                         # a firm has "died" only if it was previously touching the innovation front and is no
                         # longer
                         this_death_count = 0
-                        for fid in prevgroup.ids:
-                            prev_at_right = prevgroup.loc[prevgroup['ids']==fid]['fright'].values[0]==prevlatright
+                        for i, fid in enumerate(prevgroup.ids):
+                            prev_at_right = prevgroup.iloc[i]['fright']==prevlatright
                             # we only care about firms that were previously touching right front
                             if prev_at_right:
                                 # firm died
                                 if not fid in group.ids.values:
                                     this_death_count -= 1
-                                else:
-                                    now_at_right = group.loc[group['ids']==fid]['fright'].values[0]==latright
-                                    if not now_at_right:  # firm falls behind
-                                        this_death_count -= 1
+                                #else:
+                                #    now_at_right = group.loc[group['ids']==fid]['fright'].values[0]==latright
+                                #    if not now_at_right:  # firm falls behind
+                                #        this_death_count -= 1
 
                         death_count.append(this_death_count)
 
@@ -783,7 +783,7 @@ class QueryRouter():
 
             # fill in missing time points as corresponding to cases where no firms died, so effective
             # death rate is 0
-            death_count += [0] * (int((tbds[1]-tbds[0])//float(dt)) - len(t_group))
+            death_count += [0] * (int((tbds[1]-tbds[0])//float(dt)) - len(t_group) + 1)
 
             return np.array(death_count)
         
