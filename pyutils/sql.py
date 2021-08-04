@@ -704,10 +704,10 @@ class QueryRouter():
 
         return ids
 
-    def innov_front_death_rate(self, ix, tbds=None):
+    def innov_front_death_rate(self, ix, tbds=None, return_t=False):
         """Effective death rate on innovation front as in formulation of MFT, where there
         is a constant term for death on the innovation front. This counts the rate at
-        which any firm dies.
+        which any firm dies. Falling behind does not count in this term.
 
         Note that when there are 0 firms, the death rate is 0 because the density cannot
         be negative. This also means that the death rate returned should be of equal
@@ -717,6 +717,7 @@ class QueryRouter():
         ----------
         ix : int
         tbds : twople, None
+        return_t : bool, False
 
         Returns
         -------
@@ -732,7 +733,8 @@ class QueryRouter():
         simulator = self.simledger.load(ix)
         simlist = self.subsample(simulator.load_list())
         dt = self.dt(ix)
- 
+            
+        # need to chunk this by time windows so we can save on memory
         def loop_wrapper(thiskey, dt=dt):
             query = f'''
                      SELECT firm.t, firm.ids, firm.fleft, firm.fright, lattice.lleft, lattice.lright
@@ -752,28 +754,40 @@ class QueryRouter():
             death_count = []
             t_group = df.groupby('t')
             for i, (t, group) in enumerate(t_group):
+                latright = group['lright'].iloc[0]
+
                 if i==0:
                     prevt = t
                     prevgroup = group
-                    prevlatright = group['lright'].iloc[0]
+                    prevlatright = latright
                 else:
-                    latright = group['lright'].iloc[0]
                     if abs(abs(t-prevt)-dt) < 1e-5:
                         # count which firms died
                         # a firm has "died" only if it was previously touching the innovation front and is no
                         # longer
                         this_death_count = 0
-                        for i, fid in enumerate(prevgroup.ids):
-                            prev_at_right = prevgroup.iloc[i]['fright']==prevlatright
+                        for i, fid in enumerate(prevgroup['ids']):
+                            prev_at_right = prevgroup['fright'].iloc[i]==prevlatright
                             # we only care about firms that were previously touching right front
-                            if prev_at_right:
-                                # firm died
-                                if not fid in group.ids.values:
+                            # firm died
+                            if prev_at_right and not fid in group['ids'].values:
                                     this_death_count -= 1
                                 #else:
                                 #    now_at_right = group.loc[group['ids']==fid]['fright'].values[0]==latright
                                 #    if not now_at_right:  # firm falls behind
                                 #        this_death_count -= 1
+
+                        death_count.append(this_death_count)
+
+                    else: 
+                        # all firms at innovation boundary died
+                        this_death_count = 0
+                        for i, fid in enumerate(prevgroup['ids']):
+                            prev_at_right = prevgroup['fright'].iloc[i]==prevlatright
+                            # we only care about firms that were previously touching right front
+                            if prev_at_right:
+                                # firm died
+                                this_death_count -= 1
 
                         death_count.append(this_death_count)
 
@@ -783,8 +797,10 @@ class QueryRouter():
 
             # fill in missing time points as corresponding to cases where no firms died, so effective
             # death rate is 0
-            death_count += [0] * (int((tbds[1]-tbds[0])//float(dt)) - len(t_group) + 1)
-
+            death_count += [0] * (int((tbds[1]-tbds[0])//float(dt)) - 1 - len(t_group))
+            
+            if return_t:
+                return np.array(death_count), list(t_group.keys())
             return np.array(death_count)
         
         with Pool() as pool:
