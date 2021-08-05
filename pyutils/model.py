@@ -468,7 +468,7 @@ class Simulator():
                 growthcost = growf * f.wealth/f.size() * dt
                 # only grow if satisfying min wealth requirement and
                 # expansion happens
-                if f.wealth > growthcost and f.rng.rand() < (expand_rate * dt):
+                if f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate * dt, cost=growthcost)
                     # if the firm grows and lattice does not
                     if out[0] and not out[1]:
