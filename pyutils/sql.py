@@ -766,8 +766,8 @@ class QueryRouter():
                         # a firm has "died" only if it was previously touching the innovation front and is no
                         # longer
                         this_death_count = 0
-                        for i, fid in enumerate(prevgroup['ids']):
-                            prev_at_right = prevgroup['fright'].iloc[i]==prevlatright
+                        for j, fid in enumerate(prevgroup['ids']):
+                            prev_at_right = prevgroup['fright'].iloc[j]==prevlatright
                             # we only care about firms that were previously touching right front
                             # firm died
                             if prev_at_right and not fid in group['ids'].values:
@@ -782,8 +782,8 @@ class QueryRouter():
                     else: 
                         # all firms at innovation boundary died
                         this_death_count = 0
-                        for i, fid in enumerate(prevgroup['ids']):
-                            prev_at_right = prevgroup['fright'].iloc[i]==prevlatright
+                        for j, fid in enumerate(prevgroup['ids']):
+                            prev_at_right = prevgroup['fright'].iloc[j]==prevlatright
                             # we only care about firms that were previously touching right front
                             if prev_at_right:
                                 # firm died
