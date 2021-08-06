@@ -466,8 +466,7 @@ class Simulator():
                 f.age += dt
 
                 growthcost = growf * f.wealth/f.size() * dt
-                # only grow if satisfying min wealth requirement and
-                # expansion happens
+                # always attempt to grow
                 if f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate * dt, cost=growthcost)
                     # if the firm grows and lattice does not
@@ -502,7 +501,7 @@ class Simulator():
             # kill all firms with negative wealth or obselete
             removeix = []
             for i, f in enumerate(firms):
-                if (f.wealth <= self.min_wealth) or (f.sites[1] == lattice.left):
+                if (f.wealth <= self.min_wealth and self.rng.rand() < dt) or (f.sites[1] == lattice.left):
                     removeix.append(i)
             for count, ix in enumerate(removeix):
                 f = firms.pop(ix - count)
@@ -881,8 +880,8 @@ class Firm():
         else:
             self.wealth -= cost
             # if wealth becomes negative, then no growth
-            #if self.wealth<0:
-            #    return 0, 0
+            if self.wealth < 0:
+                return 0, 0
             
         # consider tendency to innovate and the prob of exploiting it
         # innovation may be rewarding but not necessarily
