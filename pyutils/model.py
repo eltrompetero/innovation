@@ -465,7 +465,7 @@ class Simulator():
                 f.wealth += income
                 f.age += dt
 
-                growthcost = growf * f.wealth/f.size() * dt
+                growthcost = growf * abs(f.wealth)/f.size() * dt
                 # always attempt to grow
                 if f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate * dt, cost=growthcost)
@@ -809,7 +809,8 @@ class Firm():
         """
 
         income = 0.
-        fwealth = self.wealth / self.size()
+
+        fwealth = abs(self.wealth) / self.size()
         
         # avoid iterating thru unnecessary depressed sites
         counter = 0
@@ -835,7 +836,7 @@ class Firm():
                 #assert self.lattice.get_occ(s)>0, (s, self.lattice.left, self.lattice.right)
                 income += fwealth / self.lattice.get_occ(s)
         #income -= self.wealth * self.connect_cost * np.log(self.size())
-        income -= self.wealth * self.connect_cost * self.size()
+        income -= abs(self.wealth) * self.connect_cost * self.size()
         return income
         
         #dincome = (self.wealth / self.size() / 
