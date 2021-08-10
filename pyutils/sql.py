@@ -876,27 +876,54 @@ class QueryRouter():
         Returns
         -------
         ndarray
-            MFT predicted right speed for each random trajectory.
-        ndarray
-            Innovation front velocities for random trajectories. Each row is a sim.
+            Innovation front density for random trajectories. Each row is a sim.
         """
         
         def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
             # to make this work, must declare copy of QR instance inside loop b/c it doesn't pickle well
             qr = QueryRouter()
             density = qr.density(simix, window, fill_in_missing_t=True)
-
+            density = [np.mean([i[-1] for i in d]) for d in density]
             # assuming that vo and vg are the typical ones
-            mft, sim = density_bounds(density, vi)
-            return mft, sim
+            #sim = density_bounds(density, vi)[1]
+            return density
         
         with Pool() as pool:
-            mft, sim = list(zip(*pool.map(loop_wrapper, windows)))
-            # mft density is determined by parameters of sim so they're all the same
-            mft = mft[0]
+            sim = list(pool.map(loop_wrapper, windows))
             sim = np.vstack(sim).T
 
-        return mft, sim
+        return sim
+
+    def pre_innov_density(self, simix, windows):
+        """Time-averaged pre-innovation and innovation front density.
+        
+        Parameters
+        ----------
+        simix : int
+        windows : list of twoples
+            Start and end times for windows over which to time-average.
+        tbds : twople, None
+        
+        Returns
+        -------
+        ndarray
+            Time-averaged pre-innovation to innovation density.
+        """
+
+        simulator = self.simledger.load(simix)
+        simlist = self.subsample(simulator.load_list())
+ 
+        def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
+            # to make this work, must declare copy of QR instance inside loop b/c it doesn't pickle well
+            qr = QueryRouter()
+            density = qr.density(simix, window, fill_in_missing_t=True)
+            density = np.vstack([np.vstack([i[-2:] for i in d]).mean(0) for d in density])
+            return density
+        
+        with Pool() as pool:
+            sim = list(pool.map(loop_wrapper, windows))
+
+        return sim
 
     def dt(self, ix, run_checks=False):
         """Simulation time step using the fact that the lattice is recorded every time step.

@@ -12,7 +12,9 @@ def density_bounds(density, wi,
                    ve=.5,
                    dt=.1,
                    exact=False):
-    """Min density bound for nnovation front as derived from MFT and compared with
+    """THIS IS WRONG. THIS IS A BOUND, NOT THE ACTUAL VELOCITY.
+
+    Min density bound for nnovation front as derived from MFT and compared with
     simulation results.
     
     Depends on obsolescence and growth rates. Make sure that density has already been
