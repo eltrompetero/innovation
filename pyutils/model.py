@@ -465,7 +465,7 @@ class Simulator():
                 f.wealth += income
                 f.age += dt
 
-                growthcost = growf * abs(f.wealth)/f.size() * dt
+                growthcost = growf * abs(f.wealth)/f.size()
                 # attempt to grow if wealth is sufficient
                 if f.wealth > growthcost and f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate * dt, cost=growthcost)
@@ -475,7 +475,7 @@ class Simulator():
                     # if the firm grows and the lattice grows
                     elif out[0] and out[1]:
                         new_occupancy += 1  # keep track of total frontier density
-                        grow_lattice += out[1]
+                        grow_lattice += 1
                     # if the firm does not grow and the lattice does
                     elif not out[0] and out[1]:
                         grow_lattice += 1
@@ -501,7 +501,7 @@ class Simulator():
             # kill all firms with negative wealth or obselete
             removeix = []
             for i, f in enumerate(firms):
-                if (f.wealth <= self.min_wealth and self.rng.rand() < dt) or (f.sites[1] == lattice.left):
+                if (f.wealth <= self.min_wealth) or (f.sites[1] == lattice.left):
                     removeix.append(i)
             for count, ix in enumerate(removeix):
                 f = firms.pop(ix - count)
