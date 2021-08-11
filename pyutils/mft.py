@@ -60,7 +60,7 @@ def density_bounds(density, wi,
 
     return mft_bound, sim_density
 
-def exp_density_f(x, a, b):
+def exp_density_f(x, a, b, wi):
     """
     a * (1 - np.exp(-b*(1-x)))
 
@@ -69,11 +69,13 @@ def exp_density_f(x, a, b):
     x : float
     a : float
     b : float
+    wi : float
+        Probability of successful innovation.
     """
 
-    return a * (1 - np.exp(-b*(1-x)))
+    return np.exp(-b*(1-x)) / wi + a * (1 - np.exp(-b*(1-x)))
 
-def fit_density(x, ydata, full_output=False):
+def fit_density(x, ydata, wi, full_output=False):
     """Fit MFT prediction of firm density.
     
     Parameters
@@ -81,16 +83,19 @@ def fit_density(x, ydata, full_output=False):
     x : ndarray
         Normalized lattice coordinate.
     ydata : ndarray
+    wi : ndarray
+        Probability of successful innovation.
 
     Returns
     -------
     ndarray
         (a,b) from a * (1-exp(-b*(1-x)))
+        b is normalized by the typical width
     """
 
     def cost(args):
         a, b = np.exp(args)
-        return np.linalg.norm(exp_density_f(x, a, b) - ydata)
+        return np.linalg.norm(exp_density_f(x, a, b, wi) - ydata)
 
     soln = minimize(cost, (np.log(ydata[0]), np.log(10)))
     if full_output:

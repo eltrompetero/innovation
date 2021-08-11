@@ -466,8 +466,8 @@ class Simulator():
                 f.age += dt
 
                 growthcost = growf * abs(f.wealth)/f.size() * dt
-                # always attempt to grow
-                if f.rng.rand() < (expand_rate * dt):
+                # attempt to grow if wealth is sufficient
+                if f.wealth > growthcost and f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate * dt, cost=growthcost)
                     # if the firm grows and lattice does not
                     if out[0] and not out[1]:
