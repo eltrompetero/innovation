@@ -262,7 +262,6 @@ class QueryRouter():
     """Class for routing queries through SQL to access parquet database for simulation results."""
     def __init__(self):
         self.con = duckdb.connect(database=':memory:', read_only=False)
-        self.simledger = SimLedger()
         self.set_subsample(list(range(40)))
 
     def set_subsample(self, ix):
@@ -291,7 +290,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__'):
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         wealth = []
@@ -341,7 +340,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__'):
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
         
         wealth = []
@@ -367,7 +366,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__'):
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         wealth = []
@@ -404,7 +403,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__'):
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         width = []
@@ -445,7 +444,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__'):
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         wealth = []
@@ -471,7 +470,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__'):
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         wealth = []
@@ -500,7 +499,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__') or len(tbds)==1:
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         bds = []
@@ -567,7 +566,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__') or len(tbds)==1:
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
         
         if not os.path.isfile(f'{simulator.cache_dr}/{simlist[0]}_density.parquet'):
@@ -645,7 +644,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__') or len(tbds)==1:
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
         
         nfirms = []
@@ -679,7 +678,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__') or len(tbds)==1:
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
         
         ids = []
@@ -730,7 +729,7 @@ class QueryRouter():
         if not hasattr(tbds, '__len__') or len(tbds)==1:
             tbds = (tbds, 10_000_000)
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
         dt = self.dt(ix)
             
@@ -879,7 +878,7 @@ class QueryRouter():
             Innovation front density for random trajectories. Each row is a sim.
         """
         
-        def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
+        def loop_wrapper(window, simix=simix, vi=SimLedger().ledger.iloc[simix]['innov_rate']):
             # to make this work, must declare copy of QR instance inside loop b/c it doesn't pickle well
             qr = QueryRouter()
             density = qr.density(simix, window, fill_in_missing_t=True)
@@ -910,10 +909,10 @@ class QueryRouter():
             Time-averaged pre-innovation to innovation density.
         """
 
-        simulator = self.simledger.load(simix)
+        simulator = SimLedger().load(simix)
         simlist = self.subsample(simulator.load_list())
  
-        def loop_wrapper(window, simix=simix, vi=self.simledger.ledger.iloc[simix]['innov_rate']):
+        def loop_wrapper(window, simix=simix, vi=SimLedger().ledger.iloc[simix]['innov_rate']):
             # to make this work, must declare copy of QR instance inside loop b/c it doesn't pickle well
             qr = QueryRouter()
             density = qr.density(simix, window, fill_in_missing_t=True)
@@ -939,7 +938,7 @@ class QueryRouter():
             Time step duration dt.
         """
         
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         if run_checks:
@@ -1000,7 +999,7 @@ class QueryRouter():
         list of DataFrame
         """
 
-        simulator = self.simledger.load(ix)
+        simulator = SimLedger().load(ix)
         simlist = self.subsample(simulator.load_list())
 
         q = q.replace('CACHE_DR', simulator.cache_dr)
