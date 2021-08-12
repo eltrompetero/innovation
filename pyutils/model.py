@@ -465,9 +465,8 @@ class Simulator():
                 f.wealth += income
                 f.age += dt
 
-                growthcost = growf * f.wealth/f.size() * dt
-                # only grow if satisfying min wealth requirement and
-                # expansion happens
+                growthcost = growf * abs(f.wealth)/f.size()
+                # attempt to grow if wealth is sufficient
                 if f.wealth > growthcost and f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate * dt, cost=growthcost)
                     # if the firm grows and lattice does not
@@ -476,7 +475,7 @@ class Simulator():
                     # if the firm grows and the lattice grows
                     elif out[0] and out[1]:
                         new_occupancy += 1  # keep track of total frontier density
-                        grow_lattice += out[1]
+                        grow_lattice += 1
                     # if the firm does not grow and the lattice does
                     elif not out[0] and out[1]:
                         grow_lattice += 1
@@ -499,7 +498,7 @@ class Simulator():
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
 
-            # kill all firms with negative wealth or obselete
+            # kill all firms with negative wealth or obsolete
             removeix = []
             for i, f in enumerate(firms):
                 if (f.wealth <= self.min_wealth) or (f.sites[1] == lattice.left):
@@ -810,7 +809,8 @@ class Firm():
         """
 
         income = 0.
-        fwealth = self.wealth / self.size()
+
+        fwealth = abs(self.wealth) / self.size()
         
         # avoid iterating thru unnecessary depressed sites
         counter = 0
@@ -836,7 +836,7 @@ class Firm():
                 #assert self.lattice.get_occ(s)>0, (s, self.lattice.left, self.lattice.right)
                 income += fwealth / self.lattice.get_occ(s)
         #income -= self.wealth * self.connect_cost * np.log(self.size())
-        income -= self.wealth * self.connect_cost * self.size()
+        income -= abs(self.wealth) * self.connect_cost * self.size()
         return income
         
         #dincome = (self.wealth / self.size() / 
@@ -881,8 +881,8 @@ class Firm():
         else:
             self.wealth -= cost
             # if wealth becomes negative, then no growth
-            #if self.wealth<0:
-            #    return 0, 0
+            if self.wealth < 0:
+                return 0, 0
             
         # consider tendency to innovate and the prob of exploiting it
         # innovation may be rewarding but not necessarily
