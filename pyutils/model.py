@@ -498,7 +498,7 @@ class Simulator():
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
 
-            # kill all firms with negative wealth or obselete
+            # kill all firms with negative wealth or obsolete
             removeix = []
             for i, f in enumerate(firms):
                 if (f.wealth <= self.min_wealth) or (f.sites[1] == lattice.left):
