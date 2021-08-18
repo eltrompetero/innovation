@@ -995,6 +995,31 @@ class QueryRouter():
         width = self.lattice_width(ix, tbds, return_lr=True)
         return [np.mean(np.diff(i[:,3])) for i in width]
 
+    def age(self, ix, tbds=None):
+        """Firm age.
+
+        Parameters
+        ----------
+        ix : int
+        tbds : twople, None
+
+        Returns
+        -------
+        list of float
+        """
+
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+        
+        query = f'''SELECT age
+                    FROM parquet_scan('CACHE_DR/KEY.parquet')
+                    WHERE t>={tbds[0]} AND t<{tbds[1]}
+                    ORDER BY t
+                 '''
+        return [i.values.ravel() for i in self.query(ix, query, tbds)]
+
     def query(self, ix, q, tbds=None):
         """A general query.
         
