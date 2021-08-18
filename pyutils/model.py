@@ -459,14 +459,16 @@ class Simulator():
                                   if self.rng.rand() < (depression_rate * dt)]
             else:
                 depressedSites = []
-                
+            
+            prev_wealth = []
             for f in firms:
+                prev_wealth.append(f.wealth)
+
+                # calculate income to add to wealth later
                 income = f.income(depressedSites) * dt
-                f.wealth += income
-                f.age += dt
                 
-                # attempt to grow if wealth is nonnegative
-                if f.wealth > 0 and f.rng.rand() < (expand_rate * dt):
+                # attempt to grow (assuming wealth is positive)
+                if f.rng.rand() < (expand_rate * dt):
                     growthcost = growf * f.wealth / f.size()
                     out = f.grow(exploit_rate, cost=growthcost)
                     # if the firm grows and lattice does not
@@ -479,6 +481,11 @@ class Simulator():
                     # if the firm does not grow and the lattice does
                     elif not out[0] and out[1]:
                         grow_lattice += 1
+
+                # update wealth with income (done here such that growth cost and income
+                # are applied simultaneously to previous wealth)
+                f.wealth += income
+                f.age += dt
             lattice.push()
             # if any firm innovated, then grow the lattice
             if grow_lattice:
@@ -495,7 +502,7 @@ class Simulator():
                 for i, f in enumerate(firms):
                     if f.sites[0] <= lattice.left:  # s.t. lattice of size 1 incurs loss!
                         # lose fraction of wealth invested in that site
-                        f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
+                        f.wealth -= prev_wealth[i] / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
 
             # kill all firms with wealth below cutoff or obsolete
