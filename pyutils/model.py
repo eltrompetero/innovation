@@ -498,7 +498,7 @@ class Simulator():
                         f.wealth -= f.wealth / (f.sites[1] - f.sites[0] + 1)
                         f.sites = f.sites[0]+1, f.sites[1]
 
-            # kill all firms with negative wealth or obsolete
+            # kill all firms with wealth below cutoff or obsolete
             removeix = []
             for i, f in enumerate(firms):
                 if (f.wealth <= self.min_wealth) or (f.sites[1] == lattice.left):
@@ -562,8 +562,8 @@ class Simulator():
                     cache_every = max(cache_every, 500)
             
             # update time
-            t += dt
             counter += 1
+            t = counter * dt
         
         if cache and len(lattice_snapshot):
             # save any remnants of lists that were not saved to disk

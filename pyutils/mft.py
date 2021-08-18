@@ -12,7 +12,7 @@ def density_bounds(density, wi,
                    ve=.5,
                    dt=.1,
                    exact=False):
-    """THIS IS WRONG. THIS IS A BOUND, NOT THE ACTUAL VELOCITY.
+    """THIS IS A BOUND, NOT THE ACTUAL VELOCITY.
 
     Min density bound for nnovation front as derived from MFT and compared with
     simulation results.
@@ -41,7 +41,7 @@ def density_bounds(density, wi,
     float
         MFT min density bound for innovation front to keep moving.
     list
-        Ave density for each simulation.
+        Avg density for each simulation.
     """
     
     # number of firms on right boundary for each random trajectory
@@ -92,6 +92,8 @@ def fit_density(x, ydata, wi, full_output=False):
         (a,b) from a * (1-exp(-b*(1-x)))
         b is normalized by the typical width
     """
+
+    assert x.min()>=0 and x.max()<=1
 
     def cost(args):
         a, b = np.exp(args)

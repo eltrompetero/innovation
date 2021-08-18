@@ -9,6 +9,53 @@ from .utils import *
 
 
 
+def fit_density(density, wi, fraction_fit=1., return_xy=False):
+    """Fit average density curve from a set of density samples.
+
+    This is an easier interface than mft.fit_density
+
+    Parameters
+    ----------
+    density : list of ndarray
+        Density from leftmost front to right over multiple snapshots.
+    wi : float
+        Innovation success probability.
+    fraction_fit : float
+        Fraction of curve to fit to starting from innovation front.
+    return_xy : bool, False
+        If True, return the evaluated density.
+
+    Returns
+    -------
+    list of ndarray
+        Fit parameters.
+    """
+
+    from .mft import fit_density, exp_density_f
+    
+    assert all([i[0]==0 for i in density]), "leftmost density should be given"
+    assert 0<=wi<=1
+
+    # must be careful to determine the fitting region scaled to [0,1] interval
+    mxdx = max([i.size for i in density]) - 1
+    x_interp = np.linspace(1/mxdx, 1, mxdx)
+    dx = x_interp[1] - x_interp[0]
+    
+    # pad density with zeros so we can easily take a vertical mean
+    y = np.vstack([np.concatenate((np.zeros(mxdx-y.size+1)+np.nan, y[1:]))
+                   for i, y in enumerate(density)])
+    ym = np.nanmean(y, 0)
+
+    # fit total density profile
+    nfit = int(fraction_fit * ym.size)
+    x = np.linspace(1/mxdx, 1, mxdx)[-nfit:]
+    soln = fit_density(x, ym[-nfit:], wi)
+
+    if return_xy: 
+        x = np.linspace(1/mxdx, 1, mxdx)
+        return soln, (x, exp_density_f(x, *soln, wi), y)
+    return soln
+
 def group_by_vel(X, windows, velsign,
                  burn_in=5000,
                  dx=13,
