@@ -321,14 +321,20 @@ class QueryRouter():
             wealth.append(self.con.execute(query).fetchdf().values)
         return wealth
 
-    def wealth_by_firm(self, ix, tbds=None, mn_age=None, iprint=False):
+    def wealth_by_firm(self, ix,
+                       tbds=None,
+                       mn_age=0,
+                       dt=1,
+                       iprint=False):
         """Set of wealth for all firms per time step.
 
         Parameters
         ----------
         ix : int
         tbds : twople, None
-        mn_age : int, None
+        mn_age : float, 0.
+        dt : int, 1
+            Time spacing.
         iprint : bool, False
 
         Returns
@@ -348,21 +354,14 @@ class QueryRouter():
         wealth = []
         for thiskey in simlist:
             if iprint: print(f"Loading {thiskey}...")
-            if mn_age is None:
-                # there seems to be a bug in duckdb with columns for firm.fleft and right
-                query = f'''
-                         SELECT ids, t, wealth, (fright-fleft+1) AS fsize
-                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
-                         WHERE (firm.t>={tbds[0]}) AND (firm.t<{tbds[1]})
-                         ORDER BY firm.ids, firm.t
-                         '''
-            else:
-                query = f'''
-                         SELECT ids, t, wealth, (fright-fleft+1) AS fsize
-                         FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
-                         WHERE (t>={tbds[0]}) AND (t<{tbds[1]}) AND age>={mn_age}
-                         ORDER BY ids, t
-                         '''
+            # there seems to be a bug in duckdb with columns for firm.fleft and right
+            query = f'''
+                     SELECT ids, t, wealth, (fright-fleft+1) AS fsize
+                     FROM parquet_scan('{simulator.cache_dr}/{thiskey}.parquet') firm
+                     WHERE (t>={tbds[0]}) AND (t<{tbds[1]}) AND age>={mn_age}
+                        AND ROUND(t, 0) % {dt} = 0
+                     ORDER BY ids, t
+                     '''
             wealth.append(self.con.execute(query).fetchdf())
 
         return wealth
@@ -550,7 +549,12 @@ class QueryRouter():
                 bds.append(self.con.execute(query).fetchdf())
         return bds
 
-    def density(self, ix, tbds=None, side=None, mn_width=0, n_cpus=None,
+    def density(self, ix,
+                tbds=None,
+                dt=1,
+                side=None,
+                mn_width=0,
+                n_cpus=None,
                 fill_in_missing_t=False):
         """Density of firms on lattice. Options to count only left or right most sides.
 
@@ -560,6 +564,7 @@ class QueryRouter():
         ----------
         ix : int
         tbds : tuple or int, None
+        dt : int, 1
         side : str, None
             'left', 'right'
         mn_width : int, 0
@@ -570,7 +575,8 @@ class QueryRouter():
         -------
         list
         """
-
+        
+        assert not (fill_in_missing_t and dt!=1)
         if tbds is None:
             tbds = 0
         if not hasattr(tbds, '__len__') or len(tbds)==1:
@@ -593,6 +599,7 @@ class QueryRouter():
                          SELECT t, density
                          FROM parquet_scan('{simulator.cache_dr}/{thiskey}_density.parquet')
                          WHERE t>={tbds[0]} AND t<{tbds[1]}
+                            AND ROUND(t) % {dt} = 0
                          ORDER BY t, ix
                         '''
                 groups = self.con.execute(query).fetchdf().groupby('t')
@@ -605,6 +612,7 @@ class QueryRouter():
                          SELECT t, ldensity
                          FROM parquet_scan('{simulator.cache_dr}/{thiskey}_density.parquet')
                          WHERE t>={tbds[0]} AND t<{tbds[1]}
+                            AND ROUND(t) % {dt} = 0
                          ORDER BY t, ix
                         '''
                 groups = self.con.execute(query).fetchdf().groupby('t')
@@ -617,6 +625,7 @@ class QueryRouter():
                          SELECT t, rdensity
                          FROM parquet_scan('{simulator.cache_dr}/{thiskey}_density.parquet')
                          WHERE t>={tbds[0]} AND t<{tbds[1]}
+                            AND ROUND(t) % {dt} = 0
                          ORDER BY t, ix
                         '''
                 groups = self.con.execute(query).fetchdf().groupby('t')
