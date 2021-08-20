@@ -314,7 +314,7 @@ class Simulator():
                  expand_rate=.5,
                  innov_rate=.5,
                  exploit_rate=.5,
-                 depression_rate=.2,
+                 depressed_frac=.2,
                  growf=.9,
                  connect_cost=0.,
                  min_wealth=1e-10,
@@ -338,7 +338,7 @@ class Simulator():
             Probability of successful innovation.
         exploit_rate : float, .5
             Probability of successfully exploiting innovated area.
-        depression_rate : float, .2
+        depressed_frac : float, .2
         growf : float, .9
             Growth cost fraction f. If this is higher, then it is more expensive
             to expand into new sectors.
@@ -361,7 +361,7 @@ class Simulator():
         self.expand_rate = expand_rate
         self.innov_rate = innov_rate
         self.exploit_rate = exploit_rate
-        self.depression_rate = depression_rate
+        self.depressed_frac = depressed_frac
         self.growf = growf
         self.connect_cost = connect_cost
         self.min_wealth = min_wealth
@@ -407,7 +407,7 @@ class Simulator():
         expand_rate = self.expand_rate
         innov_rate = self.innov_rate
         exploit_rate = self.exploit_rate
-        depression_rate = self.depression_rate
+        depressed_frac = self.depressed_frac
         growf = self.growf
         c_cost = self.connect_cost
         dt = self.dt
@@ -449,14 +449,14 @@ class Simulator():
             # calculate firm income and growth
             grow_lattice = 0  # switch for if lattice needs to be grown
             new_occupancy = 0  # count new firms occupying innovated area
-            if depression_rate:
+            if depressed_frac:
                 # these are ordered (previous attempts at speedup)
-                #ix  = self.rng.rand(lattice.right-lattice.left+1) < depression_rate
+                #ix  = self.rng.rand(lattice.right-lattice.left+1) < depressed_frac
                 #depressedSites = np.arange(lattice.left, lattice.right+1)[ix]
                 #depressedSites = [i+lattice.left for i, el in enumerate(ix) if el]
                 depressedSites = [i
                                   for i in range(lattice.left+1, lattice.right+1)
-                                  if self.rng.rand() < (depression_rate * dt)]
+                                  if self.rng.rand() < depressed_frac]
             else:
                 depressedSites = []
             
@@ -726,7 +726,7 @@ class Simulator():
                             'expand_rate':self.expand_rate,
                             'innov_rate':self.innov_rate,
                             'exploit_rate':self.exploit_rate,
-                            'depression_rate':self.depression_rate,
+                            'depressed_frac':self.depressed_frac,
                             'growf':self.growf,
                             'connect_cost':self.connect_cost,
                             'n_sims':(len(os.listdir(self.cache_dr))-1)//2,
@@ -740,7 +740,7 @@ class Simulator():
         print(f'new firm rate   =\t{self.g0}')
         print(f'innov rate      =\t{self.innov_rate}')
         print(f'grow frac cost  =\t{self.growf}')
-        print(f'depression rate =\t{self.depression_rate}')
+        print(f'depressed frac  =\t{self.depressed_frac}')
         print(f'connection cost =\t{self.connect_cost}')
         print()
 

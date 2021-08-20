@@ -36,7 +36,7 @@ class SimLedger():
                                                 'innov_rate',
                                                 'exploit_rate',
                                                 'growf',
-                                                'depression_rate',
+                                                'depressed_frac',
                                                 'connect_cost',
                                                 'n_sims',
                                                 'T',
