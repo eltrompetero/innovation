@@ -556,7 +556,7 @@ class Simulator():
                     save_key = str(datetime.now())
                 self.storage[save_key] = firm_snapshot, lattice_snapshot
                 # this will save to file and clear the lists
-                self.save(t - save_every * dt * len(firm_snapshot), dt*save_every)
+                self.save(t - save_every * dt * (len(firm_snapshot) - 1), dt*save_every)
                 firm_snapshot, lattice_snapshot = self.storage[save_key] 
                 
                 # save less frequently if less than 20% of RAM available
@@ -706,8 +706,36 @@ class Simulator():
             with open(f'{self.cache_dr}/{name}', 'rb') as f:
                 self.storage[name] = pickle.load(f)['storage']
         else:
-            with open(f'{self.cache_dr}/{name}.p', 'rb') as f:
-                self.storage[name] = pickle.load(f)['storage']
+            # load from parquet file
+            query = f'''SELECT *
+                        FROM parquet_scan('{self.cache_dr}/{name}.parquet')
+                     '''
+            qr = sql.QueryRouter()
+            output = qr.con.execute(query).fetchdf()
+            dt = qr.dt(self.cache_dr.split('/')[-1])
+            firm_snapshot = []
+            
+            # account for off-by-one counting bug
+            if output['t'].min() < 0:
+                counter = -1
+            else:
+                counter = 0
+            for t, firms in output.groupby('t'):
+                while not np.isclose(counter * dt, t):
+                    firm_snapshot.append([])
+                    counter += 1
+                    #assert (counter * dt) <= t, (counter * dt, t)
+                firm_snapshot.append([])
+                counter += 1
+
+                for i, f in firms.iterrows():
+                    firm_snapshot[-1].append(LiteFirm((f.fleft, f.fright),
+                                                      f.innov,
+                                                      f.wealth,
+                                                      self.connect_cost,
+                                                      f.age,
+                                                      f.ids))
+            self.storage[name] = firm_snapshot
 
     def add_to_ledger(self, extra_props={}):
         """

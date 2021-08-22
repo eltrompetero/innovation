@@ -2,7 +2,6 @@
 # Wrappers for quick SQL queries.
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
-import duckdb
 import fastparquet as fp
 from itertools import chain
 from uuid import uuid4
@@ -1027,6 +1026,37 @@ class QueryRouter():
                     WHERE t>={tbds[0]} AND t<{tbds[1]}
                     ORDER BY t
                  '''
+        return [i.values.ravel() for i in self.query(ix, query, tbds)]
+
+    def lifetime(self, ix, tbds=None):
+        """Firm lifetime (before death).
+
+        Parameters
+        ----------
+        ix : int
+        tbds : twople, None
+
+        Returns
+        -------
+        list of float
+        """
+
+        if tbds is None:
+            tbds = 0
+        if not hasattr(tbds, '__len__') or len(tbds)==1:
+            tbds = (tbds, 10_000_000)
+
+        dt = self.dt(ix)
+        
+        query = f'''SELECT age
+                    FROM (SELECT ids, age, ROUND(t+{dt}, 5) AS t
+                          FROM parquet_scan('CACHE_DR/KEY.parquet')) AS past
+                    WHERE NOT EXISTS (SELECT ids, ROUND(t, 5)
+                                      FROM parquet_scan('CACHE_DR/KEY.parquet') AS now
+                                      WHERE now.ids = past.ids AND past.t = now.t)
+                        AND t>={tbds[0]} AND t<{tbds[1]}
+                 '''
+
         return [i.values.ravel() for i in self.query(ix, query, tbds)]
 
     def query(self, ix, q, tbds=None):

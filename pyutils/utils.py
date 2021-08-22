@@ -12,6 +12,8 @@ from warnings import warn
 from multiprocess import Pool, cpu_count
 from threadpoolctl import threadpool_limits
 import dill as pickle
+import duckdb
+
 DATADR = os.path.expanduser('~')+'/Dropbox/Research/corporations/starter_packet' 
 
 
