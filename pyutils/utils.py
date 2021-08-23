@@ -33,3 +33,30 @@ def topic_added_dates():
     udates, count = np.unique(df['Active Date'], return_counts=True)
     udates = np.array([dt.datetime.strptime(d,'%m/%d/%Y').date() for d in udates])
     return udates
+
+def bin_laplace(y, nbins, center=1):
+    """Bin statistics from a laplace distribution by using log bins spaced around the center.
+    
+    Parameters
+    ----------
+    y : ndarray
+    nbins : int
+    center : float, 1.
+    
+    Returns
+    -------
+    ndarray
+        Counts in bins.
+    ndarray
+        Bin edges.
+    ndarray
+        Bin centers.
+    """
+     
+    logy = np.log(y)
+
+    bins = np.linspace(0, np.abs(logy).max()+1e-6, nbins//2)
+    bins = np.concatenate((-bins[1:][::-1], bins)) + np.log(center)
+
+    n = np.histogram(logy, bins)[0]
+    return n, np.exp(bins), np.exp(bins[:-1] + (bins[1] - bins[0])/2)
