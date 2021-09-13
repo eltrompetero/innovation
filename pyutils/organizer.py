@@ -38,6 +38,7 @@ class SimLedger():
                                                 'growf',
                                                 'depressed_frac',
                                                 'connect_cost',
+                                                'income_multiplier',
                                                 'n_sims',
                                                 'T',
                                                 'dt'])

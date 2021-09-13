@@ -317,6 +317,7 @@ class Simulator():
                  depressed_frac=.2,
                  growf=.9,
                  connect_cost=0.,
+                 income_multiplier=1.,
                  min_wealth=1e-10,
                  dt=0.1,
                  rng=None,
@@ -343,6 +344,9 @@ class Simulator():
             Growth cost fraction f. If this is higher, then it is more expensive
             to expand into new sectors.
         connect_cost : float, 0.
+        income_multiplier : float, 1.
+            Coefficient on total income. Typically, this should increase growth
+            fluctuations.
         min_wealth : float, 1e-4
             Min wealth permitted for firm survival. Doesn't seem to make sense to allow
             this to be infinitely small.
@@ -364,6 +368,7 @@ class Simulator():
         self.depressed_frac = depressed_frac
         self.growf = growf
         self.connect_cost = connect_cost
+        self.income_multiplier = income_multiplier
         self.min_wealth = min_wealth
         
         self.dt = dt
@@ -465,7 +470,7 @@ class Simulator():
                 prev_wealth.append(f.wealth)
 
                 # calculate income to add to wealth later
-                income = f.income(depressedSites) * dt
+                income = f.income(depressedSites) * dt * self.income_multiplier
                 
                 # attempt to grow (assuming wealth is positive)
                 if f.rng.rand() < (expand_rate * dt):
@@ -757,6 +762,7 @@ class Simulator():
                             'depressed_frac':self.depressed_frac,
                             'growf':self.growf,
                             'connect_cost':self.connect_cost,
+                            'income_multiplier':self.income_multiplier,
                             'n_sims':(len(os.listdir(self.cache_dr))-1)//2,
                             'dt':self.dt})
         ledger = SimLedger()

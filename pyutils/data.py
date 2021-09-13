@@ -11,10 +11,11 @@ TOPICIDMAP = dict(df[['topic_name','topic_id']].values[:,::-1].tolist())
 
 
 class PQAccess():
+    """Class for accessing multiple PQ files at once."""
     # topic col default names
     TCOLS = ['topic_%d'%i for i in range(1,11)]
     TCOLS += ['topic_%d_score'%i for i in range(1,11)]
-    """Class for accessing multiple PQ files at once."""
+
     def __init__(self, fname_list):
         if type(fname_list) is str:
             fname_list = [fname_list]
