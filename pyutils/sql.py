@@ -260,7 +260,7 @@ def death_rate(df, fill_in_missing_t=False):
 class QueryRouter():
     """Class for routing queries through SQL to access parquet database for simulation results."""
     def __init__(self):
-        self.con = duckdb.connect(database=':memory:', read_only=False)
+        self.con = db.connect(database=':memory:', read_only=False)
         self.set_subsample(list(range(40)))
 
     def set_subsample(self, ix):
