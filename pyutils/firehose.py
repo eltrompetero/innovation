@@ -368,7 +368,7 @@ def hist_firm_source(bins, fname):
 
     return conn.execute(q).fetchdf().values.ravel()
 
-def setup_cooc(thisday=None, cache=False):
+def setup_cooc(thisday=None, cache=False, subsample=True):
     """Get co-occurrence and single occurrence counts for all topics and save to
     parquet file.
     
@@ -377,11 +377,21 @@ def setup_cooc(thisday=None, cache=False):
     overrepresents topics that appear in complex articles. We could avoid this by
     only considering articles with at least 10 labels, but this also may filter out
     some important pieces.
+
+    I checked manually with a simple DataFrame that this does what is expected in the
+    counting pairs section.
     
     Parameters
     ----------
     thisday : str, None
     cache : bool, False
+        If True, load from cache or save to cache.
+    subsample : bool, True
+        If True, use filtered subsample instead of entire data set.
+
+    Returns
+    -------
+    pd.DataFrame
     """
     
     if cache and os.path.isfile('cache/pairs_cooc.pq'):
@@ -391,6 +401,7 @@ def setup_cooc(thisday=None, cache=False):
         return db_conn().execute(q).fetchdf()
 
     q = '''PRAGMA threads=16;
+        PRAGMA memory_limit='128GB';
 
         CREATE TABLE topics (
           source_id varchar(255),
@@ -403,17 +414,23 @@ def setup_cooc(thisday=None, cache=False):
         FROM (
         '''
     for i in range(1, 11):
-        q += f'''SELECT DISTINCT source_id, topic_{i}
-                 FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq')
-                 WHERE topic_{i} IS NOT NULL AND topic_{i} <> ''
-                 UNION ALL''' + '\n'
+        if not subsample:
+            q += f'''SELECT DISTINCT source_id, topic_{i} AS topic_1
+                     FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/Redacted*parquet')
+                     WHERE topic_{i} IS NOT NULL AND topic_{i} <> ''
+                     UNION ALL''' + '\n'
+        else:
+            q += f'''SELECT DISTINCT source_id, topic_{i} AS topic_1
+                     FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq')
+                     WHERE topic_{i} IS NOT NULL AND topic_{i} <> ''
+                     UNION ALL''' + '\n'
     q = q.rstrip()[:-9]
     q += ''');\n'''
-
-    q += '''CREATE TABLE results AS
-                SELECT topics1.topic_1 AS topic_1, topics2.topic_1 AS topic_2, COUNT(*) as counts
-                FROM topics AS topics1
-                INNER JOIN topics AS topics2
+    
+    q += f'''CREATE TABLE results AS
+                SELECT topics1.topic_1 AS topic_1, topics2.topic_1 AS topic_2, COUNT(*) AS counts
+                FROM topics topics1
+                INNER JOIN topics topics2
                    ON topics1.source_id = topics2.source_id AND topics1.topic_1 < topics2.topic_1
                 GROUP BY topics1.topic_1, topics2.topic_1;
          '''
@@ -427,33 +444,6 @@ def setup_cooc(thisday=None, cache=False):
          '''
     return db_conn().execute(q).fetchdf()
  
-    #def loop_wrapper(args):
-    #    topic1, topic2 = args
-    #    q = f'''
-    #         SELECT topic_1, topic_2, COUNT(*) as counts
-    #         FROM (SELECT DISTINCT source_id,
-    #                      LEAST(topic_{topic1}, topic_{topic2}) AS topic_1,
-    #                      GREATEST(topic_{topic1}, topic_{topic2}) AS topic_2
-    #               FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq')
-    #               WHERE topic_{topic1} IS NOT NULL AND topic_{topic1} <> ''
-    #                   AND topic_{topic2} IS NOT NULL AND topic_{topic2} <> '')
-    #         GROUP BY topic_1, topic_2
-    #         '''
-    #    thisdf = db_conn().execute(q).fetchdf()
-    #    return thisdf
-    #    
-    #with Pool() as pool:
-    #    df = pool.map(loop_wrapper, combinations(range(1,11), 2))
-
-    #pairsdf = pd.concat(list(df))
-    #del df  # clear memory
-    #pairsdf = pairsdf.groupby(['topic_1','topic_2'], sort=False).sum()
-    #pairsdf = pairsdf.reset_index()
-    #if regex:
-    #    fp.write(f'cache/pairs_cooc.pq', pairsdf)
-    #else:
-    #    fp.write(f'{FIREHOSE_PATH}/{thisday}/pairs_cooc.pq', pairsdf)
-
 def _setup_cooc(thisday=None, regex=None):
     """Get co-occurrence and single occurrence counts for all topics and save to
     parquet file.
