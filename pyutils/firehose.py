@@ -53,7 +53,7 @@ def setup(thisday,
     pqfile = f'{firehose_path}/{thisday}/subsample.pq'
     if force or not os.path.isfile(f'{firehose_path}/{thisday}/percentile_cutoff.p'):
         # get distribution of relevancy to determine cutoff for individ domains
-        q = f'''PRAGMA threads=16;
+        q = f'''PRAGMA threads=32;
 
                 SELECT avg_rlvcy
                 FROM (SELECT domain, AVG(topic_1_score) AS avg_rlvcy
@@ -101,7 +101,7 @@ def setup(thisday,
             percentile_cutoff = pickle.load(f)['percentile_cutoff']
     print(f'{percentile_cutoff=:.5f}')
     
-    q = f'''PRAGMA threads=16;
+    q = f'''PRAGMA threads=32;
 
             SELECT odata.*
             FROM (SELECT domain, AVG(topic_1_score) AS avg_rlvcy
@@ -146,7 +146,7 @@ def setup(thisday,
     print(f'Done with {thisday=}.')
 
 def firm_topics(thisday=None, regex=None, force=False):
-    """Topics spanned by a firm, i.e. unique domain topic pairs.
+    """Topics spanned by a firm, i.e. unique (domain, topic) pairs.
 
     Parameters
     ----------
@@ -168,7 +168,7 @@ def firm_topics(thisday=None, regex=None, force=False):
     conn = db.connect(database=':memory:', read_only=False)
 
     if thisday and (force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/udomains.pq')):
-        q = f'''PRAGMA threads=16;
+        q = f'''PRAGMA threads=32;
 
                 COPY (SELECT DISTINCT *
                       FROM (SELECT domain, topic_1 FROM parquet_scan('{pqfile}')
@@ -204,7 +204,7 @@ def firm_topics(thisday=None, regex=None, force=False):
              '''
         conn.execute(q)
     elif regex:
-        q = f'''PRAGMA threads=16;
+        q = f'''PRAGMA threads=32;
                 SELECT DISTINCT *
                 FROM parquet_scan('{pqfile}')
              '''
@@ -240,7 +240,7 @@ def firm_source(thisday=None, regex=None, force=False):
     conn = db.connect(database=':memory:', read_only=False)
 
     if thisday and (force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/usource.pq')):
-        q = f'''PRAGMA threads=16;
+        q = f'''PRAGMA threads=32;
 
                 COPY (SELECT DISTINCT *
                       FROM (SELECT domain, source_id FROM parquet_scan('{pqfile}')))
@@ -294,7 +294,7 @@ def hist_firm_records(bins, fname):
         s += f"count(CASE WHEN counts>={bins[i]} AND counts < {bins[i+1]} THEN 1 END) AS 'bin {i}',"
     s = s[:-1]
 
-    q = f'''PRAGMA threads=16;
+    q = f'''PRAGMA threads=32;
             SELECT {s}
             FROM (SELECT domain, COUNT(*) as counts
                   FROM parquet_scan('{fname}')
@@ -326,7 +326,7 @@ def hist_firm_topics(bins, fname):
         s += f"count(CASE WHEN counts>={bins[i]} AND counts < {bins[i+1]} THEN 1 END) AS 'bin {i}',"
     s = s[:-1]
 
-    q = f'''PRAGMA threads=16;
+    q = f'''PRAGMA threads=32;
             SELECT {s}
             FROM (SELECT APPROX_COUNT_DISTINCT(topic_1) as counts
                   FROM parquet_scan('{fname}')
@@ -359,7 +359,7 @@ def hist_firm_source(bins, fname):
         s += f"count(CASE WHEN counts>={bins[i]} AND counts < {bins[i+1]} THEN 1 END) AS 'bin {i}',"
     s = s[:-1]
 
-    q = f'''PRAGMA threads=16;
+    q = f'''PRAGMA threads=32;
             SELECT {s}
             FROM (SELECT COUNT(*) as counts
                   FROM parquet_scan('{fname}')
@@ -400,7 +400,7 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
             '''
         return db_conn().execute(q).fetchdf()
 
-    q = '''PRAGMA threads=16;
+    q = '''PRAGMA threads=32;
         PRAGMA memory_limit='128GB';
 
         CREATE TABLE topics (
@@ -433,11 +433,19 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
                 INNER JOIN topics topics2
                    ON topics1.source_id = topics2.source_id AND topics1.topic_1 < topics2.topic_1
                 GROUP BY topics1.topic_1, topics2.topic_1;
+
+             CREATE TABLE frequency AS
+                SELECT topic_1, COUNT(source_id) AS counts
+                FROM topics
+                GROUP BY topic_1;
          '''
     if cache:
         q += '''
              COPY results
              TO 'cache/pairs_cooc.pq' (FORMAT 'parquet');
+
+             COPY frequency
+             TO 'cache/frequency.pq' (FORMAT 'parquet');
              '''
     q += '''
          SELECT * FROM results
@@ -493,7 +501,7 @@ def topic_frequency(thisday):
     """Calculate frequencies of each topic.
     """
 
-    q = f'''PRAGMA threads=16;
+    q = f'''PRAGMA threads=32;
             
             SELECT topic_1, COUNT(*) as counts
             FROM ('''
