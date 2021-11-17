@@ -3,15 +3,7 @@
 # 
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
-from datetime import datetime
-import string
-from scipy.signal import fftconvolve
-from time import perf_counter
-import _pickle as cpickle
-from time import sleep
-from uuid import uuid4
-from multiprocess import Lock
-from psutil import virtual_memory
+from numba import njit
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -152,27 +144,41 @@ class Simulator():
             grow_lattice = 0  # switch for if lattice needs to be grown
             new_occupancy = 0  # count new firms occupying innovated area
             
-            for f in firms:
+            n_firms = len(firms)
+            for i in range(n_firms):
+                f = firms[i]
                 # attempt to grow (assuming wealth is positive)
                 if f.rng.rand() < (expand_rate * dt):
                     out = f.grow(exploit_rate)
                     # if the firm grows and lattice does not
                     if out[0] and not out[1]:
                         lattice.d_add(f.sites[1])
+
+                        # new firm
+                        firms.append(Firm(f.sites[1], innov_rate,
+                                          lattice=lattice, wealth=np.inf, rng=self.rng))
+                        f.sites = f.sites[0], f.sites[1]-1
                     # if the firm grows and the lattice grows
                     elif out[0] and out[1]:
                         new_occupancy += 1  # keep track of total frontier density
                         grow_lattice += 1
+
+                        f.sites = f.sites[0], f.sites[1]-1
                     # if the firm does not grow and the lattice does
                     elif not out[0] and out[1]:
                         grow_lattice += 1
 
                 f.age += dt
+                i += 1
             lattice.push()
             # if any firm innovated, then grow the lattice
             if grow_lattice:
                 lattice.extend_right()
                 lattice.add(lattice.right, new_occupancy)
+                for i in range(grow_lattice):
+                    # new firm
+                    firms.append(Firm(lattice.right, innov_rate,
+                                      lattice=lattice, wealth=np.inf, rng=self.rng))
 
             # shrink topic lattice
             if (lattice.left < (lattice.right-1)) and (self.rng.rand() < (obs_rate * dt)):
@@ -198,6 +204,7 @@ class Simulator():
 
             # spawn new firms
             nNew = self.rng.poisson(g0 * dt)
+            #nNew = self.rng.rand() < (g0*dt)
             for i in range(nNew):
                 firms.append(Firm(self.rng.randint(lattice.left+1, lattice.right+1),
                                   innov_rate,
@@ -442,3 +449,137 @@ class Simulator():
             print(k)
         print()
 #end Simulator
+
+
+class UnitSimulator(Simulator):
+    """Independent unit simulation of firms, which is the same thing as a density
+    evolution equation. This is the simplest implementation possible that only
+    keeps track of the occupancy number and does nothing fancy.
+    """
+
+    def simulate(self, T, reset_rng=False, jit=True):
+        """
+        dt must be small enough to ignore coincident events.
+        """
+       
+        g0 = self.g0
+        vo = self.obs_rate
+        rd = self.death_rate
+        re = self.expand_rate
+        fi = self.innov_rate
+        dt = self.dt
+        
+        assert (g0 * dt)<1
+        assert (rd * dt)<1
+        assert (re * dt)<1
+        assert (vo * dt)<1
+
+        if jit:
+            if reset_rng: np.random.seed()
+            return jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo)
+ 
+        if reset_rng: self.rng.seed()
+
+        occupancy = [0]
+        counter = 0
+        while (counter * dt) < T:
+            # innov
+            if self.rng.rand() < (re * fi * occupancy[-1] * dt):
+                occupancy.append(0)
+
+            # from right to left b/c of expansion
+            for x in range(len(occupancy)-1, -1, -1):
+                # death
+                ndead = 0
+                for i in range(occupancy[x]):
+                    if self.rng.rand() < (rd * dt):
+                        ndead += 1
+                occupancy[x] -= ndead
+
+                # expansion
+                if x < (len(occupancy)-1):
+                    for i in range(occupancy[x]):
+                        if self.rng.rand() < (re * dt):
+                            occupancy[x+1] += 1
+
+                # start up
+                if self.rng.rand() < (g0 / len(occupancy) * dt):
+                    occupancy[x] += 1
+            
+            # obsolescence
+            if len(occupancy) > 1 and self.rng.rand() < (vo * dt):
+                occupancy.pop(0)
+
+            counter += 1
+        return occupancy
+
+    def parallel_simulate(self, n_samples, T, **kwargs):
+        """
+        Parameters
+        ----------
+        n_samples : int
+        T : int
+        **kwargs
+        
+        Returns
+        -------
+        list of lists
+            Each inner list is an occupancy list.
+        """
+
+        with Pool() as pool:
+            output = list(pool.map(lambda args: self.simulate(T, True, **kwargs), range(n_samples)))
+        return output
+#end UnitSimulator
+
+
+@njit
+def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
+    """
+    Parameters
+    ----------
+    T : int
+    dt : float
+    g0 : float
+    re : float
+    rd : float
+    fi : float
+    vo : float
+    """
+
+    occupancy = [0]
+    zero_counter = 1  # no. of times lattice length is 1
+    counter = 0
+    while (counter * dt) < T:
+        # innov
+        if np.random.rand() < (re * fi * occupancy[-1] * dt):
+            occupancy.append(0)
+
+        # from right to left b/c of expansion
+        for x in range(len(occupancy)-1, -1, -1):
+            # death
+            ndead = 0
+            for i in range(occupancy[x]):
+                if np.random.rand() < (rd * dt):
+                    ndead += 1
+            occupancy[x] -= ndead
+
+            # expansion
+            if x < (len(occupancy)-1):
+                for i in range(occupancy[x]):
+                    if np.random.rand() < (re * dt):
+                        occupancy[x+1] += 1
+
+            # start up
+            if np.random.rand() < (g0 / len(occupancy) * dt):
+                occupancy[x] += 1
+
+        # obsolescence
+        if len(occupancy) > 1 and np.random.rand() < (vo * dt):
+            occupancy.pop(0)
+        
+        if len(occupancy)==1:
+            zero_counter += 1
+        counter += 1
+    return occupancy
+
