@@ -546,6 +546,8 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
     fi : float
     vo : float
     """
+    
+    d = 0
 
     occupancy = [0]
     zero_counter = 1  # no. of times lattice length is 1
@@ -557,18 +559,14 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
 
         # from right to left b/c of expansion
         for x in range(len(occupancy)-1, -1, -1):
-            # death
-            ndead = 0
-            for i in range(occupancy[x]):
-                if np.random.rand() < (rd * dt):
-                    ndead += 1
-            occupancy[x] -= ndead
+            # death (fast approximation)
+            if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
+                occupancy[x] -= 1
 
-            # expansion
+            # expansion (fast approximation)
             if x < (len(occupancy)-1):
-                for i in range(occupancy[x]):
-                    if np.random.rand() < (re * dt):
-                        occupancy[x+1] += 1
+                if occupancy[x] and np.random.rand() < (occupancy[x] * re * dt):
+                    occupancy[x+1] += 1
 
             # start up
             if np.random.rand() < (g0 / len(occupancy) * dt):
@@ -580,6 +578,10 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
         
         if len(occupancy)==1:
             zero_counter += 1
+        
+        #if len(occupancy)>1:
+        #    d += g0/len(occupancy) + re*occupancy[-2] - rd*occupancy[-1] - re*fi*occupancy[-1]**2
+
         counter += 1
     return occupancy
 
