@@ -183,9 +183,9 @@ class IterativeMFT():
 
         nfun = np.zeros(int(L))
         nfun[0] = n0
-        nfun[1] = wi*n0**2 + rd*n0/re - G/L/re
+        nfun[1] = wi * n0**2 + rd * n0 / re - G / L / re
 
-        for i in range(2, int(L)):
+        for i in range(2, nfun.size):
             nfun[i] = wi * n0 * (nfun[i-1] - nfun[i-2]) + rd * nfun[i-1] / re - G / re / L
 
         if iprint: print(eps)

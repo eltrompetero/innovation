@@ -439,9 +439,6 @@ class Simulator():
         
         print(f'new firm rate   =\t{self.g0}')
         print(f'innov rate      =\t{self.innov_rate}')
-        print(f'grow frac cost  =\t{self.growf}')
-        print(f'depressed frac  =\t{self.depressed_frac}')
-        print(f'connection cost =\t{self.connect_cost}')
         print()
 
         print(f'This instance has {len(self.storage)} sims run on')
@@ -466,7 +463,7 @@ class UnitSimulator(Simulator):
         vo = self.obs_rate
         rd = self.death_rate
         re = self.expand_rate
-        fi = self.innov_rate
+        wi = self.innov_rate
         dt = self.dt
         
         assert (g0 * dt)<1
@@ -476,7 +473,7 @@ class UnitSimulator(Simulator):
 
         if jit:
             if reset_rng: np.random.seed()
-            return jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo)
+            return jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo)
  
         if reset_rng: self.rng.seed()
 
@@ -484,23 +481,21 @@ class UnitSimulator(Simulator):
         counter = 0
         while (counter * dt) < T:
             # innov
-            if self.rng.rand() < (re * fi * occupancy[-1] * dt):
-                occupancy.append(0)
+            innov = False
+            if self.rng.rand() < (re * wi * occupancy[-1] * dt):
+                occupancy.append(1)
+                innov = True
 
             # from right to left b/c of expansion
             for x in range(len(occupancy)-1, -1, -1):
-                # death
-                ndead = 0
-                for i in range(occupancy[x]):
-                    if self.rng.rand() < (rd * dt):
-                        ndead += 1
-                occupancy[x] -= ndead
+                # death (fast approximation)
+                if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
+                    occupancy[x] -= 1
 
-                # expansion
-                if x < (len(occupancy)-1):
-                    for i in range(occupancy[x]):
-                        if self.rng.rand() < (re * dt):
-                            occupancy[x+1] += 1
+                # expansion (fast approximation)
+                if x < (len(occupancy)-1-innov):
+                    if occupancy[x] and np.random.rand() < (occupancy[x] * re * dt):
+                        occupancy[x+1] += 1
 
                 # start up
                 if self.rng.rand() < (g0 / len(occupancy) * dt):
@@ -534,7 +529,7 @@ class UnitSimulator(Simulator):
 
 
 @njit
-def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
+def jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo):
     """
     Parameters
     ----------
@@ -543,19 +538,18 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
     g0 : float
     re : float
     rd : float
-    fi : float
+    wi : float
     vo : float
     """
     
-    d = 0
-
     occupancy = [0]
-    zero_counter = 1  # no. of times lattice length is 1
     counter = 0
     while (counter * dt) < T:
         # innov
-        if np.random.rand() < (re * fi * occupancy[-1] * dt):
-            occupancy.append(0)
+        innov = False
+        if occupancy[-1] and np.random.rand() < (re * wi * occupancy[-1] * dt):
+            occupancy.append(1)
+            innov = True
 
         # from right to left b/c of expansion
         for x in range(len(occupancy)-1, -1, -1):
@@ -564,7 +558,7 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
                 occupancy[x] -= 1
 
             # expansion (fast approximation)
-            if x < (len(occupancy)-1):
+            if x < (len(occupancy)-1-innov):
                 if occupancy[x] and np.random.rand() < (occupancy[x] * re * dt):
                     occupancy[x+1] += 1
 
@@ -576,12 +570,5 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, fi, vo):
         if len(occupancy) > 1 and np.random.rand() < (vo * dt):
             occupancy.pop(0)
         
-        if len(occupancy)==1:
-            zero_counter += 1
-        
-        #if len(occupancy)>1:
-        #    d += g0/len(occupancy) + re*occupancy[-2] - rd*occupancy[-1] - re*fi*occupancy[-1]**2
-
         counter += 1
     return occupancy
-
