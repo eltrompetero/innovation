@@ -12,9 +12,9 @@ from .utils import *
 FIREHOSE_PATH='/home/eddie/Dropbox/Research/corporations/starter_packet/firehose'
 
 
+
 def setup(thisday,
           force=False,
-          firehose_path='/home/eddie/Dropbox/Research/corporations/starter_packet/firehose',
           percent=10):
     """
     1. Downsample day to percent.
@@ -25,33 +25,32 @@ def setup(thisday,
     ----------
     day : str
     force : bool, False
-    firehose_path : str, '/home/eddie/Dropbox/Research/corporations/starter_packet/firehose'
     """
     
     conn = db.connect(database=':memory:', read_only=False)
 
-    if force or not os.path.isfile(f'{firehose_path}/{thisday}/subsample.pq'):
+    if force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/subsample.pq'):
         # create subsample DF
-        if os.path.isfile(f'{firehose_path}/{thisday}/all.pq'):
+        if os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/all.pq'):
             q = f'''
                     SELECT *
-                    FROM parquet_scan('{firehose_path}/{thisday}/all.pq')
+                    FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/all.pq')
                     TABLESAMPLE({percent} PERCENT)
                  '''
         else:
             q = f'''
                     SELECT *
-                    FROM parquet_scan('{firehose_path}/{thisday}/*_Firehose*.parquet')
+                    FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/*_Firehose*.parquet')
                     TABLESAMPLE({percent} PERCENT)
                  '''
 
         df = conn.execute(q).fetchdf()
-        fp.write(f'{firehose_path}/{thisday}/subsample.pq', df, 100_000,
+        fp.write(f'{FIREHOSE_PATH}/{thisday}/subsample.pq', df, 100_000,
                  compression='SNAPPY')
         del df
     
-    pqfile = f'{firehose_path}/{thisday}/subsample.pq'
-    if force or not os.path.isfile(f'{firehose_path}/{thisday}/percentile_cutoff.p'):
+    pqfile = f'{FIREHOSE_PATH}/{thisday}/subsample.pq'
+    if force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p'):
         # get distribution of relevancy to determine cutoff for individ domains
         q = f'''PRAGMA threads=16;
 
@@ -94,10 +93,10 @@ def setup(thisday,
         percentile_cutoff = np.percentile(df['avg_rlvcy'], 5)
         del df
 
-        with open(f'{firehose_path}/{thisday}/percentile_cutoff.p', 'wb') as f:
+        with open(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p', 'wb') as f:
             pickle.dump({'percentile_cutoff':percentile_cutoff}, f)
     else:
-        with open(f'{firehose_path}/{thisday}/percentile_cutoff.p', 'rb') as f:
+        with open(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p', 'rb') as f:
             percentile_cutoff = pickle.load(f)['percentile_cutoff']
     print(f'{percentile_cutoff=:.5f}')
     
@@ -140,7 +139,7 @@ def setup(thisday,
             WHERE avg_rlvcy > {percentile_cutoff}
          '''
     df = conn.execute(q).fetchdf()
-    fp.write(f'{firehose_path}/{thisday}/filtered_subsample.pq', df,
+    fp.write(f'{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq', df,
              compression='SNAPPY')
 
     print(f'Done with {thisday=}.')
@@ -218,7 +217,7 @@ def firm_topics(thisday=None, regex=None, force=False):
     return df
 
 def firm_source(thisday=None, regex=None, force=False):
-    """Unique source ids considered by a firm (i.e. domain).
+    """Unique source ids with topic labels considered by a firm (i.e. as specified by domain).
 
     Parameters
     ----------
@@ -240,10 +239,21 @@ def firm_source(thisday=None, regex=None, force=False):
     conn = db.connect(database=':memory:', read_only=False)
 
     if thisday and (force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/usource.pq')):
-        q = f'''PRAGMA threads=16;
+        q = f'''PRAGMA threads=32;
 
                 COPY (SELECT DISTINCT *
-                      FROM (SELECT domain, source_id FROM parquet_scan('{pqfile}')))
+                      FROM (SELECT domain, source_id,
+                                topic_1, topic_1_score,
+                                topic_2, topic_2_score,
+                                topic_3, topic_3_score,
+                                topic_4, topic_4_score,
+                                topic_5, topic_5_score,
+                                topic_6, topic_6_score,
+                                topic_7, topic_7_score,
+                                topic_8, topic_8_score,
+                                topic_9, topic_9_score,
+                                topic_10, topic_10_score
+                            FROM parquet_scan('{pqfile}')))
                 TO '{FIREHOSE_PATH}/{thisday}/usource.pq' (FORMAT 'parquet')
              '''
         conn.execute(q)
