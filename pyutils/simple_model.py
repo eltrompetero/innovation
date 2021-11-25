@@ -460,7 +460,7 @@ class UnitSimulator(Simulator):
         """
        
         g0 = self.g0
-        vo = self.obs_rate
+        ro = self.obs_rate
         rd = self.death_rate
         re = self.expand_rate
         wi = self.innov_rate
@@ -469,11 +469,11 @@ class UnitSimulator(Simulator):
         assert (g0 * dt)<1
         assert (rd * dt)<1
         assert (re * dt)<1
-        assert (vo * dt)<1
+        assert (ro * dt)<1
 
         if jit:
             if reset_rng: np.random.seed()
-            return jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo)
+            return jit_unit_sim_loop(T, dt, g0, re, rd, wi, ro)
  
         if reset_rng: self.rng.seed()
 
@@ -502,7 +502,7 @@ class UnitSimulator(Simulator):
                     occupancy[x] += 1
             
             # obsolescence
-            if len(occupancy) > 1 and self.rng.rand() < (vo * dt):
+            if len(occupancy) > 1 and self.rng.rand() < (ro * dt):
                 occupancy.pop(0)
 
             counter += 1
@@ -529,7 +529,7 @@ class UnitSimulator(Simulator):
 
 
 @njit
-def jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo):
+def jit_unit_sim_loop(T, dt, g0, re, rd, wi, ro):
     """
     Parameters
     ----------
@@ -539,7 +539,7 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo):
     re : float
     rd : float
     wi : float
-    vo : float
+    ro : float
     """
     
     occupancy = [0]
@@ -567,7 +567,7 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo):
                 occupancy[x] += 1
 
         # obsolescence
-        if len(occupancy) > 1 and np.random.rand() < (vo * dt):
+        if len(occupancy) > 1 and np.random.rand() < (ro * dt):
             occupancy.pop(0)
         
         counter += 1
@@ -576,28 +576,40 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, wi, vo):
 
 
 class IterativeMFT():
-    def __init__(self, vo, G, re, rd, wi):
+    def __init__(self, ro, G, re, rd, wi):
         """Class for calculating discrete MFT quantities.
 
         Parameters
         ----------
-        vo : float
+        ro : float
         G : float
         re : float
         rd : float
         wi : float
         """
 
-        self.vo = vo
+        self.ro = ro
         self.G = G
         self.re = re
         self.rd = rd
         self.wi = wi
-        self.n0 = vo/re/wi  # stationary density
+        self.n0 = ro/re/wi  # stationary density
+
+        assert (2*re - rd) * self.n0 - re*wi*self.n0**2 <= 0, "Stationary criterion unmet."
         
         # MFT guess for L, which we will refine using tail convergence criteria
-        self.L0 = 4 * G * re * wi / ((2 * vo - (2*re-rd))**2 - (2*re-rd)**2)
-        self.min_L(self.L0)
+        try:
+            self.L0 = 4 * G * re * wi / ((2 * ro - (2*re-rd))**2 - (2*re-rd)**2)
+        except ZeroDivisionError:
+            self.L0 = np.inf
+        
+        # for handling infinite L
+        if ~np.isfinite(self.L0) or self.L0<0:
+            self.L0 = 100_000
+            self.L = self.L0
+            self.n = self.iterate_n()
+        else:
+            self.min_L(self.L0)
 
     def min_L(self, L0, mx_decimal=10):
         """Lower L slower and slower while keeping tail positive in order to find value
@@ -622,9 +634,9 @@ class IterativeMFT():
         """
         
         assert mx_decimal < 14, "Exceeding floating point precision."
-        assert L0 > 2
+        assert L0 > 2, L0
 
-        vo = self.vo
+        ro = self.ro
         G = self.G
         re = self.re
         rd = self.rd
@@ -658,7 +670,7 @@ class IterativeMFT():
     def iterate_n(self, L=None, iprint=False):
         """Iterative solution to occupancy number. See NB II pg. 118."""
         
-        vo = self.vo
+        ro = self.ro
         G = self.G
         re = self.re
         rd = self.rd
@@ -689,7 +701,7 @@ class IterativeMFT():
             boundary leads to large numerical errors.
         """
 
-        vo = self.vo
+        ro = self.ro
         G = self.G
         re = self.re
         rd = self.rd
@@ -702,7 +714,7 @@ class IterativeMFT():
 
 
 class DynamicalMFT():
-    def __init__(self, vo, G, re, rd, wi, dt):
+    def __init__(self, ro, G, re, rd, wi, dt):
         """Class for calculating discrete MFT quantities by running dynamics.
 
         Parameters
@@ -714,20 +726,33 @@ class DynamicalMFT():
         dt : float
         """
         
-        self.vo = vo
+        self.ro = ro
         self.G = G
         self.re = re
         self.rd = rd
         self.wi = wi
         self.dt = dt
 
-        self.n0 = vo/re/wi
-        self.L = G / (self.n0 * (rd - 2*re + wi*self.n0*re))
+        self.n0 = ro/re/wi
+        
+        try:
+            self.L = G / (self.n0 * (rd - 2*re + re*wi*self.n0))
+        except ZeroDivisionError:
+            self.L = np.inf
+        if self.L < 0:
+            self.L = np.inf
+        else:
+            self.L = min(self.L, 10_000)
     
-    def update_n(self, L):
-        """Update occupancy number for a small time step.
-        """
+    def update_n(self, L=None):
+        """Update occupancy number for a small time step self.dt.
 
+        Parameters
+        ----------
+        L : float, None
+        """
+        
+        L = L or self.L
         dn = self.G/L - self.rd * self.n
         dn -= self.re * self.wi * self.n[0] * self.n
         dn[1:] += self.re * self.wi * self.n[0] * self.n[:-1]
@@ -735,20 +760,76 @@ class DynamicalMFT():
         dn[-1] += .1  # right hand boundary doesn't matter if far away
         
         self.n += dn * self.dt
-    
-    def run(self, L, T, save_every, iprint=False):
+
+    def solve_stationary(self,
+                         threshold=1e-5,
+                         T=5e4,
+                         L=None,
+                         n0=None,
+                         iprint=False):
+        """Run til stationary state is met using convergence criterion.
+
+        Parameters
+        ----------
+        threshold : float, 1e-5
+            Max absolute change permitted per lattice site per unit time.
+        T : float, 5e4
+        L : int, None
+        n0 : ndarray, None
+        iprint : bool, False
+
+        Returns
+        -------
+        int
+            Flag indicating if problem converged (0) or not (1).
+        float
+            Maximum absolute difference between last two steps of simulation.
+        """
+        
+        L = L or self.L
+        # simply impose a large upper limit for infinite L
+        if not np.isfinite(L):
+            L = 10_000
+        
+        if n0 is None and 'n' in self.__dict__:
+            n0 = self.n.copy()
+        elif n0 is None:
+            n0 = np.ones(int(L))/2
+        self.n = n0.copy()
+        prev_n = np.zeros_like(n0)
+
+        counter = 0
+        while (self.dt*counter) < T and np.abs(prev_n-self.n).max()>(self.dt*threshold):
+            prev_n = self.n.copy()
+            self.update_n(L)
+            counter += 1
+        
+        if (self.dt*counter) >= T:
+            flag = 1
+        else:
+            flag = 0
+        
+        mx_err = np.abs(prev_n-self.n).max()
+        return flag, mx_err
+
+    def run(self, T, save_every, L=None, iprint=False):
         """
         Parameters
         ----------
-        L : int
         T : int
         save_every : int
+        L : int, None
         iprint : bool, False
 
         Returns
         -------
         list of list
         """
+        
+        L = L or self.L
+        # simply impose a large upper limit for infinite L
+        if not np.isfinite(L):
+            L = 10_000
 
         t = []
         n0 = np.ones(int(L))/2
