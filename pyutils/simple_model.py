@@ -525,6 +525,36 @@ class UnitSimulator(Simulator):
         with Pool() as pool:
             output = list(pool.map(lambda args: self.simulate(T, True, **kwargs), range(n_samples)))
         return output
+
+    def mean_occupancy(self, occupancy, width, norm_err=True):
+        """
+        Parameters
+        ----------
+        occupancy : list of list
+        width : int
+        norm_err : bool, True
+
+        Returns
+        -------
+        ndarray
+            Average occupancy.
+        ndarray
+            Standard deviation as error bars.
+        """
+        
+        if width==np.inf:
+            maxL = max([len(i) for i in occupancy])
+            y = np.zeros(maxL)
+            counts = np.zeros(maxL, dtype=int)
+            for i in occupancy:
+                y[:len(i)] += i[::-1]
+                counts[:len(i)] += 1
+            return y / counts
+
+        y = np.vstack([i[-width:] for i in occupancy if len(i)>=width])[:,::-1]
+        if norm_err:
+            return y.mean(0), y.std(0) / np.sqrt(y.shape[0])
+        return y.mean(0), y.std(0)
 #end UnitSimulator
 
 
@@ -682,6 +712,7 @@ class IterativeMFT():
 
         n = np.zeros(int(L))
         n[0] = n0
+        # rigid assumption about n[1]
         n[1] = wi * n0**2 + rd * n0 / re - G / L / re
 
         for i in range(2, n.size):
@@ -714,7 +745,8 @@ class IterativeMFT():
 
 
 class DynamicalMFT():
-    def __init__(self, ro, G, re, rd, wi, dt):
+    def __init__(self, ro, G, re, rd, I, dt,
+                 correct=True):
         """Class for calculating discrete MFT quantities by running dynamics.
 
         Parameters
@@ -722,21 +754,26 @@ class DynamicalMFT():
         G : float
         re : float
         rd : float
-        wi : float
+        I : float
         dt : float
+        correct : bool, True
+            If True, use calculation for corrected L.
         """
         
         self.ro = ro
         self.G = G
         self.re = re
         self.rd = rd
-        self.wi = wi
+        self.I = I
         self.dt = dt
 
-        self.n0 = ro/re/wi
+        self.n0 = ro/re/I
         
         try:
-            self.L = G / (self.n0 * (rd - 2*re + re*wi*self.n0))
+            if correct:
+                self.L = self.mft_L()
+            else:
+                self.L = G / (self.n0 * (rd - 2*re + re*I*self.n0))
         except ZeroDivisionError:
             self.L = np.inf
         if self.L < 0:
@@ -754,15 +791,15 @@ class DynamicalMFT():
         
         L = L or self.L
         dn = self.G/L - self.rd * self.n
-        dn -= self.re * self.wi * self.n[0] * self.n
-        dn[1:] += self.re * self.wi * self.n[0] * self.n[:-1]
+        dn -= self.re * self.I * self.n[0] * self.n
+        dn[1:] += self.re * self.I * self.n[0] * self.n[:-1]
         dn[:-1] += self.re * self.n[1:]
         dn[-1] += .1  # right hand boundary doesn't matter if far away
         
         self.n += dn * self.dt
 
     def solve_stationary(self,
-                         threshold=1e-5,
+                         tol=1e-5,
                          T=5e4,
                          L=None,
                          n0=None,
@@ -771,7 +808,7 @@ class DynamicalMFT():
 
         Parameters
         ----------
-        threshold : float, 1e-5
+        tol : float, 1e-5
             Max absolute change permitted per lattice site per unit time.
         T : float, 5e4
         L : int, None
@@ -799,7 +836,7 @@ class DynamicalMFT():
         prev_n = np.zeros_like(n0)
 
         counter = 0
-        while (self.dt*counter) < T and np.abs(prev_n-self.n).max()>(self.dt*threshold):
+        while (self.dt*counter) < T and np.abs(prev_n-self.n).max()>(self.dt*tol):
             prev_n = self.n.copy()
             self.update_n(L)
             counter += 1
@@ -853,7 +890,46 @@ class DynamicalMFT():
         G = self.G
         re = self.re
         rd = self.rd
-        wi = self.wi
+        I = self.I
 
-        return ((2-rd/re) + np.sqrt((2-rd/re)**2 + 4*wi*G/re/L)) / 2 / wi
+        return ((2-rd/re) + np.sqrt((2-rd/re)**2 + 4*I*G/re/L)) / 2 / I
+    
+    def mft_L(self, second_order=False): 
+        """Calculate stationary lattice Idth accounting the first order order (from
+        Firms II pg. 140).
+        
+        Parameters
+        ----------
+        second_order : bool, False
+            If True, include additional estimate of corrections to L. Usually, this
+            is quite poor because we are guessing at the value of delta to order of
+            magnitude.
+
+        Returns
+        -------
+        float
+            Estimated lattice width.
+        """
+        
+        G = self.G
+        I = self.I
+        re = self.re
+        rd = self.rd
+        ro = self.ro
+        n0 = self.n0
+
+        z = (re-rd) / re / (I*n0 - 1)
+        delta = - ro / (ro-re) * n0 * z/2
+        C = z**-1 * (np.exp(-z) - 1 + z)
+        
+        if not second_order:
+            # correcting factor is correct; matches taylor expansion
+            return -G * re * I / (ro * (re * (1+1/(1-C)) - rd - ro))
+    
+        # second order correction for L
+        # corrected equation for n'(0)
+        # really, we don't know delta
+        npp = (n0 - delta / z * C) / (1-C)
+        # n0 * (1 + z/2) - delta/2  # taylor expansion of npp
+        return -G * re * wi / (ro * (re - rd - ro + re*npp/n0))
 #end DynamicalMFT
