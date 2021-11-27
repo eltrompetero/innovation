@@ -27,6 +27,7 @@ class Simulator():
                  innov_rate=.5,
                  exploit_rate=.5,
                  death_rate=.2,
+                 cooperativity=1.,
                  dt=0.1,
                  rng=None,
                  cache_dr=None):
@@ -49,6 +50,7 @@ class Simulator():
             Probability of successfully exploiting innovated area.
         death_rate : float, .2
             Rate of death.
+        cooperativity : float, 1.
         dt : float, .1
             Time step size.
         rng : np.RandomState
@@ -65,6 +67,7 @@ class Simulator():
         self.innov_rate = innov_rate
         self.exploit_rate = exploit_rate
         self.death_rate = death_rate
+        self.cooperativity = cooperativity
         
         self.dt = dt
         self.rng = rng or np.random
@@ -463,7 +466,8 @@ class UnitSimulator(Simulator):
         ro = self.obs_rate
         rd = self.death_rate
         re = self.expand_rate
-        wi = self.innov_rate
+        I = self.innov_rate
+        a = self.cooperativity
         dt = self.dt
         
         assert (g0 * dt)<1
@@ -473,7 +477,7 @@ class UnitSimulator(Simulator):
 
         if jit:
             if reset_rng: np.random.seed()
-            return jit_unit_sim_loop(T, dt, g0, re, rd, wi, ro)
+            return jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a)
  
         if reset_rng: self.rng.seed()
 
@@ -482,7 +486,7 @@ class UnitSimulator(Simulator):
         while (counter * dt) < T:
             # innov
             innov = False
-            if self.rng.rand() < (re * wi * occupancy[-1] * dt):
+            if self.rng.rand() < (re * I * occupancy[-1]**a * dt):
                 occupancy.append(1)
                 innov = True
 
@@ -559,7 +563,7 @@ class UnitSimulator(Simulator):
 
 
 @njit
-def jit_unit_sim_loop(T, dt, g0, re, rd, wi, ro):
+def jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a):
     """
     Parameters
     ----------
@@ -568,8 +572,9 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, wi, ro):
     g0 : float
     re : float
     rd : float
-    wi : float
+    I : float
     ro : float
+    a : float
     """
     
     occupancy = [0]
@@ -577,7 +582,7 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, wi, ro):
     while (counter * dt) < T:
         # innov
         innov = False
-        if occupancy[-1] and np.random.rand() < (re * wi * occupancy[-1] * dt):
+        if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
             occupancy.append(1)
             innov = True
 
@@ -746,7 +751,8 @@ class IterativeMFT():
 
 class DynamicalMFT():
     def __init__(self, ro, G, re, rd, I, dt,
-                 correct=True):
+                 correction=True,
+                 alpha=1.):
         """Class for calculating discrete MFT quantities by running dynamics.
 
         Parameters
@@ -756,8 +762,10 @@ class DynamicalMFT():
         rd : float
         I : float
         dt : float
-        correct : bool, True
+        correction : bool, True
             If True, use calculation for corrected L.
+        alpha : float, 1.
+            Cooperativity parameter.
         """
         
         self.ro = ro
@@ -766,14 +774,15 @@ class DynamicalMFT():
         self.rd = rd
         self.I = I
         self.dt = dt
+        self.alpha = alpha * 1.
 
-        self.n0 = ro/re/I
+        self.n0 = (ro/re/I)**(1/alpha)
         
         try:
-            if correct:
+            if correction:
                 self.L = self.mft_L()
             else:
-                self.L = G / (self.n0 * (rd - 2*re + re*I*self.n0))
+                self.L = G / (self.n0 * (rd - 2*re + re*I*self.n0**self.alpha))
         except ZeroDivisionError:
             self.L = np.inf
         if self.L < 0:
@@ -791,8 +800,8 @@ class DynamicalMFT():
         
         L = L or self.L
         dn = self.G/L - self.rd * self.n
-        dn -= self.re * self.I * self.n[0] * self.n
-        dn[1:] += self.re * self.I * self.n[0] * self.n[:-1]
+        dn -= self.re * self.I * self.n[0]**self.alpha * self.n
+        dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
         dn[:-1] += self.re * self.n[1:]
         dn[-1] += .1  # right hand boundary doesn't matter if far away
         
@@ -886,7 +895,8 @@ class DynamicalMFT():
 
     def n0(self, L):
         """Quadratic equation solution for n0."""
-
+            
+        assert self.alpha==1, "This does not apply for alpha!=1."
         G = self.G
         re = self.re
         rd = self.rd
@@ -895,8 +905,8 @@ class DynamicalMFT():
         return ((2-rd/re) + np.sqrt((2-rd/re)**2 + 4*I*G/re/L)) / 2 / I
     
     def mft_L(self, second_order=False): 
-        """Calculate stationary lattice Idth accounting the first order order (from
-        Firms II pg. 140).
+        """Calculate stationary lattice width accounting the first order correction
+        (from Firms II pg. 140).
         
         Parameters
         ----------
@@ -917,15 +927,17 @@ class DynamicalMFT():
         rd = self.rd
         ro = self.ro
         n0 = self.n0
+        a = self.alpha
 
-        z = (re-rd) / re / (I*n0 - 1)
-        delta = - ro / (ro-re) * n0 * z/2
+        z = (re-rd) / re / (I*n0**a - 1)
+        delta = - ro / (ro-re) * n0 * z/2  # effect of alpha not included...
         C = z**-1 * (np.exp(-z) - 1 + z)
         
         if not second_order:
             # correcting factor is correct; matches taylor expansion
-            return -G * re * I / (ro * (re * (1+1/(1-C)) - rd - ro))
-    
+            return -G / (n0 * (re * (1+1/(1-C)) - rd - re*I*n0**a))
+        
+        assert a==1
         # second order correction for L
         # corrected equation for n'(0)
         # really, we don't know delta
