@@ -527,16 +527,21 @@ class UnitSimulator(Simulator):
         """
 
         with Pool() as pool:
-            output = list(pool.map(lambda args: self.simulate(T, True, **kwargs), range(n_samples)))
-        return output
+            self.occupancy = list(pool.map(lambda args: self.simulate(T, True, **kwargs), range(n_samples)))
+        return self.occupancy
 
-    def mean_occupancy(self, occupancy, width, norm_err=True):
+    def mean_occupancy(self, occupancy=None,
+                       width=np.inf,
+                       norm_err=True,
+                       rescale=False):
         """
         Parameters
         ----------
-        occupancy : list of list
-        width : int
+        occupancy : list of list, None
+        width : int, np.inf
         norm_err : bool, True
+        rescale : bool, False
+            If True, rescale density by cooperativity before taking mean.
 
         Returns
         -------
@@ -546,14 +551,39 @@ class UnitSimulator(Simulator):
             Standard deviation as error bars.
         """
         
+        if occupancy is None:
+            occupancy = self.occupancy
+
         if width==np.inf:
             maxL = max([len(i) for i in occupancy])
             y = np.zeros(maxL)
+            yerr = np.zeros(maxL)
+
+            # first calculate the means
             counts = np.zeros(maxL, dtype=int)
-            for i in occupancy:
-                y[:len(i)] += i[::-1]
-                counts[:len(i)] += 1
-            return y / counts
+            if rescale:
+                for i in occupancy:
+                    y[:len(i)] += np.array(i[::-1])**self.cooperativity
+                    counts[:len(i)] += 1
+            else:
+                for i in occupancy:
+                    y[:len(i)] += i[::-1]
+                    counts[:len(i)] += 1
+            y = y / counts
+
+            # then calculate the std
+            if rescale:
+                for i in occupancy:
+                    yerr[:len(i)] += (np.array(i[::-1])**self.cooperativity - y[:len(i)])**2
+            else:
+                for i in occupancy:
+                    yerr[:len(i)] += (i[::-1] - y[:len(i)])**2
+
+            yerr /= counts
+            yerr = np.sqrt(yerr)
+            if norm_err:
+                return y, yerr / np.sqrt(counts)
+            return y, yerr
 
         y = np.vstack([i[-width:] for i in occupancy if len(i)>=width])[:,::-1]
         if norm_err:
