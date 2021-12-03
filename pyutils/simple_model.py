@@ -4,6 +4,7 @@
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 from numba import njit
+from numba.typed import List
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -457,9 +458,21 @@ class UnitSimulator(Simulator):
     keeps track of the occupancy number and does nothing fancy.
     """
 
-    def simulate(self, T, reset_rng=False, jit=True):
+    def simulate(self, T, reset_rng=False, jit=True, occupancy=None):
         """
         dt must be small enough to ignore coincident events.
+
+        Parameters
+        ----------
+        T : int
+        reset_rng : bool, False
+        jit : bool, True
+        occupancy : list, None
+            Feed in a starting occupancy on which to run dynamics.
+
+        Returns
+        -------
+        list
         """
        
         g0 = self.g0
@@ -475,9 +488,13 @@ class UnitSimulator(Simulator):
         assert (re * dt)<1
         assert (ro * dt)<1
 
-        if jit:
+        if jit and occupancy is None:
             if reset_rng: np.random.seed()
             return jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a)
+        elif jit and not occupancy is None:
+            if reset_rng: np.random.seed()
+            occupancy = List(occupancy)
+            return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, g0, re, rd, I, ro, a))
  
         if reset_rng: self.rng.seed()
 
@@ -638,10 +655,56 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a):
         counter += 1
     return occupancy
 
+@njit
+def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, g0, re, rd, I, ro, a):
+    """
+    Parameters
+    ----------
+    occupancy : numba.typed.ListType[int64]
+    T : int
+    dt : float
+    g0 : float
+    re : float
+    rd : float
+    I : float
+    ro : float
+    a : float
+    """
+    
+    counter = 0
+    while (counter * dt) < T:
+        # innov
+        innov = False
+        if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
+            occupancy.append(1)
+            innov = True
+
+        # from right to left b/c of expansion
+        for x in range(len(occupancy)-1, -1, -1):
+            # death (fast approximation)
+            if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
+                occupancy[x] -= 1
+
+            # expansion (fast approximation)
+            if x < (len(occupancy)-1-innov):
+                if occupancy[x] and np.random.rand() < (occupancy[x] * re * dt):
+                    occupancy[x+1] += 1
+
+            # start up
+            if np.random.rand() < (g0 / len(occupancy) * dt):
+                occupancy[x] += 1
+
+        # obsolescence
+        if len(occupancy) > 1 and np.random.rand() < (ro * dt):
+            occupancy.pop(0)
+        
+        counter += 1
+    return occupancy
+
 
 
 class IterativeMFT():
-    def __init__(self, ro, G, re, rd, wi):
+    def __init__(self, ro, G, re, rd, I):
         """Class for calculating discrete MFT quantities.
 
         Parameters
@@ -650,21 +713,21 @@ class IterativeMFT():
         G : float
         re : float
         rd : float
-        wi : float
+        I : float
         """
 
         self.ro = ro
         self.G = G
         self.re = re
         self.rd = rd
-        self.wi = wi
-        self.n0 = ro/re/wi  # stationary density
+        self.I = I
+        self.n0 = ro/re/I  # stationary density
 
-        assert (2*re - rd) * self.n0 - re*wi*self.n0**2 <= 0, "Stationary criterion unmet."
+        assert (2*re - rd) * self.n0 - re*I*self.n0**2 <= 0, "Stationary criterion unmet."
         
         # MFT guess for L, which we will refine using tail convergence criteria
         try:
-            self.L0 = 4 * G * re * wi / ((2 * ro - (2*re-rd))**2 - (2*re-rd)**2)
+            self.L0 = 4 * G * re * I / ((2 * ro - (2*re-rd))**2 - (2*re-rd)**2)
         except ZeroDivisionError:
             self.L0 = np.inf
         
@@ -705,7 +768,7 @@ class IterativeMFT():
         G = self.G
         re = self.re
         rd = self.rd
-        wi = self.wi
+        I = self.I
         n0 = self.n0
         
         L = np.ceil(L0)
@@ -714,7 +777,7 @@ class IterativeMFT():
         nfun = self.iterate_n(L)
         # check that tail is positive; in case it is not, increase starting guess for L a few times
         counter = 0
-        while nfun[-1] < 0: #(wi * n0 * nfun[-2] + G/re/L / (wi * n0 + rd/re)) < 0:
+        while nfun[-1] < 0: #(I * n0 * nfun[-2] + G/re/L / (I * n0 + rd/re)) < 0:
             L += 1
             nfun = self.iterate_n(L)
             counter += 1
@@ -722,7 +785,7 @@ class IterativeMFT():
         
         while decimal <= mx_decimal:
             # ratchet down til the tail goes the wrong way
-            while nfun[-1] > 0: #(wi * n0 * nfun[-2] + G/re/L / (wi * n0 + rd/re)) > 0:
+            while nfun[-1] > 0: #(I * n0 * nfun[-2] + G/re/L / (I * n0 + rd/re)) > 0:
                 L -= 10**-decimal
                 nfun = self.iterate_n(L)
             L += 10**-decimal  # oops, go back up
@@ -739,19 +802,19 @@ class IterativeMFT():
         G = self.G
         re = self.re
         rd = self.rd
-        wi = self.wi
+        I = self.I
         n0 = self.n0
         L = L or self.L
 
-        eps = wi * n0**2 + (rd/re-2) * n0 - G/re/L
+        eps = I * n0**2 + (rd/re-2) * n0 - G/re/L
 
         n = np.zeros(int(L))
         n[0] = n0
         # rigid assumption about n[1]
-        n[1] = wi * n0**2 + rd * n0 / re - G / L / re
+        n[1] = I * n0**2 + rd * n0 / re - G / L / re
 
         for i in range(2, n.size):
-            n[i] = wi * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L
+            n[i] = I * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L
 
         if iprint: print(eps)
 
@@ -771,11 +834,11 @@ class IterativeMFT():
         G = self.G
         re = self.re
         rd = self.rd
-        wi = self.wi
+        I = self.I
         n0 = self.n0
         n = self.n
         
-        return G/re / (wi * n[0] * (n[x-1]-n[x-2]) + rd/re * n[x-1] - n[x])
+        return G/re / (I * n[0] * (n[x-1]-n[x-2]) + rd/re * n[x-1] - n[x])
 #end IterativeMFT
 
 
@@ -923,7 +986,7 @@ class DynamicalMFT():
 
         return snapshot_n, t
 
-    def n0(self, L):
+    def solve_n0(self, L):
         """Quadratic equation solution for n0."""
             
         assert self.alpha==1, "This does not apply for alpha!=1."
@@ -933,6 +996,24 @@ class DynamicalMFT():
         I = self.I
 
         return ((2-rd/re) + np.sqrt((2-rd/re)**2 + 4*I*G/re/L)) / 2 / I
+
+    def corrected_n0(self):
+        """Stil figuring out the logic of  this.
+        """
+        
+        assert self.alpha==1
+        G = self.G
+        I = self.I
+        re = self.re
+        rd = self.rd
+        ro = self.ro
+        n0 = self.n0
+        
+        n02 = -(re-rd) * n0 / ((re-rd)/2 - re*I*n0 + re)
+        # this is our estimate of the correction to the slope, which gives corrections to the intercept
+        z = - (re - rd) / ((re-rd)/2 + re*(1 - I*n0))
+
+        return n0 + (n02 * z**-2. * (-1 + z + np.exp(-z)) if z!=0 else 0.)
     
     def mft_L(self, second_order=False): 
         """Calculate stationary lattice width accounting the first order correction
@@ -973,5 +1054,5 @@ class DynamicalMFT():
         # really, we don't know delta
         npp = (n0 - delta / z * C) / (1-C)
         # n0 * (1 + z/2) - delta/2  # taylor expansion of npp
-        return -G * re * wi / (ro * (re - rd - ro + re*npp/n0))
+        return -G * re * I / (ro * (re - rd - ro + re*npp/n0))
 #end DynamicalMFT

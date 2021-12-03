@@ -5,6 +5,7 @@
 from datetime import datetime
 from scipy.signal import fftconvolve
 
+from .simple_model import UnitSimulator
 from .utils import *
 
 
@@ -285,3 +286,190 @@ def segment(y, zero_thresh,
         velsign.append(ysign[w[0]])
 
     return windows, velsign, vel
+
+# ======= #
+# Classes #
+# ======= #
+class Comparator():
+    def __init__(self, ro, G, re, rd, I, dt=5e-3):
+        """For comparing MFT and automaton.
+        
+        Parameters
+        ----------
+        ro : float
+        G : float
+        re : float
+        rd : float
+        I : float
+        dt : float
+        """
+        
+        self.ro = ro
+        self.G = G
+        self.re = re
+        self.rd = rd
+        self.I = I
+        self.dt = dt
+        
+    def load_params(self):
+        return self.ro, self.G, self.re, self.rd, self.I, self.dt
+
+    def find_critical_re(self, re0, full_output=False):
+        """Find divergence point for the expansion rate according to corrected MFT.
+        
+        This numerically solves the nonlinear relation we have for L.
+
+        Parameters
+        ----------
+        re0 : float
+            Initial guess for re.
+        full_output : bool, False
+
+        Returns
+        -------
+        float
+        """
+        
+        ro, G, _, rd, I, dt = self.load_params()
+
+        def cost(logre):
+            re = np.exp(logre)
+            z = - (re - rd) / ((re-rd)/2 + re*(1 - ro/re))
+            C = (-1 + z + np.exp(-z)) / z
+
+            L = G*I*re / ro / (ro+rd-re*(1+1/(1-C)))
+            return L**-2.
+
+        if full_output:
+            soln = minimize(cost, np.log(re0))
+            return np.exp(soln['x'])[0], soln
+        return np.exp(minimize(cost, np.log(re0))['x'])[0]
+
+    def run_re(self, re_range, T, n_samples, ensemble=True, t_skip=500):
+        """
+        Parameters
+        ----------
+        re_range : ndarray
+        T : float
+            Duration of simulation.
+        n_samples : int
+            No. of samples or indpt. trajectories to take.
+        ensemble : bool, True
+            If True, run simulation on an ensemble of random trajectories. If False,
+            sample over time from a single running instance.
+        t_skip : float, 500
+            Only for when we are using sequential temporal sampling.
+        
+        Returns
+        -------
+        dict
+            Indexed by re values. Values are occupancy snapshots.
+        """
+        
+        ro, G, _, rd, I, dt = self.load_params()
+        
+        if ensemble:
+            def loop_wrapper(re):
+                simulator = UnitSimulator(L0=1,
+                                          N0=0,
+                                          g0=G,
+                                          obs_rate=ro,
+                                          expand_rate=re,
+                                          innov_rate=I,
+                                          exploit_rate=0,
+                                          death_rate=rd,
+                                          dt=dt)
+                snapshot_n = simulator.parallel_simulate(n_samples, T)
+                return snapshot_n
+        else:
+            def loop_wrapper(re):
+                simulator = UnitSimulator(L0=1,
+                                          N0=0,
+                                          g0=G,
+                                          obs_rate=ro,
+                                          expand_rate=re,
+                                          innov_rate=I,
+                                          exploit_rate=0,
+                                          death_rate=rd,
+                                          dt=dt)
+                snapshot_n = [simulator.simulate(T)]
+                for i in range(n_samples):
+                    snapshot_n.append(simulator.simulate(t_skip, occupancy=snapshot_n[-1]))
+                return snapshot_n
+        
+        if not ensemble:
+            with Pool() as pool:
+                output = pool.map(loop_wrapper, re_range)
+            snapshot_n = dict(zip(re_range, output))
+        else:
+            snapshot_n = {}
+            for re in re_range:
+                snapshot_n[re] = loop_wrapper(re)
+        
+        self.snapshot_n = snapshot_n
+        return snapshot_n
+
+    def run_ro(self, ro_range, T, n_samples, ensemble=True, t_skip=500):
+        """
+        Parameters
+        ----------
+        ro_range : ndarray
+        T : float
+            Duration of simulation.
+        n_samples : int
+            No. of samples or indpt. trajectories to take.
+        ensemble : bool, True
+            If True, run simulation on an ensemble of random trajectories. If False,
+            sample over time from a single running instance.
+        t_skip : float, 500
+            Only for when we are using sequential temporal sampling.
+        
+        Returns
+        -------
+        dict
+            Indexed by re values. Values are occupancy snapshots.
+        """
+        
+        _, G, re, rd, I, dt = self.load_params()
+        
+        if ensemble:
+            def loop_wrapper(ro):
+                simulator = UnitSimulator(L0=1,
+                                          N0=0,
+                                          g0=G,
+                                          obs_rate=ro,
+                                          expand_rate=re,
+                                          innov_rate=I,
+                                          exploit_rate=0,
+                                          death_rate=rd,
+                                          dt=dt)
+                snapshot_n = simulator.parallel_simulate(n_samples, T)
+                return snapshot_n
+        else:
+            def loop_wrapper(ro):
+                simulator = UnitSimulator(L0=1,
+                                          N0=0,
+                                          g0=G,
+                                          obs_rate=ro,
+                                          expand_rate=re,
+                                          innov_rate=I,
+                                          exploit_rate=0,
+                                          death_rate=rd,
+                                          dt=dt)
+                snapshot_n = [simulator.simulate(T)]
+                for i in range(n_samples):
+                    snapshot_n.append(simulator.simulate(t_skip, occupancy=snapshot_n[-1]))
+                return snapshot_n
+        
+        if not ensemble:
+            with Pool() as pool:
+                output = pool.map(loop_wrapper, ro_range)
+            snapshot_n = dict(zip(ro_range, output))
+        else:
+            snapshot_n = {}
+            for ro in ro_range:
+                snapshot_n[ro] = loop_wrapper(ro)
+        
+        self.snapshot_n = snapshot_n
+        return snapshot_n
+#end Comparator
