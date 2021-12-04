@@ -4,6 +4,7 @@
 # ====================================================================================== #
 from datetime import datetime
 from scipy.signal import fftconvolve
+from scipy.optimize import minimize
 
 from .simple_model import UnitSimulator
 from .utils import *
@@ -335,7 +336,10 @@ class Comparator():
         def cost(logre):
             re = np.exp(logre)
             z = - (re - rd) / ((re-rd)/2 + re*(1 - ro/re))
-            C = (-1 + z + np.exp(-z)) / z
+            if z==0: 
+                C = 0  # determined from continuity
+            else:
+                C = (-1 + z + np.exp(-z)) / z
 
             L = G*I*re / ro / (ro+rd-re*(1+1/(1-C)))
             return L**-2.
@@ -344,6 +348,40 @@ class Comparator():
             soln = minimize(cost, np.log(re0))
             return np.exp(soln['x'])[0], soln
         return np.exp(minimize(cost, np.log(re0))['x'])[0]
+
+    def find_critical_ro(self, ro0, full_output=False):
+        """Find divergence point for the expansion rate according to corrected MFT.
+        
+        This numerically solves the nonlinear relation we have for L.
+
+        Parameters
+        ----------
+        ro0 : float
+            Initial guess for re.
+        full_output : bool, False
+
+        Returns
+        -------
+        float
+        """
+        
+        _, G, re, rd, I, dt = self.load_params()
+
+        def cost(logro):
+            ro = np.exp(logro)
+            z = - (re - rd) / ((re-rd)/2 + re*(1 - ro/re))
+            if z==0: 
+                C = 0  # determined from continuity
+            else:
+                C = (-1 + z + np.exp(-z)) / z
+
+            L = G*I*re / ro / (ro+rd-re*(1+1/(1-C)))
+            return L**-2.
+
+        if full_output:
+            soln = minimize(cost, np.log(ro0))
+            return np.exp(soln['x'])[0], soln
+        return np.exp(minimize(cost, np.log(ro0))['x'])[0]
 
     def run_re(self, re_range, T, n_samples, ensemble=True, t_skip=500):
         """
