@@ -6,6 +6,7 @@
 import duckdb as db
 import fastparquet as fp
 from uuid import uuid4
+from workspace.utils import increment_name
 
 from .utils import *
 
@@ -417,7 +418,7 @@ def hist_firm_source(bins, fname):
 
     return conn.execute(q).fetchdf().values.ravel()
 
-def setup_cooc(thisday=None, cache=False, subsample=True):
+def setup_cooc(thisday=None, cache=True, subsample=True):
     """Get co-occurrence all pairs of topics and cache to parquet file. This should
     somehow reflect the fact that some connections between topics are overrepresented
     either because employees are reading more about them or because such links appear
@@ -438,8 +439,8 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
     Parameters
     ----------
     thisday : str, None
-    cache : bool, False
-        If True, load from cache or save to cache.
+    cache : bool, True
+        If True, save to cache.
     subsample : bool, True
         If True, use filtered subsample instead of entire data set.
 
@@ -447,17 +448,10 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
     -------
     pd.DataFrame
     """
-    
-    if cache and os.path.isfile('cache/pairs_cooc.pq'):
-        q = '''SELECT *
-               FROM parquet_scan('cache/pairs_cooc.pq')
-            '''
-        return db_conn().execute(q).fetchdf()
-    
+
     # otherwise we must do calculation
     # for each unique article, identify the topic labels
     q = '''PRAGMA threads=32;
-           PRAGMA memory_limit='128GB';
 
         CREATE TABLE topics (
           article_id varchar(255),
@@ -490,11 +484,12 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
                 GROUP BY topics1.topic_1, topics2.topic_1;
          '''
     if cache:
-        q += '''
-             COPY results
-             TO 'cache/pairs_cooc.pq' (FORMAT 'parquet');
-             '''
-    return db_conn().execute(q)
+        fname = increment_name('cache/pairs_cooc', 'pq')
+        q += f'''
+              COPY results
+              TO '{fname}' (FORMAT 'parquet');
+              '''
+    db_conn().execute(q)
  
 def _setup_cooc(thisday=None, regex=None):
     """Get co-occurrence and single occurrence counts for all topics and save to
