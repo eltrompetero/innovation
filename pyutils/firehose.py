@@ -27,120 +27,159 @@ def setup(thisday,
     force : bool, False
     """
     
-    conn = db.connect(database=':memory:', read_only=False)
+    conn = db_conn()
 
     if force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/subsample.pq'):
         # create subsample DF
-        if os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/all.pq'):
-            q = f'''
-                    SELECT *
-                    FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/all.pq')
-                    TABLESAMPLE({percent} PERCENT)
-                 '''
-        else:
-            q = f'''
-                    SELECT *
-                    FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/*_Firehose*.parquet')
-                    TABLESAMPLE({percent} PERCENT)
-                 '''
-
-        df = conn.execute(q).fetchdf()
-        fp.write(f'{FIREHOSE_PATH}/{thisday}/subsample.pq', df, 100_000,
-                 compression='SNAPPY')
-        del df
-    
-    pqfile = f'{FIREHOSE_PATH}/{thisday}/subsample.pq'
-    if force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p'):
-        # get distribution of relevancy to determine cutoff for individ domains
-        q = f'''PRAGMA threads=16;
-
-                SELECT avg_rlvcy
-                FROM (SELECT domain, AVG(topic_1_score) AS avg_rlvcy
-                    FROM (SELECT domain, topic_1_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_1_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_2_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_2_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_3_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_3_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_4_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_4_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_6_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_5_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_6_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_6_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_7_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_7_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_8_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_8_score IS NOT NULL
-                          UNION ALL
-                          SELECT domain, topic_9_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_9_score IS NOT NULL
-                          UNION ALL 
-                          SELECT domain, topic_10_score FROM parquet_scan('{pqfile}')
-                          WHERE topic_10_score IS NOT NULL) udomains
-                     GROUP BY domain) rlvnt_domains
-                INNER JOIN parquet_scan('{pqfile}') odata
-                    ON rlvnt_domains.domain = odata.domain
+        q = f'''PRAGMA threads=32;
+                
+             COPY
+                 (SELECT domain||topic_1_score||topic_2_score||topic_3_score||topic_4_score||
+                         topic_5_score||topic_6_score||topic_7_score||topic_8_score||topic_9_score||
+                         topic_10_score AS article_id,
+                        hashed_email__id_hex,
+                        hashed_email__id_base64,
+                        domain,
+                        interaction_type,
+                        topic_1,
+                        topic_1_score,
+                        topic_2,
+                        topic_2_score,
+                        topic_3,
+                        topic_3_score,
+                        topic_4,
+                        topic_4_score,
+                        topic_5,
+                        topic_5_score,
+                        topic_6,
+                        topic_6_score,
+                        topic_7,
+                        topic_7_score,
+                        topic_8,
+                        topic_8_score,
+                        topic_9,
+                        topic_9_score,
+                        topic_10,
+                        topic_10_score,
+                        universal_datetime,
+                        country,
+                        stateregion,
+                        postal_code,
+                        localized_datetime,
+                        custom_id,
+                        source_id,
+                        date_localized,
+                        time_localized,
+                        time_utc,
+                        date_utc
+                 FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/*_Firehose*.parquet')
+                 TABLESAMPLE({percent} PERCENT)
+                 WHERE topic_1_score IS NOT NULL AND
+                    topic_2_score IS NOT NULL AND
+                    topic_3_score IS NOT NULL AND
+                    topic_4_score IS NOT NULL AND
+                    topic_5_score IS NOT NULL AND
+                    topic_6_score IS NOT NULL AND
+                    topic_7_score IS NOT NULL AND
+                    topic_8_score IS NOT NULL AND
+                    topic_9_score IS NOT NULL AND
+                    topic_10_score IS NOT NULL)
+             TO '{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq' (FORMAT PARQUET)
              '''
-        df = conn.execute(q).fetchdf()
-        percentile_cutoff = np.percentile(df['avg_rlvcy'], 5)
-        del df
+    conn.execute(q)
 
-        with open(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p', 'wb') as f:
-            pickle.dump({'percentile_cutoff':percentile_cutoff}, f)
-    else:
-        with open(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p', 'rb') as f:
-            percentile_cutoff = pickle.load(f)['percentile_cutoff']
-    print(f'{percentile_cutoff=:.5f}')
+    #pqfile = f'{FIREHOSE_PATH}/{thisday}/subsample.pq'
+    #if force or not os.path.isfile(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p'):
+    #    # get distribution of relevancy to determine cutoff for individ domains
+    #    q = f'''PRAGMA threads=32;
+
+    #            SELECT avg_rlvcy
+    #            FROM (SELECT domain, AVG(topic_1_score) AS avg_rlvcy
+    #                FROM (SELECT domain, topic_1_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_1_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_2_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_2_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_3_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_3_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_4_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_4_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_6_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_5_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_6_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_6_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_7_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_7_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_8_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_8_score IS NOT NULL
+    #                      UNION ALL
+    #                      SELECT domain, topic_9_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_9_score IS NOT NULL
+    #                      UNION ALL 
+    #                      SELECT domain, topic_10_score FROM parquet_scan('{pqfile}')
+    #                      WHERE topic_10_score IS NOT NULL) udomains
+    #                 GROUP BY domain) rlvnt_domains
+    #            INNER JOIN parquet_scan('{pqfile}') odata
+    #                ON rlvnt_domains.domain = odata.domain
+    #         '''
+    #    df = conn.execute(q).fetchdf()
+    #    percentile_cutoff = np.percentile(df['avg_rlvcy'], 5)
+    #    del df
+    #
+    #    with open(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p', 'wb') as f:
+    #        pickle.dump({'percentile_cutoff':percentile_cutoff}, f)
+    #else:
+    #    with open(f'{FIREHOSE_PATH}/{thisday}/percentile_cutoff.p', 'rb') as f:
+    #        percentile_cutoff = pickle.load(f)['percentile_cutoff']
+    #print(f'{percentile_cutoff=:.5f}')
     
-    q = f'''PRAGMA threads=16;
+    #q = f'''PRAGMA threads=32;
 
-            SELECT odata.*
-            FROM (SELECT domain, AVG(topic_1_score) AS avg_rlvcy
-                FROM (SELECT domain, topic_1_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_1_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_2_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_2_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_3_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_3_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_4_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_4_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_5_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_5_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_6_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_6_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_7_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_7_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_8_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_8_score IS NOT NULL
-                      UNION ALL
-                      SELECT domain, topic_9_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_9_score IS NOT NULL
-                      UNION ALL 
-                      SELECT domain, topic_10_score FROM parquet_scan('{pqfile}')
-                      WHERE topic_10_score IS NOT NULL) udomains
-                 GROUP BY domain) rlvnt_domains
-            INNER JOIN parquet_scan('{pqfile}') odata
-                ON rlvnt_domains.domain = odata.domain
-            WHERE avg_rlvcy > {percentile_cutoff}
-         '''
-    df = conn.execute(q).fetchdf()
-    fp.write(f'{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq', df,
-             compression='SNAPPY')
+    #        SELECT odata.*
+    #        FROM (SELECT domain, AVG(topic_1_score) AS avg_rlvcy
+    #            FROM (SELECT domain, topic_1_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_1_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_2_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_2_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_3_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_3_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_4_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_4_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_5_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_5_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_6_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_6_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_7_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_7_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_8_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_8_score IS NOT NULL
+    #                  UNION ALL
+    #                  SELECT domain, topic_9_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_9_score IS NOT NULL
+    #                  UNION ALL 
+    #                  SELECT domain, topic_10_score FROM parquet_scan('{pqfile}')
+    #                  WHERE topic_10_score IS NOT NULL) udomains
+    #             GROUP BY domain) rlvnt_domains
+    #        INNER JOIN parquet_scan('{pqfile}') odata
+    #            ON rlvnt_domains.domain = odata.domain
+    #        WHERE avg_rlvcy > {percentile_cutoff}
+    #     '''
+    #df = conn.execute(q).fetchdf()
+    #fp.write(f'{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq', df,
+    #         compression='SNAPPY')
 
     print(f'Done with {thisday=}.')
 
@@ -379,8 +418,13 @@ def hist_firm_source(bins, fname):
     return conn.execute(q).fetchdf().values.ravel()
 
 def setup_cooc(thisday=None, cache=False, subsample=True):
-    """Get co-occurrence and single occurrence counts for all topics and save to
-    parquet file.
+    """Get co-occurrence all pairs of topics and cache to parquet file. This should
+    somehow reflect the fact that some connections between topics are overrepresented
+    either because employees are reading more about them or because such links appear
+    more often in the universe of articles.
+
+    Here, we are just looking at the universe of articles, so we are not counting how
+    often such articles are read.
     
     There is a problem with this because co-occ counts a single topic multiple times
     depending on how many other topics are included in the record. This somehow
@@ -409,30 +453,31 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
                FROM parquet_scan('cache/pairs_cooc.pq')
             '''
         return db_conn().execute(q).fetchdf()
-
-    q = '''PRAGMA threads=16;
-        PRAGMA memory_limit='128GB';
+    
+    # otherwise we must do calculation
+    # for each unique article, identify the topic labels
+    q = '''PRAGMA threads=32;
+           PRAGMA memory_limit='128GB';
 
         CREATE TABLE topics (
-          source_id varchar(255),
+          article_id varchar(255),
           topic_1 varchar(255),
-          PRIMARY KEY (source_id, topic_1)
+          PRIMARY KEY (article_id, topic_1)
         );
         
         INSERT INTO topics
-        SELECT DISTINCT source_id, topic_1
+        SELECT DISTINCT article_id, topic_1
         FROM (
         '''
     for i in range(1, 11):
         if not subsample:
-            q += f'''SELECT DISTINCT source_id, topic_{i} AS topic_1
+            q += f'''SELECT DISTINCT article_id, topic_{i} AS topic_1
                      FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/Redacted*parquet')
                      WHERE topic_{i} IS NOT NULL AND topic_{i} <> ''
                      UNION ALL''' + '\n'
         else:
-            q += f'''SELECT DISTINCT source_id, topic_{i} AS topic_1
+            q += f'''SELECT DISTINCT article_id, topic_{i} AS topic_1
                      FROM parquet_scan('{FIREHOSE_PATH}/{thisday}/filtered_subsample.pq')
-                     WHERE topic_{i} IS NOT NULL AND topic_{i} <> ''
                      UNION ALL''' + '\n'
     q = q.rstrip()[:-9]
     q += ''');\n'''
@@ -441,7 +486,7 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
                 SELECT topics1.topic_1 AS topic_1, topics2.topic_1 AS topic_2, COUNT(*) AS counts
                 FROM topics topics1
                 INNER JOIN topics topics2
-                   ON topics1.source_id = topics2.source_id AND topics1.topic_1 < topics2.topic_1
+                   ON topics1.article_id = topics2.article_id AND topics1.topic_1 < topics2.topic_1
                 GROUP BY topics1.topic_1, topics2.topic_1;
          '''
     if cache:
@@ -449,10 +494,7 @@ def setup_cooc(thisday=None, cache=False, subsample=True):
              COPY results
              TO 'cache/pairs_cooc.pq' (FORMAT 'parquet');
              '''
-    q += '''
-         SELECT * FROM results
-         '''
-    return db_conn().execute(q).fetchdf()
+    return db_conn().execute(q)
  
 def _setup_cooc(thisday=None, regex=None):
     """Get co-occurrence and single occurrence counts for all topics and save to
