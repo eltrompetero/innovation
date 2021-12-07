@@ -6,6 +6,7 @@ import dill as pickle
 import numpy as np
 from statsmodels.distributions import ECDF
 from threadpoolctl import threadpool_limits
+from scipy.special import factorial
 
 # from .data import *
 from .mft import *
