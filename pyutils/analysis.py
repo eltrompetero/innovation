@@ -5,6 +5,7 @@
 from datetime import datetime
 from scipy.signal import fftconvolve
 from scipy.optimize import minimize
+from scipy.special import erfc
 
 from .simple_model import UnitSimulator
 from .utils import *
@@ -288,6 +289,51 @@ def segment(y, zero_thresh,
 
     return windows, velsign, vel
 
+def time_interval(L, cutoff):
+    """Time intervals when below and above cutoff.
+
+    Parameters
+    ----------
+    L : list of int
+    cutoff : float
+
+    Returns
+    -------
+    list of two lists
+        First list is periods of time below cutoff and second is that above cutoff.
+    """
+    
+    ix = L<=cutoff
+
+    # find first place where cutoff is exceeded
+    dt = [[],[]]
+    if ix[0]:
+        startix = (L>int(cutoff)).argmax() - 1
+    else:
+        startix = 0
+
+    switch = False  # True when below and False when above
+    abovedt = 0
+    belowdt = 0
+    for i in np.diff(ix[startix:].astype(int)):
+        if i==-1: switch = True
+        elif i==1: switch = False
+            
+        if switch:
+            abovedt += 1
+            if belowdt!=0:
+                dt[0].append(belowdt)
+                belowdt = 0
+        else:
+            belowdt += 1
+            if abovedt!=0:
+                dt[1].append(abovedt)
+                abovedt = 0
+    
+    assert (sum(dt[0]) + sum(dt[1]) + startix + belowdt + abovedt)==(len(L)-1)
+    return dt
+
+
 # ======= #
 # Classes #
 # ======= #
@@ -511,3 +557,61 @@ class Comparator():
         self.snapshot_n = snapshot_n
         return snapshot_n
 #end Comparator
+
+
+class WSBFitter():
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        
+    def citations_curve(self, params=None):
+        if params is None:
+            params = self.params
+        C, el, mu, s = params
+        return C * np.exp(el * erfc((mu - np.log(self.x))/s)/4/np.sqrt(2) - 
+                          (mu-np.log(self.x))**2/s**2) * el / s / self.x
+
+    def cost(self, params):
+        logC, logel, mu, logs = params
+        C = np.exp(logC)
+        el = np.exp(logel)
+        s = np.exp(logs)
+        self.citations_curve([C, el, mu, s])
+        # fit to reversed equation
+        err = np.linalg.norm(self.citations_curve([C, el, mu, s]) - self.y)
+        return err if not np.isnan(err) else 1e30
+    
+    def solve(self):
+        soln = minimize(self.cost, [4, 0, 2, 0])
+        self.params = np.exp(soln['x'])
+        self.params[2] = soln['x'][2]
+        self.soln = soln
+        return self.params
+#end WSBFitter
+
+
+
+class WeibullFitter():
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        
+    def pdf(self, params=None):
+        if params is None:
+            params = self.params
+        C, el, k = params
+        return C * self.x**(k-1.) * np.exp(-(self.x / el)**k)
+
+    def cost(self, params):
+        C, el, k = np.exp(params)
+        # fit to reversed equation
+        err = np.linalg.norm(self.pdf([C, el, k]) - self.y)
+        return err if not np.isnan(err) else 1e30
+    
+    def solve(self):
+        soln = minimize(self.cost, [4, -2, 0],
+                        bounds=[(-np.inf,np.inf),(-np.inf,np.inf),(0,np.inf)])
+        self.params = np.exp(soln['x'])
+        self.soln = soln
+        return self.params
+#end WeibullFitter

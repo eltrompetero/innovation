@@ -10,8 +10,9 @@ from scipy.special import factorial
 
 # from .data import *
 from .mft import *
-from .model import *
+from .simple_model import *
 from .utils import *
 from .organizer import SimLedger
 from .sql import QueryRouter
 from .firehose import *
+from .analysis import Comparator
