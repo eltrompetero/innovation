@@ -952,7 +952,7 @@ class MultiunitSimulator(Simulator):
 
 
 class IterativeMFT():
-    def __init__(self, ro, G, re, rd, I):
+    def __init__(self, ro, G, re, rd, I, alpha=1., Q=2):
         """Class for calculating discrete MFT quantities.
 
         Parameters
@@ -962,20 +962,29 @@ class IterativeMFT():
         re : float
         rd : float
         I : float
+        alpha : float, 1.
+            Cooperativity.
+        Q : int, 2
+            Bethe lattice branching ratio.
         """
+        
+        assert alpha==1
+        assert Q>=2
 
         self.ro = ro
         self.G = G
         self.re = re
         self.rd = rd
         self.I = I
+        self.alpha = alpha
+        self.Q = Q
         self.n0 = ro/re/I  # stationary density
 
-        assert (2*re - rd) * self.n0 - re*I*self.n0**2 <= 0, "Stationary criterion unmet."
+        assert (2/(Q-1) * re - rd) * self.n0 - re*I*self.n0**2 <= 0, "Stationary criterion unmet."
         
         # MFT guess for L, which we will refine using tail convergence criteria
         try:
-            self.L0 = 4 * G * re * I / ((2 * ro - (2*re-rd))**2 - (2*re-rd)**2)
+            self.L0 = G * re * I / (ro * (rd - 2*re/(Q-1) + ro))
         except ZeroDivisionError:
             self.L0 = np.inf
         
@@ -1017,6 +1026,7 @@ class IterativeMFT():
         re = self.re
         rd = self.rd
         I = self.I
+        Q = self.Q
         n0 = self.n0
         
         L = np.ceil(L0)
@@ -1053,16 +1063,17 @@ class IterativeMFT():
         I = self.I
         n0 = self.n0
         L = L or self.L
+        Q = self.Q
 
-        eps = I * n0**2 + (rd/re-2) * n0 - G/re/L
+        #eps = I * n0**2 + (rd/re-2) * n0 - G/re/L
 
         n = np.zeros(int(L))
         n[0] = n0
         # rigid assumption about n[1]
-        n[1] = I * n0**2 + rd * n0 / re - G / L / re
+        n[1] = (Q-1) * (I * n0**2 + rd * n0 / re - G / L / re)
 
         for i in range(2, n.size):
-            n[i] = I * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L
+            n[i] = (Q-1) * (I * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L)
 
         if iprint: print(eps)
 
@@ -1083,17 +1094,20 @@ class IterativeMFT():
         re = self.re
         rd = self.rd
         I = self.I
+        Q = self.Q
         n0 = self.n0
         n = self.n
         
-        return G/re / (I * n[0] * (n[x-1]-n[x-2]) + rd/re * n[x-1] - n[x])
+        return G/re / (I * n[0] * (n[x-1]-n[x-2]) + rd/re * n[x-1] - n[x]/(Q-1))
 #end IterativeMFT
+
 
 
 class DynamicalMFT():
     def __init__(self, ro, G, re, rd, I, dt,
                  correction=True,
-                 alpha=1.):
+                 alpha=1.,
+                 Q=2):
         """Class for calculating discrete MFT quantities by running dynamics.
 
         Parameters
@@ -1107,8 +1121,13 @@ class DynamicalMFT():
             If True, use calculation for corrected L.
         alpha : float, 1.
             Cooperativity parameter.
+        Q : int, 2
+            Bethe lattice branching ratio.
         """
         
+        assert alpha>0
+        assert Q>=2
+
         self.ro = ro
         self.G = G
         self.re = re
@@ -1116,6 +1135,7 @@ class DynamicalMFT():
         self.I = I
         self.dt = dt
         self.alpha = alpha * 1.
+        self.Q = Q
 
         self.n0 = (ro/re/I)**(1/alpha)
         
@@ -1123,7 +1143,7 @@ class DynamicalMFT():
             if correction:
                 self.L = self.mft_L()
             else:
-                self.L = G / (self.n0 * (rd - 2*re + re*I*self.n0**self.alpha))
+                self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
         except ZeroDivisionError:
             self.L = np.inf
         if self.L < 0:
@@ -1143,7 +1163,7 @@ class DynamicalMFT():
         dn = self.G/L - self.rd * self.n
         dn -= self.re * self.I * self.n[0]**self.alpha * self.n
         dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
-        dn[:-1] += self.re * self.n[1:]
+        dn[:-1] += self.re / (self.Q-1) * self.n[1:]
         dn[-1] += .1  # right hand boundary doesn't matter if far away
         
         self.n += dn * self.dt
@@ -1238,6 +1258,7 @@ class DynamicalMFT():
         """Quadratic equation solution for n0."""
             
         assert self.alpha==1, "This does not apply for alpha!=1."
+        assert self.Q==2
         G = self.G
         re = self.re
         rd = self.rd
@@ -1246,10 +1267,10 @@ class DynamicalMFT():
         return ((2-rd/re) + np.sqrt((2-rd/re)**2 + 4*I*G/re/L)) / 2 / I
 
     def corrected_n0(self):
-        """Stil figuring out the logic of  this.
+        """Stil figuring out the logic of this.
         """
-        
-        assert self.alpha==1
+         
+        assert self.alpha==1 and self.Q==2
         G = self.G
         I = self.I
         re = self.re
@@ -1287,14 +1308,15 @@ class DynamicalMFT():
         ro = self.ro
         n0 = self.n0
         a = self.alpha
+        Q = self.Q
 
-        z = (re-rd) / re / (I*n0**a - 1)
+        z = (re/(Q-1)-rd) / re / (I*n0**a - 1/(Q-1))
         delta = - ro / (ro-re) * n0 * z/2  # effect of alpha not included...
         C = z**-1 * (np.exp(-z) - 1 + z)
         
         if not second_order:
             # correcting factor is correct; matches taylor expansion
-            return -G / (n0 * (re * (1+1/(1-C)) - rd - re*I*n0**a))
+            return -G / (n0 * (re * (1+1/(1-C)) / (Q-1) - rd - re*I*n0**a))
         
         assert a==1
         # second order correction for L
@@ -1302,7 +1324,7 @@ class DynamicalMFT():
         # really, we don't know delta
         npp = (n0 - delta / z * C) / (1-C)
         # n0 * (1 + z/2) - delta/2  # taylor expansion of npp
-        return -G * re * I / (ro * (re - rd - ro + re*npp/n0))
+        return -G * re * I / (ro * (re/(Q-1) - rd - ro + re*npp/n0/(Q-1)))
 #end DynamicalMFT
 
 
