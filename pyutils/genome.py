@@ -5,10 +5,43 @@
 from Bio import Phylo
 from multiprocess import Pool
 from warnings import warn
+from scipy.special import erfc
 
 from .utils import *
 
 
+def covid_clades():
+    """For plotting covid clades.
+
+    Returns
+    -------
+    list
+    list
+    """
+
+    tree = [Phylo.read("../data/nextstrain_ncov_gisaid_global_tree.nwk", "newick"),
+            Phylo.read("../data/nextstrain_ncov_gisaid_north-america_tree.nwk", "newick"),
+            Phylo.read("../data/nextstrain_ncov_gisaid_europe_tree.nwk", "newick")]
+
+    all_dist = []
+    for t in tree:
+        all_dist.append(branching_ratio(t.root.clades))
+
+    p = []
+    for tree_ in tree:
+        branch_len = par_distance(tree_)
+        p.append(np.bincount(branch_len))
+
+    # normalized by a guess for branching ratio
+    scale = 'linear'
+    
+    x = []
+    y = []
+    for i, (p_, br) in enumerate(zip(p, all_dist)):
+        x.append(np.arange(p_.size))
+        y.append(p_ * np.mean(br)**-np.arange(p_.size, dtype=float))
+        
+    return x, y
 
 def par_distance(tree):
     """Get total distance from root to each terminal.
