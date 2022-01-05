@@ -5,6 +5,7 @@
 # ====================================================================================== #
 from numba import njit
 from numba.typed import List
+from scipy.optimize import minimize
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -12,6 +13,119 @@ from .organizer import SimLedger
 from .utils import *
 from . import sql
 from .model import *
+
+
+
+def match_length(y1, y2, side1='l', side2='r'):
+    """Fill zeros to match two vectors. Pad zeros on either left or right sides.
+
+    Parameters
+    ----------
+    y1 : ndarray
+    y2 : ndarray
+    side1 : str, 'l'
+    side2 : str, 'r'
+
+    Returns
+    -------
+    ndarray
+    ndarray
+    """
+    
+    if side1=='l':
+        y1 = y1[::-1]
+    if side2=='l':
+        y2 = y2[::-1]
+
+    if y1.size > y2.size:
+        y2 = np.concatenate((y2, np.zeros(y1.size-y2.size)))
+    elif y2.size > y1.size:
+        y1 = np.concatenate((y1, np.zeros(y2.size-y1.size)))
+
+    if side1=='l':
+        y1 = y1[::-1]
+    if side2=='l':
+        y2 = y2[::-1]
+    
+    return y1, y2
+
+def _solve_G(G0, L, ro, re, rd, I):
+    """Solve for G that return appropriate L."""
+
+    z = (re - rd) / (re * (ro/re-1))
+    C = (np.exp(-z)-1+z) / z
+
+    def cost(logG):
+        G = np.exp(logG)
+        return (L - G * I * re / (ro * (rd + ro - re*(1+1/(1-C)))))**2
+
+    soln = minimize(cost, np.log(G0))
+    return np.exp(soln['x']), soln
+
+def fit_dmft(data, L, dt, initial_params, **params_kw):
+    """Best fit of dmft model at stationarity.
+
+    Parameters
+    ----------
+    dt : float
+    initial_params : list
+        G shouldn't be specified.
+    **params_kw
+
+    Returns
+    -------
+    dict
+    """
+
+    def cost(params):
+        ro, re, rd, I = np.exp(params)
+        G = _solve_G(30, L, ro, re, rd, I)
+        G = G[0]
+        #print(f'{G=}')
+
+        model = DynamicalMFT(ro, G, re, rd, I, dt, **params_kw)
+        print(f'{model.L=}')
+        if not np.isclose(model.L, L, atol=1e-2): return 1e30
+        
+        flag, mxerr = model.solve_stationary()
+        if np.any(model.n<0): return 1e30
+
+        try:
+            c = np.linalg.norm(data-model.n)
+        except ValueError:
+            return 1e30
+        return c
+
+    soln = minimize(cost, np.log(initial_params))
+    return np.exp(soln['x']), soln
+
+def _fit_dmft(data, dt, initial_params, **params_kw):
+    """Best fit of dmft model at stationarity.
+
+    Parameters
+    ----------
+    dt : float
+    initial_params
+    **params_kw
+
+    Returns
+    -------
+    dict
+    """
+    
+    def cost(params):
+        model = DynamicalMFT(*np.exp(params), dt, **params_kw)
+        if model.L<1 or ~np.isfinite(model.L): return 1e30
+        
+        flag, mxerr = model.solve_stationary()
+        if np.any(model.n<0): return 1e30
+
+        y1, y2 = match_length(data, model.n, 'l', 'l')
+        c = np.linalg.norm(y1-y2)
+        return c
+
+    soln = minimize(cost, np.log(initial_params))
+    return np.exp(soln['x']), soln
 
 
 
@@ -1146,7 +1260,7 @@ class DynamicalMFT():
                 self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
         except ZeroDivisionError:
             self.L = np.inf
-        if self.L < 0:
+        if self.L <= 0:
             self.L = np.inf
         else:
             self.L = min(self.L, 10_000)
@@ -1164,7 +1278,6 @@ class DynamicalMFT():
         dn -= self.re * self.I * self.n[0]**self.alpha * self.n
         dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
         dn[:-1] += self.re / (self.Q-1) * self.n[1:]
-        dn[-1] += .1  # right hand boundary doesn't matter if far away
         
         self.n += dn * self.dt
 
