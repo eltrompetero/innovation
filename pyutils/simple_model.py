@@ -6,6 +6,7 @@
 from numba import njit
 from numba.typed import List
 from scipy.optimize import minimize
+from cmath import sqrt
 
 from workspace.utils import save_pickle
 from .model_ext import TopicLattice, LiteFirm, snapshot_firms
@@ -1111,13 +1112,13 @@ class IterativeMFT():
             self.min_L(self.L0)
 
     def min_L(self, L0, mx_decimal=10):
-        """Lower L slower and slower while keeping tail positive in order to find value
-        of L that solves iterative solution.
+        """Lower L slower and slower while keeping tail positive in order to
+        find value of L that solves iterative solution.
 
-        As a heuristic, we keep the numerically calculated value of the tail positive
-        instead of the self-consistent iterative value, which seems to behave worse
-        (probably because it depends on the estimate of n[-2], which itself can be
-        erroneous).
+        As a heuristic, we keep the numerically calculated value of the tail
+        positive instead of the self-consistent iterative value, which seems to
+        behave worse (probably because it depends on the estimate of n[-2],
+        which itself can be erroneous).
         
         Parameters
         ----------
@@ -1181,7 +1182,7 @@ class IterativeMFT():
 
         #eps = I * n0**2 + (rd/re-2) * n0 - G/re/L
 
-        n = np.zeros(int(L))
+        n = np.zeros(int(L)+1)
         n[0] = n0
         # rigid assumption about n[1]
         n[1] = (Q-1) * (I * n0**2 + rd * n0 / re - G / L / re)
@@ -1274,9 +1275,15 @@ class DynamicalMFT():
         """
         
         L = L or self.L
-        dn = self.G/L - self.rd * self.n
+
+        # entrance
+        dn = self.G/L 
+        # death
+        dn -= self.rd * self.n
+        # shift
         dn -= self.re * self.I * self.n[0]**self.alpha * self.n
         dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
+        # expansion
         dn[:-1] += self.re / (self.Q-1) * self.n[1:]
         
         self.n += dn * self.dt
@@ -1301,7 +1308,10 @@ class DynamicalMFT():
         Returns
         -------
         int
-            Flag indicating if problem converged (0) or not (1).
+            Flag indicating if problem converged
+                (0) to stationary solution with correct innov. density
+                (1) to stationary soln with wrong innov. density
+                (2) or did not converge
         float
             Maximum absolute difference between last two steps of simulation.
         """
@@ -1311,8 +1321,8 @@ class DynamicalMFT():
         if not np.isfinite(L):
             L = 10_000
         
-        if n0 is None and 'n' in self.__dict__:
-            n0 = self.n.copy()
+        if n0 is None and 'n' in self.__dict__ and self.n.size==(L+1):
+            n0 = self.n[:-1]
         elif n0 is None:
             n0 = np.ones(int(L))/2
         self.n = n0.copy()
@@ -1325,11 +1335,14 @@ class DynamicalMFT():
             counter += 1
         
         if (self.dt*counter) >= T:
-            flag = 1
-        else:
+            flag = 2
+        elif np.isclose(self.n[0], self.n0):
             flag = 0
+        else:
+            flag = 1
         
         mx_err = np.abs(prev_n-self.n).max()
+        self.n = np.append(self.n, 0)
         return flag, mx_err
 
     def run(self, T, save_every, L=None, iprint=False):
@@ -1467,4 +1480,105 @@ class SimpleFirm(Firm):
         # if no innovation is necessary to grow
         self.sites = self.sites[0], self.sites[1] + 1
         return 1, 0
- 
+
+
+
+class Analytic():
+    def __init__(self, ro, G, re, rd, I, L):
+        """Class for analytic solution to MFT.
+
+        Parameters
+        ----------
+        ro : float
+        G : float
+        re : float
+        rd : float
+        I : float
+        L : float
+        alpha : float, 1.
+            Cooperativity.
+        Q : int, 2
+            Bethe lattice branching ratio.
+        """
+        
+        #assert alpha==1
+        #assert Q>=2
+
+        self.ro = ro
+        self.G = G
+        self.re = re
+        self.rd = rd
+        self.I = I
+        self.L = L
+        #self.alpha = alpha
+        #self.Q = Q
+        self.n0 = ro/re/I  # stationary density
+    
+    def n(self, x):
+        """Interpolated occupancy function.
+
+        Parameters
+        ----------
+        x : ndarray
+
+        Returns
+        -------
+        ndarray
+        """
+
+        ro = self.ro
+        G = self.G
+        re = self.re
+        rd = self.rd
+        I = self.I
+        L = self.L
+
+        a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+        sol = (G / ((np.exp(2*sqrt(a)/(re+ro))-1) * L * (re-rd)) *
+               (1 - np.exp(2*sqrt(a)/(re+ro)) + np.exp(-(sqrt(a)*(x-1)+re*x-ro*(1+x)+re)/(re+ro)) -
+                np.exp((-re*x+ro*(1+x)+sqrt(a)*(1+x)-re)/(re+ro)) +
+                (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(a)*(2+x))/(re+ro)) -
+                                             np.exp((-re*x+(ro-sqrt(a))*x)/(re+ro)))))
+        return sol.real
+
+    def solve_L(self, L0=None, full_output=False):
+        """Solve for stationary value of L that matches self-consistency
+        condition, i.e. analytic solution for L should be equal to the posited
+        value of L.
+
+        Parameters
+        ----------
+        L0 : float, None
+            Initial guess.
+        full_output : bool, False
+
+        Returns
+        -------
+        float
+        """
+
+        ro = self.ro
+        G = self.G
+        re = self.re
+        rd = self.rd
+        I = self.I
+        L = self.L
+        
+        # analytic eq for L solved from continuum formulation in Mathematica
+        a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+        num = lambda x:(np.exp(-(re-ro)/(re+ro)) * (np.exp(-sqrt(a)*(x-1)/(re+ro)) -
+                                                    np.exp(sqrt(a)*(x+1)/(re+ro))) + 
+                        np.exp((re-ro)*x/(re+ro)) * (1-np.exp(2*sqrt(a)/(re+ro))) -
+                        np.exp(-sqrt(a)*x/(re+ro)) +
+                        np.exp(sqrt(a)*(2+x)/(re+ro)))
+        den = lambda x:(np.exp(-sqrt(a)*x/(re+ro)) -
+                        np.exp(sqrt(a)*(2+x)/(re+ro))) * (re-rd)*ro / (G*re*I)
+
+        statL = lambda x:num(x) / den(x)
+        soln = minimize(lambda x:(statL(x).real - x)**2, L0)
+
+        if full_output:
+            return soln['x'][0], soln
+        return soln['x'][0]
+#end Analytic
+
