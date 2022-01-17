@@ -128,6 +128,42 @@ def _fit_dmft(data, dt, initial_params, **params_kw):
     soln = minimize(cost, np.log(initial_params))
     return np.exp(soln['x']), soln
 
+def fit_ode(x, data, initial_params, full_output=False, **params_kw):
+    """Best fit of ODE model at stationarity.
+
+    Parameters
+    ----------
+    x : ndarray
+    data : ndarray
+    initial_params : list
+    full_output : bool, False
+        If True, return soln dict.
+    **params_kw
+
+    Returns
+    -------
+    ndarray
+        Estimates for (ro, G, re, rd, I).
+    dict
+        If full_output is True. From scipy.optimize.minimize.
+    """
+
+    def cost(params):
+        ro, G, re, rd, I = np.exp(params)
+        
+        try:
+            model = Analytic(ro, G, re, rd, I, **params_kw)
+        except AssertionError:  # e.g. problem with stationarity and L
+            return 1e30
+        
+        c = np.linalg.norm(data - model.n(x))
+        return c
+
+    soln = minimize(cost, np.log(initial_params))
+    if full_output:
+        return np.exp(soln['x']), soln
+    return np.exp(soln['x'])
+
 
 
 # ======= #
@@ -1158,7 +1194,7 @@ class IterativeMFT():
         
         while decimal <= mx_decimal:
             # ratchet down til the tail goes the wrong way
-            while nfun[-1] > 0: #(I * n0 * nfun[-2] + G/re/L / (I * n0 + rd/re)) > 0:
+            while nfun[-1] > 0 and L>0: #(I * n0 * nfun[-2] + G/re/L / (I * n0 + rd/re)) > 0:
                 L -= 10**-decimal
                 nfun = self.iterate_n(L)
             L += 10**-decimal  # oops, go back up
@@ -1184,11 +1220,12 @@ class IterativeMFT():
 
         n = np.zeros(int(L)+1)
         n[0] = n0
-        # rigid assumption about n[1]
-        n[1] = (Q-1) * (I * n0**2 + rd * n0 / re - G / L / re)
+        if n.size>1:
+            # rigid assumption about n[1]
+            n[1] = (Q-1) * (I * n0**2 + rd * n0 / re - G / L / re)
 
-        for i in range(2, n.size):
-            n[i] = (Q-1) * (I * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L)
+            for i in range(2, n.size):
+                n[i] = (Q-1) * (I * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L)
 
         if iprint: print(eps)
 
@@ -1484,7 +1521,7 @@ class SimpleFirm(Firm):
 
 
 class Analytic():
-    def __init__(self, ro, G, re, rd, I, L):
+    def __init__(self, ro, G, re, rd, I, L=None):
         """Class for analytic solution to MFT.
 
         Parameters
@@ -1494,7 +1531,7 @@ class Analytic():
         re : float
         rd : float
         I : float
-        L : float
+        L : float, None
         alpha : float, 1.
             Cooperativity.
         Q : int, 2
@@ -1509,7 +1546,7 @@ class Analytic():
         self.re = re
         self.rd = rd
         self.I = I
-        self.L = L
+        self.L = self.solve_L(L)
         #self.alpha = alpha
         #self.Q = Q
         self.n0 = ro/re/I  # stationary density
@@ -1562,7 +1599,7 @@ class Analytic():
         re = self.re
         rd = self.rd
         I = self.I
-        L = self.L
+        L0 = L0 or max(IterativeMFT(ro, G, re, rd, I).L, 10)
         
         # analytic eq for L solved from continuum formulation in Mathematica
         a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
