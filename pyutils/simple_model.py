@@ -173,7 +173,7 @@ class Simulator():
     def __init__(self,
                  L0=20,
                  N0=20,
-                 g0=.2,
+                 G=.2,
                  obs_rate=.49,
                  expand_rate=.5,
                  innov_rate=.5,
@@ -191,7 +191,7 @@ class Simulator():
             Initial size of lattice.
         N0 : int, 20
             Initial population size.
-        g0 : float, .2
+        G : float, .2
             Total new firm rate.
         obs_rate : float, .49
             Obsolescence rate (from left).
@@ -211,11 +211,11 @@ class Simulator():
         cache_dr : str, None
         """
 
-        assert L0>0 and N0>=0 and g0>0 and dt>0
+        assert L0>0 and N0>=0 and G>0 and dt>0
         
         self.L0 = L0
         self.N0 = N0
-        self.g0 = g0
+        self.G = G
         self.obs_rate = obs_rate
         self.expand_rate = expand_rate
         self.innov_rate = innov_rate
@@ -260,7 +260,7 @@ class Simulator():
         # settings
         L0 = self.L0
         N0 = self.N0
-        g0 = self.g0
+        G = self.G
         obs_rate = self.obs_rate
         expand_rate = self.expand_rate
         innov_rate = self.innov_rate
@@ -361,8 +361,8 @@ class Simulator():
             # check_firms_occupancy(firms, lattice, iprint=True)
 
             # spawn new firms
-            nNew = self.rng.poisson(g0 * dt)
-            #nNew = self.rng.rand() < (g0*dt)
+            nNew = self.rng.poisson(G * dt)
+            #nNew = self.rng.rand() < (G*dt)
             for i in range(nNew):
                 firms.append(Firm(self.rng.randint(lattice.left+1, lattice.right+1),
                                   innov_rate,
@@ -578,7 +578,7 @@ class Simulator():
         
         extra_props.update({'L0':self.L0,
                             'N0':self.N0,
-                            'g0':self.g0,
+                            'G':self.G,
                             'obs_rate':self.obs_rate,
                             'expand_rate':self.expand_rate,
                             'innov_rate':self.innov_rate,
@@ -595,7 +595,7 @@ class Simulator():
     def info(self):
         """Show parameters."""
         
-        print(f'new firm rate   =\t{self.g0}')
+        print(f'new firm rate   =\t{self.G}')
         print(f'innov rate      =\t{self.innov_rate}')
         print()
 
@@ -630,7 +630,7 @@ class UnitSimulator(Simulator):
         list
         """
        
-        g0 = self.g0
+        G = self.G
         ro = self.obs_rate
         rd = self.death_rate
         re = self.expand_rate
@@ -638,18 +638,18 @@ class UnitSimulator(Simulator):
         a = self.cooperativity
         dt = self.dt
         
-        assert (g0 * dt)<1
+        assert (G * dt)<1
         assert (rd * dt)<1
         assert (re * dt)<1
         assert (ro * dt)<1
 
         if jit and occupancy is None:
             if reset_rng: np.random.seed()
-            return jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a)
+            return jit_unit_sim_loop(T, dt, G, re, rd, I, ro, a)
         elif jit and not occupancy is None:
             if reset_rng: np.random.seed()
             occupancy = List(occupancy)
-            return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, g0, re, rd, I, ro, a))
+            return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, ro, G, re, rd, I, a))
  
         if reset_rng: self.rng.seed()
 
@@ -674,7 +674,7 @@ class UnitSimulator(Simulator):
                         occupancy[x+1] += 1
 
                 # start up
-                if self.rng.rand() < (g0 / len(occupancy) * dt):
+                if self.rng.rand() < (G / len(occupancy) * dt):
                     occupancy[x] += 1
             
             # obsolescence
@@ -765,13 +765,13 @@ class UnitSimulator(Simulator):
 
 
 @njit
-def jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a):
+def jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a):
     """
     Parameters
     ----------
     T : int
     dt : float
-    g0 : float
+    G : float
     re : float
     rd : float
     I : float
@@ -800,7 +800,7 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a):
                     occupancy[x+1] += 1
 
             # start up
-            if np.random.rand() < (g0 / len(occupancy) * dt):
+            if np.random.rand() < (G / len(occupancy) * dt):
                 occupancy[x] += 1
 
         # obsolescence
@@ -811,14 +811,14 @@ def jit_unit_sim_loop(T, dt, g0, re, rd, I, ro, a):
     return occupancy
 
 @njit
-def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, g0, re, rd, I, ro, a):
+def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, re, rd, I, ro, a):
     """
     Parameters
     ----------
     occupancy : numba.typed.ListType[int64]
     T : int
     dt : float
-    g0 : float
+    G : float
     re : float
     rd : float
     I : float
@@ -846,7 +846,7 @@ def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, g0, re, rd, I, ro, a):
                     occupancy[x+1] += 1
 
             # start up
-            if np.random.rand() < (g0 / len(occupancy) * dt):
+            if np.random.rand() < (G / len(occupancy) * dt):
                 occupancy[x] += 1
 
         # obsolescence
@@ -889,7 +889,7 @@ class MultiunitSimulator(Simulator):
         # settings
         L0 = self.L0
         N0 = self.N0
-        g0 = self.g0
+        G = self.G
         obs_rate = self.obs_rate
         expand_rate = self.expand_rate
         innov_rate = self.innov_rate
@@ -984,7 +984,7 @@ class MultiunitSimulator(Simulator):
             # check_firms_occupancy(firms, lattice, iprint=True)
 
             # spawn new firms
-            nNew = self.rng.poisson(g0 * dt)
+            nNew = self.rng.poisson(G * dt)
             for i in range(nNew):
                 firms.append(SimpleFirm(self.rng.randint(lattice.left+1, lattice.right+1),
                                         innov_rate,
@@ -1617,5 +1617,24 @@ class Analytic():
         if full_output:
             return soln['x'][0], soln
         return soln['x'][0]
+    
+    def check_stat(self):
+        """Violation of stationarity condition.
+
+        Returns
+        -------
+        float
+            n(1) - [n(1) from n(0)]
+        """
+
+        ro = self.ro
+        G = self.G
+        re = self.re
+        rd = self.rd
+        I = self.I
+        L = self.L
+        
+        n0 = self.n(0) 
+        return self.n(1) - I * n0**2 - rd*n0/re + G/re/L
 #end Analytic
 
