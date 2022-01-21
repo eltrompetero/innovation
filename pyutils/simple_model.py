@@ -3,7 +3,7 @@
 # 
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
-from numba import njit
+from numba import njit, jit
 from numba.typed import List
 from scipy.optimize import minimize
 from cmath import sqrt
@@ -630,56 +630,57 @@ class UnitSimulator(Simulator):
         list
         """
        
-        G = self.G
-        ro = self.obs_rate
-        rd = self.death_rate
-        re = self.expand_rate
-        I = self.innov_rate
-        a = self.cooperativity
-        dt = self.dt
+        G = float(self.G)
+        ro = float(self.obs_rate)
+        rd = float(self.death_rate)
+        re = float(self.expand_rate)
+        I = float(self.innov_rate)
+        a = float(self.cooperativity)
+        dt = float(self.dt)
         
         assert (G * dt)<1
         assert (rd * dt)<1
         assert (re * dt)<1
         assert (ro * dt)<1
-
+        
         if jit and occupancy is None:
             if reset_rng: np.random.seed()
-            return jit_unit_sim_loop(T, dt, G, re, rd, I, ro, a)
+            return jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a)
         elif jit and not occupancy is None:
             if reset_rng: np.random.seed()
             occupancy = List(occupancy)
             return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, ro, G, re, rd, I, a))
  
         if reset_rng: self.rng.seed()
-
-        occupancy = [0]
         counter = 0
+        occupancy = [0]
         while (counter * dt) < T:
             # innov
             innov = False
-            if self.rng.rand() < (re * I * occupancy[-1]**a * dt):
+            if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
                 occupancy.append(1)
                 innov = True
 
+            # obsolescence
+            if len(occupancy) > 1 and np.random.rand() < (ro * dt):
+                occupancy.pop(0)
+            
             # from right to left b/c of expansion
             for x in range(len(occupancy)-1, -1, -1):
-                # death (fast approximation)
-                if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
-                    occupancy[x] -= 1
-
                 # expansion (fast approximation)
                 if x < (len(occupancy)-1-innov):
                     if occupancy[x] and np.random.rand() < (occupancy[x] * re * dt):
                         occupancy[x+1] += 1
 
-                # start up
-                if self.rng.rand() < (G / len(occupancy) * dt):
+               # death (fast approximation)
+                if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
+                    occupancy[x] -= 1
+
+                # start up (remember that L is length of lattice on x-axis, s.t. L=0 means lattice has one site)
+                if len(occupancy)==1:
                     occupancy[x] += 1
-            
-            # obsolescence
-            if len(occupancy) > 1 and self.rng.rand() < (ro * dt):
-                occupancy.pop(0)
+                elif np.random.rand() < (G / (len(occupancy)-1) * dt):
+                    occupancy[x] += 1
 
             counter += 1
         return occupancy
@@ -761,26 +762,66 @@ class UnitSimulator(Simulator):
         if norm_err:
             return y.mean(0), y.std(0) / np.sqrt(y.shape[0])
         return y.mean(0), y.std(0)
-#end UnitSimulator
 
+    def rescale_factor(self, T, sample_size=1_000):
+        """Rescaling factor needed to correct for bias in mean L. The returned
+        factor c can be used to modify the automaton model with the set of
+        transformations
+            G -> G * c
+            n -> n / c
+            I -> I / c
+        Equivalently, we can transform the MFT with the inverse set of
+        transformations
+            G -> G / c
+            n -> n * c
+            I -> I * c
+        
+        Parameters
+        ----------
+        T : float
+            Run time before sampling.
+        sample_size : int
+            No. of indpt. trajectories to use to estimate ratio.
+
+        Returns
+        -------
+        float
+        """
+
+        G = float(self.G)
+        ro = float(self.obs_rate)
+        rd = float(self.death_rate)
+        re = float(self.expand_rate)
+        I = float(self.innov_rate)
+        a = float(self.cooperativity)
+        dt = float(self.dt)
+ 
+        occupancy = self.parallel_simulate(sample_size, T)
+        L = np.array([len(i) for i in occupancy])
+
+        odemodel = Analytic(ro, G, re, rd, I)
+
+        return L.mean() / odemodel.L
+#end UnitSimulator
 
 @njit
 def jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a):
     """
     Parameters
     ----------
+    occupancy : numba.typed.ListType[int64]
     T : int
     dt : float
+    ro : float
     G : float
     re : float
     rd : float
     I : float
-    ro : float
     a : float
     """
     
-    occupancy = [0]
     counter = 0
+    occupancy = [0]
     while (counter * dt) < T:
         # innov
         innov = False
@@ -788,41 +829,44 @@ def jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a):
             occupancy.append(1)
             innov = True
 
+        # obsolescence
+        if len(occupancy) > 1 and np.random.rand() < (ro * dt):
+            occupancy.pop(0)
+        
         # from right to left b/c of expansion
         for x in range(len(occupancy)-1, -1, -1):
-            # death (fast approximation)
-            if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
-                occupancy[x] -= 1
-
             # expansion (fast approximation)
             if x < (len(occupancy)-1-innov):
                 if occupancy[x] and np.random.rand() < (occupancy[x] * re * dt):
                     occupancy[x+1] += 1
 
-            # start up
-            if np.random.rand() < (G / len(occupancy) * dt):
+           # death (fast approximation)
+            if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
+                occupancy[x] -= 1
+
+            # start up (remember that L is length of lattice on x-axis, s.t. L=0 means lattice has one site)
+            if len(occupancy)==1:
+                occupancy[x] += 1
+            elif np.random.rand() < (G / (len(occupancy)-1) * dt):
                 occupancy[x] += 1
 
-        # obsolescence
-        if len(occupancy) > 1 and np.random.rand() < (ro * dt):
-            occupancy.pop(0)
-        
         counter += 1
     return occupancy
 
+
 @njit
-def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, re, rd, I, ro, a):
+def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, ro, G, re, rd, I, a):
     """
     Parameters
     ----------
     occupancy : numba.typed.ListType[int64]
     T : int
     dt : float
+    ro : float
     G : float
     re : float
     rd : float
     I : float
-    ro : float
     a : float
     """
     
