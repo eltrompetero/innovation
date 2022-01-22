@@ -84,7 +84,7 @@ def fit_dmft(data, L, dt, initial_params, **params_kw):
         G = G[0]
         #print(f'{G=}')
 
-        model = DynamicalMFT(ro, G, re, rd, I, dt, **params_kw)
+        model = DynamicalMFT(G, ro, re, rd, I, dt, **params_kw)
         print(f'{model.L=}')
         if not np.isclose(model.L, L, atol=1e-2): return 1e30
         
@@ -143,16 +143,16 @@ def fit_ode(x, data, initial_params, full_output=False, **params_kw):
     Returns
     -------
     ndarray
-        Estimates for (ro, G, re, rd, I).
+        Estimates for (G, ro, re, rd, I).
     dict
         If full_output is True. From scipy.optimize.minimize.
     """
 
     def cost(params):
-        ro, G, re, rd, I = np.exp(params)
+        G, ro, re, rd, I = np.exp(params)
         
         try:
-            model = Analytic(ro, G, re, rd, I, **params_kw)
+            model = Analytic(G, ro, re, rd, I, **params_kw)
         except AssertionError:  # e.g. problem with stationarity and L
             return 1e30
         
@@ -176,9 +176,9 @@ class Simulator():
                  G=.2,
                  obs_rate=.49,
                  expand_rate=.5,
-                 innov_rate=.5,
-                 exploit_rate=.5,
                  death_rate=.2,
+                 innov_rate=.5,
+                 exploit_rate=0,
                  cooperativity=1.,
                  depressed_frac=.5,
                  dt=0.1,
@@ -197,12 +197,12 @@ class Simulator():
             Obsolescence rate (from left).
         expand_rate : float, .5
             Rate at which firms try to expand.
+        death_rate : float, .2
+            Rate of death.
         innov_rate : float, .5
             Probability of successful innovation.
         exploit_rate : float, .5
             Probability of successfully exploiting innovated area.
-        death_rate : float, .2
-            Rate of death.
         cooperativity : float, 1.
         depressed_frac : float, .5
         dt : float, .1
@@ -645,11 +645,11 @@ class UnitSimulator(Simulator):
         
         if jit and occupancy is None:
             if reset_rng: np.random.seed()
-            return jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a)
+            return jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a)
         elif jit and not occupancy is None:
             if reset_rng: np.random.seed()
             occupancy = List(occupancy)
-            return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, ro, G, re, rd, I, a))
+            return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a))
  
         if reset_rng: self.rng.seed()
         counter = 0
@@ -767,11 +767,13 @@ class UnitSimulator(Simulator):
         """Rescaling factor needed to correct for bias in mean L. The returned
         factor c can be used to modify the automaton model with the set of
         transformations
+            x -> x * c
             G -> G * c
             n -> n / c
             I -> I / c
         Equivalently, we can transform the MFT with the inverse set of
         transformations
+            x -> x / c
             G -> G / c
             n -> n * c
             I -> I * c
@@ -790,22 +792,22 @@ class UnitSimulator(Simulator):
 
         G = float(self.G)
         ro = float(self.obs_rate)
-        rd = float(self.death_rate)
         re = float(self.expand_rate)
+        rd = float(self.death_rate)
         I = float(self.innov_rate)
         a = float(self.cooperativity)
         dt = float(self.dt)
  
         occupancy = self.parallel_simulate(sample_size, T)
-        L = np.array([len(i) for i in occupancy])
+        L = np.array([(len(i)-1) for i in occupancy])
 
-        odemodel = Analytic(ro, G, re, rd, I)
+        odemodel = Analytic(G, ro, re, rd, I)
 
-        return L.mean() / odemodel.L
+        return odemodel.L / L.mean(), occupancy
 #end UnitSimulator
 
 @njit
-def jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a):
+def jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a):
     """
     Parameters
     ----------
@@ -855,7 +857,7 @@ def jit_unit_sim_loop(T, dt, ro, G, re, rd, I, a):
 
 
 @njit
-def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, ro, G, re, rd, I, a):
+def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
     """
     Parameters
     ----------
@@ -1147,7 +1149,7 @@ class MultiunitSimulator(Simulator):
 
 
 class IterativeMFT():
-    def __init__(self, ro, G, re, rd, I, alpha=1., Q=2):
+    def __init__(self, G, ro, re, rd, I, alpha=1., Q=2):
         """Class for calculating discrete MFT quantities.
 
         Parameters
@@ -1300,7 +1302,7 @@ class IterativeMFT():
 
 
 class DynamicalMFT():
-    def __init__(self, ro, G, re, rd, I, dt,
+    def __init__(self, G, ro, re, rd, I, dt,
                  correction=True,
                  alpha=1.,
                  Q=2):
@@ -1565,7 +1567,7 @@ class SimpleFirm(Firm):
 
 
 class Analytic():
-    def __init__(self, ro, G, re, rd, I, L=None):
+    def __init__(self, G, ro, re, rd, I, L=None):
         """Class for analytic solution to MFT.
 
         Parameters
@@ -1643,7 +1645,7 @@ class Analytic():
         re = self.re
         rd = self.rd
         I = self.I
-        L0 = L0 or max(IterativeMFT(ro, G, re, rd, I).L, 10)
+        L0 = L0 or max(IterativeMFT(G, ro, re, rd, I).L, 10)
         
         # analytic eq for L solved from continuum formulation in Mathematica
         a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
