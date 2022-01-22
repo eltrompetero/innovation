@@ -607,9 +607,9 @@ class Simulator():
 
 
 class UnitSimulator(Simulator):
-    """Independent unit simulation of firms, which is the same thing as a density
-    evolution equation. This is the simplest implementation possible that only
-    keeps track of the occupancy number and does nothing fancy.
+    """Independent unit simulation of firms, which is the same thing as a
+    density evolution equation. This is the simplest implementation possible
+    that only keeps track of the occupancy number and processes to order dt.
     """
 
     def simulate(self, T, reset_rng=False, jit=True, occupancy=None):
