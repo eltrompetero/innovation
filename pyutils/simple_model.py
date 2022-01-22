@@ -612,7 +612,11 @@ class UnitSimulator(Simulator):
     that only keeps track of the occupancy number and processes to order dt.
     """
 
-    def simulate(self, T, reset_rng=False, jit=True, occupancy=None):
+    def simulate(self, T,
+                 reset_rng=False,
+                 jit=True,
+                 occupancy=None,
+                 no_expansion=False):
         """
         dt must be small enough to ignore coincident events.
 
@@ -624,6 +628,9 @@ class UnitSimulator(Simulator):
         jit : bool, True
         occupancy : list, None
             Feed in a starting occupancy on which to run dynamics.
+        no_expansion : bool, False
+            When True, expansion term is removed from simulation. This only
+            works without occupancy.
 
         Returns
         -------
@@ -645,6 +652,8 @@ class UnitSimulator(Simulator):
         
         if jit and occupancy is None:
             if reset_rng: np.random.seed()
+            if no_expansion:
+                return jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a)
             return jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a)
         elif jit and not occupancy is None:
             if reset_rng: np.random.seed()
@@ -855,7 +864,6 @@ def jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a):
         counter += 1
     return occupancy
 
-
 @njit
 def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
     """
@@ -899,6 +907,51 @@ def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
         if len(occupancy) > 1 and np.random.rand() < (ro * dt):
             occupancy.pop(0)
         
+        counter += 1
+    return occupancy
+
+@njit
+def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
+    """Special case for testing. Without expansion.
+    
+    Parameters
+    ----------
+    occupancy : numba.typed.ListType[int64]
+    T : int
+    dt : float
+    ro : float
+    G : float
+    re : float
+    rd : float
+    I : float
+    a : float
+    """
+    
+    counter = 0
+    occupancy = [0]
+    while (counter * dt) < T:
+        # innov
+        innov = False
+        if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
+            occupancy.append(1)
+            innov = True
+
+        # obsolescence
+        if len(occupancy) > 1 and np.random.rand() < (ro * dt):
+            occupancy.pop(0)
+        
+        # from right to left b/c of expansion
+        for x in range(len(occupancy)-1, -1, -1):
+           # death (fast approximation)
+            if occupancy[x] and np.random.rand() < (occupancy[x] * rd * dt):
+                occupancy[x] -= 1
+
+            # start up (remember that L is length of lattice on x-axis, s.t. L=0 means lattice has one site)
+            if len(occupancy)==1:
+                occupancy[x] += 1
+            elif np.random.rand() < (G / (len(occupancy)-1) * dt):
+                occupancy[x] += 1
+
         counter += 1
     return occupancy
 
