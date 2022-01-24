@@ -688,7 +688,7 @@ class UnitSimulator(Simulator):
                 # start up (remember that L is length of lattice on x-axis, s.t. L=0 means lattice has one site)
                 if len(occupancy)==1:
                     occupancy[x] += 1
-                elif np.random.rand() < (G / (len(occupancy)-1) * dt):
+                elif np.random.rand() < (G / len(occupancy) * dt):
                     occupancy[x] += 1
 
             counter += 1
@@ -856,9 +856,7 @@ def jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a):
                 occupancy[x] -= 1
 
             # start up (remember that L is length of lattice on x-axis, s.t. L=0 means lattice has one site)
-            if len(occupancy)==1:
-                occupancy[x] += 1
-            elif np.random.rand() < (G / (len(occupancy)-1) * dt):
+            if np.random.rand() < (G / len(occupancy) * dt):
                 occupancy[x] += 1
 
         counter += 1
@@ -1303,6 +1301,32 @@ class IterativeMFT():
         self.L, self.n = L, nfun
         return L, nfun
 
+    def iterate_n_high_prec(self, L=None, iprint=False):
+        """Iterative solution to occupancy number with high precision. See NB II pg. 118."""
+        
+        import mpmath as mp
+        mp.dps = 30
+
+        ro = self.ro
+        G = self.G
+        re = self.re
+        rd = self.rd
+        I = self.I
+        n0 = self.n0
+        L = L or self.L
+        Q = self.Q
+
+        n = mp.matrix(int(L)+1, 1)
+        n[0] = n0
+        if len(n) > 1:
+            # assumption about n[-1]=0 gives n[1]
+            n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L) / re)
+
+            for i in range(2, len(n)):
+                n[i] = (Q-1) * (re * I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L)) / re
+
+        return np.array([float(i) for i in n])
+
     def iterate_n(self, L=None, iprint=False):
         """Iterative solution to occupancy number. See NB II pg. 118."""
         
@@ -1315,18 +1339,14 @@ class IterativeMFT():
         L = L or self.L
         Q = self.Q
 
-        #eps = I * n0**2 + (rd/re-2) * n0 - G/re/L
-
         n = np.zeros(int(L)+1)
         n[0] = n0
-        if n.size>1:
-            # rigid assumption about n[1]
-            n[1] = (Q-1) * (I * n0**2 + rd * n0 / re - G / L / re)
+        if n.size > 1:
+            # assumption about n[-1]=0 gives n[1]
+            n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L) / re)
 
             for i in range(2, n.size):
-                n[i] = (Q-1) * (I * n0 * (n[i-1] - n[i-2]) + rd * n[i-1] / re - G / re / L)
-
-        if iprint: print(eps)
+                n[i] = (Q-1) * (re * I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L)) / re
 
         return n
 
@@ -1379,8 +1399,8 @@ class DynamicalMFT():
         assert alpha>0
         assert Q>=2
 
-        self.ro = ro
         self.G = G
+        self.ro = ro
         self.re = re
         self.rd = rd
         self.I = I
@@ -1413,15 +1433,18 @@ class DynamicalMFT():
         L = L or self.L
 
         # entrance
-        dn = self.G/L 
-        # death
-        dn -= self.rd * self.n
+        dn = self.G / L 
+
         # shift
         dn -= self.re * self.I * self.n[0]**self.alpha * self.n
         dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
+
         # expansion
         dn[:-1] += self.re / (self.Q-1) * self.n[1:]
-        
+
+        # death
+        dn -= self.rd * self.n
+
         self.n += dn * self.dt
 
     def solve_stationary(self,
@@ -1650,12 +1673,13 @@ class Analytic():
         #self.Q = Q
         self.n0 = ro/re/I  # stationary density
     
-    def n(self, x):
+    def n(self, x, return_im=False):
         """Interpolated occupancy function.
 
         Parameters
         ----------
         x : ndarray
+        return_im : bool, False
 
         Returns
         -------
@@ -1675,6 +1699,8 @@ class Analytic():
                 np.exp((-re*x+ro*(1+x)+sqrt(a)*(1+x)-re)/(re+ro)) +
                 (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(a)*(2+x))/(re+ro)) -
                                              np.exp((-re*x+(ro-sqrt(a))*x)/(re+ro)))))
+        if return_im:
+            return sol.real, sol.imag
         return sol.real
 
     def solve_L(self, L0=None, full_output=False):
@@ -1717,14 +1743,32 @@ class Analytic():
             return soln['x'][0], soln
         return soln['x'][0]
     
-    def check_stat(self):
-        """Violation of stationarity condition.
+    def check_stat(self, x=1):
+        """Violation of stationarity condition by checking accuracy of iterative
+        solution.
 
         Returns
         -------
         float
-            n(1) - [n(1) from n(0)]
+            n(x) - [n(x) calculated with n(x-1)]
         """
+        
+        assert x>=1
+
+        G = self.G
+        ro = self.ro
+        re = self.re
+        rd = self.rd
+        I = self.I
+        L = self.L
+        
+        n0 = self.n(0) 
+        if x==1:
+            return self.n(x) - I * n0**2 - rd*n0/re + G/re/L
+        return self.n(x) - (I * n0 * (self.n(x-1) - self.n(x-2)) + rd*self.n(x-1)/re - G/re/L)
+    
+    def slope(self):
+        """Slope at x=0."""
 
         ro = self.ro
         G = self.G
@@ -1732,8 +1776,7 @@ class Analytic():
         rd = self.rd
         I = self.I
         L = self.L
-        
-        n0 = self.n(0) 
-        return self.n(1) - I * n0**2 - rd*n0/re + G/re/L
+ 
+        return ro**2 / re**2 / I + (rd/re-1) * ro / re / I - G / re / L
 #end Analytic
 

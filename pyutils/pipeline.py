@@ -35,7 +35,7 @@ def automaton_rescaling():
         c.append(c_)
         occupancy.append(occupancy_)
         
-        save_pickle(['c','occupancy'], 'cache/automaton_rescaling.p')
+        save_pickle(['c','occupancy','params'], 'cache/automaton_rescaling.p', True)
         print(f"Done with parameter set {i}.")
 
 
