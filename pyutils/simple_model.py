@@ -5,7 +5,7 @@
 # ====================================================================================== #
 from numba import njit, jit
 from numba.typed import List
-from scipy.optimize import minimize
+from scipy.optimize import minimize, root
 from cmath import sqrt
 
 from workspace.utils import save_pickle
@@ -160,6 +160,41 @@ def fit_ode(x, data, initial_params, full_output=False, **params_kw):
         return c
 
     soln = minimize(cost, np.log(initial_params))
+    if full_output:
+        return np.exp(soln['x']), soln
+    return np.exp(soln['x'])
+
+def fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
+                      full_output=False):
+    """Heuristic algorithm for fitting to density function.
+
+    Parameters
+    ----------
+    full_output : bool, False
+    """
+
+    def cost(args):
+        try:
+            # first two args are width and height units
+            args = np.exp(args)
+            xunit, yunit = args[:2]
+            args = np.insert(args[2:], 2, 1)
+            odemodel = Analytic(*args)
+        except AssertionError:
+            return 1e30
+        
+        x = odemodel.peak() / xunit
+        if x<=0: return 1e30
+        y = odemodel.n(x) / yunit
+        if y<=0: return 1e30
+        
+        # weight location and height of peak, innov density, slope at innov
+        return ((y-peaky)**2 + (x-peakx)**2 +
+                (odemodel.n0/yunit - n0)**2 +
+                (odemodel.d_complex(0).real*xunit/yunit - s0)**2)
+    
+    # convert parameters to log space to handle cutoff at 0
+    soln = minimize(cost, np.log(initial_guess), method='powell')
     if full_output:
         return np.exp(soln['x']), soln
     return np.exp(soln['x'])
@@ -1663,11 +1698,11 @@ class Analytic():
         #assert alpha==1
         #assert Q>=2
 
-        self.ro = ro
-        self.G = G
-        self.re = re
-        self.rd = rd
-        self.I = I
+        self.ro = float(ro)
+        self.G = float(G)
+        self.re = float(re)
+        self.rd = float(rd)
+        self.I = float(I)
         self.L = self.solve_L(L)
         #self.alpha = alpha
         #self.Q = Q
@@ -1737,7 +1772,7 @@ class Analytic():
                         np.exp(sqrt(a)*(2+x)/(re+ro))) * (re-rd)*ro / (G*re*I)
 
         statL = lambda x:num(x) / den(x)
-        soln = minimize(lambda x:(statL(x).real - x)**2, L0)
+        soln = minimize(lambda x:(statL(x).real - x)**2, L0, tol=1e-10)
 
         if full_output:
             return soln['x'][0], soln
@@ -1778,5 +1813,71 @@ class Analytic():
         L = self.L
  
         return ro**2 / re**2 / I + (rd/re-1) * ro / re / I - G / re / L
+
+    def d_complex(self, x):
+        """Complex derivative.
+        
+        Parameters
+        ----------
+        x : ndarray
+
+        Returns
+        -------
+        ndarray
+        """
+        
+        # transform into normal parameters
+        re = self.re
+        rd = self.rd/re
+        ro = self.ro/re
+        G = self.G/re
+        I = self.I
+        L = self.L
+        a = -1 + (ro - 4) * ro + 2 * rd * (1 + ro) 
+        sqrta = sqrt(a)
+
+        return ((G/L/(rd-1) * ((-1 + ro + sqrta)/(1+ro) *
+                                      np.exp((-1 + sqrta + x*(sqrta-1) + ro*(1+x)) / (1+ro)) -
+                               (-1 + ro - sqrta)/(1+ro) *
+                                      np.exp((-1 + sqrta - x*(1+sqrta) + ro*(1+x)) / (1+ro))) + 
+                        np.exp((-1 + ro - sqrta) * x / (1+ro)) * (G/L/(rd-1) - ro/I) * (-1+ro-sqrta)/(1+ro)+ 
+                        np.exp((2 * sqrta + (ro-1+sqrta)*x) / (1+ro)) * (-G/L/(rd-1) + ro/I) * (-1+ro+sqrta) /
+                                (1+ro)) / 
+                      (-1 + np.exp(2 * sqrta/(1+ro))))
+
+    def peak(self, initial_guess=None, full_output=False):
+        """Solve for peak by finding root in derivative.
+        
+        Parameters
+        ----------
+        full_output : bool, False
+
+        Returns
+        -------
+        float
+        dict (optional)
+        """
+       
+        if initial_guess is None:
+            initial_guess = 2/3 * self.L
+
+        # transform into normal parameters
+        re = self.re
+        rd = self.rd/re
+        ro = self.ro/re
+        G = self.G/re
+        I = self.I
+        L = self.L
+        a = -1 + (ro - 4) * ro + 2 * rd * (1 + ro) 
+        sqrta = sqrt(a)
+
+        # need a clever transformation of coordinates to allow the minimizer to find the soln
+        soln = minimize(lambda y:np.abs(self.d_complex(L-np.exp(y)).real), np.log(L-initial_guess),
+                        bounds=[(-np.inf,np.log(L/2))],
+                        method='powell')
+
+        if full_output:
+            return L - np.exp(soln['x'][0]), soln
+        return L - np.exp(soln['x'][0])
 #end Analytic
 
