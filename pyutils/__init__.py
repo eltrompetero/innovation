@@ -17,3 +17,5 @@ from .sql import QueryRouter
 from .firehose import *
 from .analysis import Comparator
 from . import pipeline as pipe
+from . import plot as iplot
+

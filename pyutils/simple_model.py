@@ -164,7 +164,7 @@ def fit_ode(x, data, initial_params, full_output=False, **params_kw):
         return np.exp(soln['x']), soln
     return np.exp(soln['x'])
 
-def fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
+def fit_piecewise_ode(x, y, initial_guess,
                       full_output=False):
     """Heuristic algorithm for fitting to density function.
 
@@ -175,8 +175,41 @@ def fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
 
     def cost(args):
         try:
-            # first two args are width and height units
-            args = np.exp(args)
+            # first three args are x offset, width, and height units
+            xoff = args[0]
+            args = np.exp(args[1:])
+            xunit, yunit = args[:2]
+            args = np.insert(args[2:], 2, 1)
+            odemodel = Analytic(*args)
+        except AssertionError:
+            return 1e30
+        
+        peakx = odemodel.peak()
+        if peakx<=0: return 1e30
+
+        mody = odemodel.n(x / xunit - xoff) / yunit
+        return np.linalg.norm(mody[-10:] - y[-10:])
+        
+    # convert parameters to log space to handle cutoff at 0
+    soln = minimize(cost, [initial_guess[0]]+np.log(initial_guess[1:]).tolist(), method='powell')
+    if full_output:
+        return np.exp(soln['x']), soln
+    return np.exp(soln['x'])
+
+def _fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
+                       full_output=False):
+    """Heuristic algorithm for fitting to density function.
+
+    Parameters
+    ----------
+    full_output : bool, False
+    """
+
+    def cost(args):
+        try:
+            # first three args are x offset, width, and height units
+            xoff = args[0]
+            args = np.exp(args[1:])
             xunit, yunit = args[:2]
             args = np.insert(args[2:], 2, 1)
             odemodel = Analytic(*args)
@@ -189,12 +222,12 @@ def fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
         if y<=0: return 1e30
         
         # weight location and height of peak, innov density, slope at innov
-        return ((y-peaky)**2 + (x-peakx)**2 +
+        return ((y-peaky)**2 + (x+xoff-peakx)**2 +
                 (odemodel.n0/yunit - n0)**2 +
                 (odemodel.d_complex(0).real*xunit/yunit - s0)**2)
     
     # convert parameters to log space to handle cutoff at 0
-    soln = minimize(cost, np.log(initial_guess), method='powell')
+    soln = minimize(cost, [initial_guess[0]]+np.log(initial_guess[1:]).tolist(), method='powell')
     if full_output:
         return np.exp(soln['x']), soln
     return np.exp(soln['x'])
@@ -1410,7 +1443,13 @@ class IterativeMFT():
 
 
 class DynamicalMFT():
-    def __init__(self, G, ro, re, rd, I, dt,
+    def __init__(self,
+                 G=None,
+                 ro=None,
+                 re=None,
+                 rd=None,
+                 I=None,
+                 dt=None,
                  correction=True,
                  alpha=1.,
                  Q=2):

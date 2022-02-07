@@ -19,9 +19,9 @@ def covid_clades():
     list
     """
 
-    tree = [Phylo.read("../data/nextstrain_ncov_gisaid_global_tree.nwk", "newick"),
-            Phylo.read("../data/nextstrain_ncov_gisaid_north-america_tree.nwk", "newick"),
-            Phylo.read("../data/nextstrain_ncov_gisaid_europe_tree.nwk", "newick")]
+    tree = [Phylo.read("../data/covid/nextstrain_ncov_gisaid_global_tree.nwk", "newick"),
+            Phylo.read("../data/covid/nextstrain_ncov_gisaid_north-america_tree.nwk", "newick"),
+            Phylo.read("../data/covid/nextstrain_ncov_gisaid_europe_tree.nwk", "newick")]
 
     all_dist = []
     for t in tree:
