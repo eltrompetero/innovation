@@ -152,7 +152,7 @@ def fit_ode(x, data, initial_params, full_output=False, **params_kw):
         G, ro, re, rd, I = np.exp(params)
         
         try:
-            model = Analytic(G, ro, re, rd, I, **params_kw)
+            model = ODE2(G, ro, re, rd, I, **params_kw)
         except AssertionError:  # e.g. problem with stationarity and L
             return 1e30
         
@@ -180,7 +180,7 @@ def fit_piecewise_ode(x, y, initial_guess,
             args = np.exp(args[1:])
             xunit, yunit = args[:2]
             args = np.insert(args[2:], 2, 1)
-            odemodel = Analytic(*args)
+            odemodel = ODE2(*args)
         except AssertionError:
             return 1e30
         
@@ -212,7 +212,7 @@ def _fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
             args = np.exp(args[1:])
             xunit, yunit = args[:2]
             args = np.insert(args[2:], 2, 1)
-            odemodel = Analytic(*args)
+            odemodel = ODE2(*args)
         except AssertionError:
             return 1e30
         
@@ -878,7 +878,7 @@ class UnitSimulator(Simulator):
         occupancy = self.parallel_simulate(sample_size, T)
         L = np.array([(len(i)-1) for i in occupancy])
 
-        odemodel = Analytic(G, ro, re, rd, I)
+        odemodel = ODE2(G, ro, re, rd, I)
 
         return odemodel.L / L.mean(), occupancy
 #end UnitSimulator
@@ -1716,9 +1716,9 @@ class SimpleFirm(Firm):
 
 
 
-class Analytic():
+class ODE2():
     def __init__(self, G, ro, re, rd, I, L=None):
-        """Class for analytic solution to MFT.
+        """Class for second-order analytic solution to MFT.
 
         Parameters
         ----------
@@ -1742,10 +1742,15 @@ class Analytic():
         self.re = float(re)
         self.rd = float(rd)
         self.I = float(I)
-        self.L = self.solve_L(L)
+        try:
+            self.L = IterativeMFT(G, ro, re, rd, I).L
+        except AssertionError:
+            self.L = 1
         #self.alpha = alpha
         #self.Q = Q
         self.n0 = ro/re/I  # stationary density
+        
+        self.L = self.solve_L(L)
     
     def n(self, x, L=None, return_im=False, method=2):
         """Interpolated occupancy function.
@@ -1835,7 +1840,10 @@ class Analytic():
         I = self.I
 
         # if not provided, use the iterative method to initialize the search
-        L0 = L0 or max(IterativeMFT(G, ro, re, rd, I).L, 10)
+        try:
+            L0 = L0 or max(IterativeMFT(G, ro, re, rd, I).L, 10)
+        except AssertionError:
+            L0 = L0 or 10
         
         if method==1:
             # analytic eq for L solved from continuum formulation in Mathematica
@@ -1857,7 +1865,7 @@ class Analytic():
 
         elif method==2: 
             def cost(args):
-                L = args
+                L = args[0]
                 return self.n(L, L, method=2)**2
             
             soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
@@ -1969,5 +1977,5 @@ class Analytic():
         if full_output:
             return L - np.exp(soln['x'][0]), soln
         return L - np.exp(soln['x'][0])
-#end Analytic
+#end ODE2
 
