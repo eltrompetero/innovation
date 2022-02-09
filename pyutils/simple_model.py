@@ -1,4 +1,4 @@
-# ====================================================================================== #
+    # ====================================================================================== #
 # Firm innovation models without wealth dynamics for simplified model.
 # 
 # Author : Eddie Lee, edlee@csh.ac.at
@@ -1407,7 +1407,7 @@ class IterativeMFT():
         L = L or self.L
         Q = self.Q
 
-        n = np.zeros(int(L)+1)
+        n = np.zeros(int(L))
         n[0] = n0
         if n.size > 1:
             # assumption about n[-1]=0 gives n[1]
@@ -1747,7 +1747,7 @@ class Analytic():
         #self.Q = Q
         self.n0 = ro/re/I  # stationary density
     
-    def n(self, x, return_im=False):
+    def n(self, x, L=None, return_im=False, method=2):
         """Interpolated occupancy function.
 
         Parameters
@@ -1759,63 +1759,114 @@ class Analytic():
         -------
         ndarray
         """
+        
+        L = L or self.L
 
-        ro = self.ro
-        G = self.G
-        re = self.re
-        rd = self.rd
-        I = self.I
-        L = self.L
+        if method==1:
+            # cleaned up output from mathematica
+            ro = self.ro
+            G = self.G
+            re = self.re
+            rd = self.rd
+            I = self.I
 
-        a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
-        sol = (G / ((np.exp(2*sqrt(a)/(re+ro))-1) * L * (re-rd)) *
-               (1 - np.exp(2*sqrt(a)/(re+ro)) + np.exp(-(sqrt(a)*(x-1)+re*x-ro*(1+x)+re)/(re+ro)) -
-                np.exp((-re*x+ro*(1+x)+sqrt(a)*(1+x)-re)/(re+ro)) +
-                (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(a)*(2+x))/(re+ro)) -
-                                             np.exp((-re*x+(ro-sqrt(a))*x)/(re+ro)))))
-        if return_im:
-            return sol.real, sol.imag
-        return sol.real
+            a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+            sol = (G / ((np.exp(2*sqrt(a)/(re+ro))-1) * L * (re-rd)) *
+                   (1 - np.exp(2*sqrt(a)/(re+ro)) + np.exp(-(sqrt(a)*(x-1)+re*x-ro*(1+x)+re)/(re+ro)) -
+                    np.exp((-re*x+ro*(1+x)+sqrt(a)*(1+x)-re)/(re+ro)) +
+                    (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(a)*(2+x))/(re+ro)) -
+                                                 np.exp((-re*x+(ro-sqrt(a))*x)/(re+ro)))))
+            return sol.real
+        
+        elif method==2:
+            # hand-written soln
+            # rescale params in units of re
+            ro = self.ro / self.re
+            G = self.G / self.re
+            rd = self.rd / self.re
+            I = self.I
+            
+            # compute eigenvalues of characteristic soln
+            a = (1-ro)**2 - 2 * (1-rd) * (1+ro)
+            lp = (ro-1 + sqrt(a)) / (1+ro)
+            lm = (ro-1 - sqrt(a)) / (1+ro)
+            
+            # constants for homogenous terms
+            A = ((G * np.exp((-sqrt(a)+ro-1) / (1+ro)) / (L * (1-rd)) -
+                 (2*G*(1+ro) / (L*((1-ro)**2 - a)) + ro/I)) / 
+                (np.exp(-2*sqrt(a) / (1+ro)) - 1))
+            B = ((G * np.exp(( sqrt(a)+ro-1) / (1+ro)) / (L * (1-rd)) -
+                 (2*G*(1+ro) / (L*((1-ro)**2 - a)) + ro/I)) / 
+                (np.exp( 2*sqrt(a) / (1+ro)) - 1))
 
-    def solve_L(self, L0=None, full_output=False):
-        """Solve for stationary value of L that matches self-consistency
-        condition, i.e. analytic solution for L should be equal to the posited
-        value of L.
+            # particular soln
+            sol = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1-rd)
+
+            if return_im:
+                return sol.real, sol.imag
+            return sol.real
+        else: raise NotImplementedError
+
+    def solve_L(self, L0=None, full_output=False, method=2):
+        """Solve for stationary value of L that matches self-consistency condition,
+        i.e. analytic solution for L should be equal to the posited value of L.
 
         Parameters
         ----------
         L0 : float, None
             Initial guess.
         full_output : bool, False
+        method : int, 2
+            1: 'mathematica'
+            2: 'hand'
+            Use formulation returned by mathematica or hand written solution. Hand
+            written solution is more numerically stable.
 
         Returns
         -------
         float
+        dict (optional)
         """
 
-        ro = self.ro
         G = self.G
+        ro = self.ro
         re = self.re
         rd = self.rd
         I = self.I
+
+        # if not provided, use the iterative method to initialize the search
         L0 = L0 or max(IterativeMFT(G, ro, re, rd, I).L, 10)
         
-        # analytic eq for L solved from continuum formulation in Mathematica
-        a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
-        num = lambda x:(np.exp(-(re-ro)/(re+ro)) * (np.exp(-sqrt(a)*(x-1)/(re+ro)) -
-                                                    np.exp(sqrt(a)*(x+1)/(re+ro))) + 
-                        np.exp((re-ro)*x/(re+ro)) * (1-np.exp(2*sqrt(a)/(re+ro))) -
-                        np.exp(-sqrt(a)*x/(re+ro)) +
-                        np.exp(sqrt(a)*(2+x)/(re+ro)))
-        den = lambda x:(np.exp(-sqrt(a)*x/(re+ro)) -
-                        np.exp(sqrt(a)*(2+x)/(re+ro))) * (re-rd)*ro / (G*re*I)
+        if method==1:
+            # analytic eq for L solved from continuum formulation in Mathematica
+            # this formulation has much bigger numerical errors
+            a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+            num = lambda x:(np.exp(-(re-ro)/(re+ro)) * (np.exp(-sqrt(a)*(x-1)/(re+ro)) -
+                                                        np.exp(sqrt(a)*(x+1)/(re+ro))) + 
+                            np.exp((re-ro)*x/(re+ro)) * (1-np.exp(2*sqrt(a)/(re+ro))) -
+                            np.exp(-sqrt(a)*x/(re+ro)) +
+                            np.exp(sqrt(a)*(2+x)/(re+ro)))
+            den = lambda x:(np.exp(-sqrt(a)*x/(re+ro)) -
+                            np.exp(sqrt(a)*(2+x)/(re+ro))) * (re-rd)*ro / (G*re*I)
 
-        statL = lambda x:num(x) / den(x)
-        soln = minimize(lambda x:(statL(x).real - x)**2, L0, tol=1e-10)
+            statL = lambda x:num(x) / den(x)
+            soln = minimize(lambda x:(statL(x).real - x)**2, L0, tol=1e-10, bounds=[(0,np.inf)])
+            if full_output:
+                return soln['x'][0], soln
+            return soln['x'][0]
 
-        if full_output:
-            return soln['x'][0], soln
-        return soln['x'][0]
+        elif method==2: 
+            def cost(args):
+                L = args
+                return self.n(L, L, method=2)**2
+            
+            soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
+
+            if full_output:
+                return soln['x'][0], soln
+            return soln['x'][0]
+
+        else: raise NotImplementedError
     
     def check_stat(self, x=1):
         """Violation of stationarity condition by checking accuracy of iterative
