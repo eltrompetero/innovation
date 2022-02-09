@@ -63,7 +63,7 @@ def covid_params(ix=0):
 def patent_params(ix=0):
     if ix==0:
         return {'G':25,
-                'ro':.53,
+                'ro':.54,
                 're':.43,
                 'rd':.416,
                 'I':.48,
