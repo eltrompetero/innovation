@@ -1,9 +1,11 @@
 # ====================================================================================== #
-# Module for studying firms info acquisition.
+# Module for studying simple innovation/obsolescence model.
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import dill as pickle
+import os
 import numpy as np
+import pandas as pd
 from statsmodels.distributions import ECDF
 from threadpoolctl import threadpool_limits
 from scipy.special import factorial
@@ -18,4 +20,3 @@ from .firehose import *
 from .analysis import Comparator
 from . import pipeline as pipe
 from . import plot as iplot
-

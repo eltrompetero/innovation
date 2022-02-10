@@ -1,5 +1,5 @@
-    # ====================================================================================== #
-# Firm innovation models without wealth dynamics for simplified model.
+# ====================================================================================== #
+# Minimal innovation model implementations and solutions.
 # 
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
@@ -84,7 +84,7 @@ def fit_dmft(data, L, dt, initial_params, **params_kw):
         G = G[0]
         #print(f'{G=}')
 
-        model = DynamicalMFT(G, ro, re, rd, I, dt, **params_kw)
+        model = FlowMFT(G, ro, re, rd, I, dt, **params_kw)
         print(f'{model.L=}')
         if not np.isclose(model.L, L, atol=1e-2): return 1e30
         
@@ -115,7 +115,7 @@ def _fit_dmft(data, dt, initial_params, **params_kw):
     """
     
     def cost(params):
-        model = DynamicalMFT(*np.exp(params), dt, **params_kw)
+        model = FlowMFT(*np.exp(params), dt, **params_kw)
         if model.L<1 or ~np.isfinite(model.L): return 1e30
         
         flag, mxerr = model.solve_stationary()
@@ -1442,7 +1442,7 @@ class IterativeMFT():
 
 
 
-class DynamicalMFT():
+class FlowMFT():
     def __init__(self,
                  G=None,
                  ro=None,
@@ -1450,7 +1450,7 @@ class DynamicalMFT():
                  rd=None,
                  I=None,
                  dt=None,
-                 correction=True,
+                 L_method=1,
                  alpha=1.,
                  Q=2):
         """Class for calculating discrete MFT quantities by running dynamics.
@@ -1462,8 +1462,10 @@ class DynamicalMFT():
         rd : float
         I : float
         dt : float
-        correction : bool, True
-            If True, use calculation for corrected L.
+        L_method : int
+            0, naive
+            1, corrected
+            2, ODE2
         alpha : float, 1.
             Cooperativity parameter.
         Q : int, 2
@@ -1479,16 +1481,19 @@ class DynamicalMFT():
         self.rd = rd
         self.I = I
         self.dt = dt
-        self.alpha = alpha * 1.
+        self.alpha = float(alpha)
         self.Q = Q
 
         self.n0 = (ro/re/I)**(1/alpha)
         
         try:
-            if correction:
-                self.L = self.mft_L()
-            else:
+            if L_method==0:
                 self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
+            elif L_method==1:
+                self.L = self.mft_L()
+            elif L_method==2:
+                self.L = ODE2(G, ro, re, rd, I).L
+            else: raise NotImplementedError
         except ZeroDivisionError:
             self.L = np.inf
         if self.L <= 0:
@@ -1509,7 +1514,7 @@ class DynamicalMFT():
         # entrance
         dn = self.G / L 
 
-        # shift
+        # innovation shift
         dn -= self.re * self.I * self.n[0]**self.alpha * self.n
         dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
 
@@ -1569,7 +1574,7 @@ class DynamicalMFT():
         
         if (self.dt*counter) >= T:
             flag = 2
-        elif np.isclose(self.n[0], self.n0):
+        elif np.abs(self.n[0]-self.n0)/self.n.max() < 1e-5:  # relative error
             flag = 0
         else:
             flag = 1
@@ -1684,7 +1689,7 @@ class DynamicalMFT():
         npp = (n0 - delta / z * C) / (1-C)
         # n0 * (1 + z/2) - delta/2  # taylor expansion of npp
         return -G * re * I / (ro * (re/(Q-1) - rd - ro + re*npp/n0/(Q-1)))
-#end DynamicalMFT
+#end FlowMFT
 
 
 class SimpleFirm(Firm):
@@ -1717,7 +1722,7 @@ class SimpleFirm(Firm):
 
 
 class ODE2():
-    def __init__(self, G, ro, re, rd, I, L=None):
+    def __init__(self, G, ro, re, rd, I, L=None, alpha=1., Q=2):
         """Class for second-order analytic solution to MFT.
 
         Parameters
@@ -1746,11 +1751,14 @@ class ODE2():
             self.L = IterativeMFT(G, ro, re, rd, I).L
         except AssertionError:
             self.L = 1
-        #self.alpha = alpha
-        #self.Q = Q
-        self.n0 = ro/re/I  # stationary density
+        self.alpha = alpha
+        self.Q = Q
+        self.n0 = (ro/re/I)**(1/alpha)  # stationary density
         
         self.L = self.solve_L(L)
+
+        assert Q==2
+        assert alpha==1
     
     def n(self, x, L=None, return_im=False, method=2):
         """Interpolated occupancy function.

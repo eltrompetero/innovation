@@ -55,14 +55,14 @@ def covid_params(ix=0):
                 're':.78,
                 'rd':.47,
                 'I':.12,
-                'dt':.1,
+                'dt':.01,
                 'Q':2.3174342105263157}
     else:
         raise Exception
 
 def patent_params(ix=0):
     if ix==0:
-        return {'G':25,
+        return {'G':23,
                 'ro':.54,
                 're':.43,
                 'rd':.416,
