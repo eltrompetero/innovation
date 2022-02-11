@@ -1,5 +1,6 @@
 # ====================================================================================== #
 # For analyzing model results.
+# 
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 from datetime import datetime
@@ -338,28 +339,28 @@ def time_interval(L, cutoff):
 # Classes #
 # ======= #
 class Comparator():
-    def __init__(self, ro, G, re, rd, I, dt=5e-3):
+    def __init__(self, G, ro, re, rd, I, dt=5e-3):
         """For comparing MFT and automaton.
         
         Parameters
         ----------
-        ro : float
         G : float
+        ro : float
         re : float
         rd : float
         I : float
         dt : float
         """
         
-        self.ro = ro
         self.G = G
+        self.ro = ro
         self.re = re
         self.rd = rd
         self.I = I
         self.dt = dt
         
     def load_params(self):
-        return self.ro, self.G, self.re, self.rd, self.I, self.dt
+        return self.G, self.ro, self.re, self.rd, self.I, self.dt
 
     def find_critical_re(self, re0, full_output=False):
         """Find divergence point for the expansion rate according to corrected MFT.
@@ -377,7 +378,7 @@ class Comparator():
         float
         """
         
-        ro, G, _, rd, I, dt = self.load_params()
+        G, ro, _, rd, I, dt = self.load_params()
 
         def cost(logre):
             re = np.exp(logre)
@@ -411,7 +412,7 @@ class Comparator():
         float
         """
         
-        _, G, re, rd, I, dt = self.load_params()
+        G, _, re, rd, I, dt = self.load_params()
 
         def cost(logro):
             ro = np.exp(logro)
@@ -450,32 +451,16 @@ class Comparator():
             Indexed by re values. Values are occupancy snapshots.
         """
         
-        ro, G, _, rd, I, dt = self.load_params()
+        G, ro, _, rd, I, dt = self.load_params()
         
         if ensemble:
             def loop_wrapper(re):
-                simulator = UnitSimulator(L0=1,
-                                          N0=0,
-                                          g0=G,
-                                          obs_rate=ro,
-                                          expand_rate=re,
-                                          innov_rate=I,
-                                          exploit_rate=0,
-                                          death_rate=rd,
-                                          dt=dt)
+                simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = simulator.parallel_simulate(n_samples, T)
                 return snapshot_n
         else:
             def loop_wrapper(re):
-                simulator = UnitSimulator(L0=1,
-                                          N0=0,
-                                          g0=G,
-                                          obs_rate=ro,
-                                          expand_rate=re,
-                                          innov_rate=I,
-                                          exploit_rate=0,
-                                          death_rate=rd,
-                                          dt=dt)
+                simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = [simulator.simulate(T)]
                 for i in range(n_samples):
                     snapshot_n.append(simulator.simulate(t_skip, occupancy=snapshot_n[-1]))
@@ -514,32 +499,16 @@ class Comparator():
             Indexed by re values. Values are occupancy snapshots.
         """
         
-        _, G, re, rd, I, dt = self.load_params()
+        G, _, re, rd, I, dt = self.load_params()
         
         if ensemble:
             def loop_wrapper(ro):
-                simulator = UnitSimulator(L0=1,
-                                          N0=0,
-                                          g0=G,
-                                          obs_rate=ro,
-                                          expand_rate=re,
-                                          innov_rate=I,
-                                          exploit_rate=0,
-                                          death_rate=rd,
-                                          dt=dt)
+                simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = simulator.parallel_simulate(n_samples, T)
                 return snapshot_n
         else:
             def loop_wrapper(ro):
-                simulator = UnitSimulator(L0=1,
-                                          N0=0,
-                                          g0=G,
-                                          obs_rate=ro,
-                                          expand_rate=re,
-                                          innov_rate=I,
-                                          exploit_rate=0,
-                                          death_rate=rd,
-                                          dt=dt)
+                simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = [simulator.simulate(T)]
                 for i in range(n_samples):
                     snapshot_n.append(simulator.simulate(t_skip, occupancy=snapshot_n[-1]))

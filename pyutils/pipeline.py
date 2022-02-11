@@ -38,6 +38,37 @@ def automaton_rescaling():
         save_pickle(['c','occupancy','params'], 'cache/automaton_rescaling.p', True)
         print(f"Done with parameter set {i}.")
 
+def cooperativity_comparison():
+    """Comparing mean-field flow with automaton for different cooperativities.
+    """
+
+    G = 10
+    ro = .5
+    re = .4
+    rd = .41
+    I = .9
+    dt = .1
+    alpha_range = [.5, 1, 1.5]
+
+    dmftmodel = []
+    for alpha in alpha_range:
+        dmftmodel.append(FlowMFT(G, ro, re, rd, I, dt, alpha=alpha))
+        flag, mxerr = dmftmodel[-1].solve_stationary()
+
+    # automaton model (dt must be small for good convergence)
+    dt = 1e-3
+    automaton = []
+    for alpha in alpha_range:
+        automaton.append(UnitSimulator(G, ro, re, rd, I,
+                                       alpha=alpha,
+                                       dt=dt))
+        automaton[-1].parallel_simulate(1_000, 3_000)
+        
+    L = np.mean([len(i) for i in automaton[0].occupancy])
+
+    save_pickle(['alpha_range', 'dmftmodel', 'automaton'],
+                'plotting/cooperativity_ex.p', True)
+
 
 
 # ================ #

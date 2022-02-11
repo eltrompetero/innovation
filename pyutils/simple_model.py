@@ -1215,7 +1215,8 @@ class UnitSimulator(FlowMFT):
                  dt=None,
                  L_method=1,
                  alpha=1.,
-                 Q=2):
+                 Q=2,
+                 rng=np.random):
         """Independent unit simulation of firms, which is the same thing as a
         density evolution equation. This is the simplest implementation possible
         that only keeps track of the occupancy number and processes to order dt.
@@ -1235,6 +1236,7 @@ class UnitSimulator(FlowMFT):
             Cooperativity parameter.
         Q : int, 2
             Bethe lattice branching ratio.
+        rng : RandomState, np.random
         """
         
         assert alpha>0
@@ -1248,6 +1250,7 @@ class UnitSimulator(FlowMFT):
         self.dt = dt
         self.alpha = float(alpha)
         self.Q = Q
+        self.rng = rng
 
         self.n0 = (ro/re/I)**(1/alpha)
         

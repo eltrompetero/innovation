@@ -1,5 +1,6 @@
 # ====================================================================================== #
 # Module for studying simple innovation/obsolescence model.
+# 
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import dill as pickle
