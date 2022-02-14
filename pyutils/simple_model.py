@@ -862,17 +862,10 @@ class FlowMFT():
 
         return n0 + (n02 * z**-2. * (-1 + z + np.exp(-z)) if z!=0 else 0.)
     
-    def mft_L(self, second_order=False): 
+    def mft_L(self):
         """Calculate stationary lattice width accounting the first order correction
-        (from Firms II pg. 140).
+        (from Firms II pg. 140, 238).
         
-        Parameters
-        ----------
-        second_order : bool, False
-            If True, include additional estimate of corrections to L. Usually, this
-            is quite poor because we are guessing at the value of delta to order of
-            magnitude.
-
         Returns
         -------
         float
@@ -889,20 +882,10 @@ class FlowMFT():
         Q = self.Q
 
         z = (re/(Q-1)-rd) / re / (I*n0**a - 1/(Q-1))
-        delta = - ro / (ro-re) * n0 * z/2  # effect of alpha not included...
         C = z**-1 * (np.exp(-z) - 1 + z)
         
-        if not second_order:
-            # correcting factor is correct; matches taylor expansion
-            return -G / (n0 * (re * (1+1/(1-C)) / (Q-1) - rd - re*I*n0**a))
-        
-        assert a==1
-        # second order correction for L
-        # corrected equation for n'(0)
-        # really, we don't know delta
-        npp = (n0 - delta / z * C) / (1-C)
-        # n0 * (1 + z/2) - delta/2  # taylor expansion of npp
-        return -G * re * I / (ro * (re/(Q-1) - rd - ro + re*npp/n0/(Q-1)))
+        # correcting factor is correct; matches taylor expansion
+        return -G / (n0 * (re * (1+1/(1-C)) / (Q-1) - rd - re*I*n0**a))
 #end FlowMFT
 
 
