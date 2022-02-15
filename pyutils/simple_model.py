@@ -232,6 +232,170 @@ def _fit_piecewise_ode(peakx, peaky, n0, s0, initial_guess,
         return np.exp(soln['x']), soln
     return np.exp(soln['x'])
 
+def solve_min_rd(G, ro, re, I, Q=2, a=1.,
+                 tol=1e-10,
+                 initial_guess=None,
+                 full_output=False,
+                 return_neg=False):
+    """Solve for minimum rd that leads to divergent lattice, i.e. when denominator
+    for L goes to 0 for a fixed re.
+    
+    Parameters
+    ----------
+    G : float
+    ro : float
+    re : float
+    I : float
+    Q : float, 2
+    a : float, 1.
+    tol : float, 1e-10
+    initial_guess : float, None
+    full_output : bool, False
+    return_neg : bool, False
+    
+    Returns
+    -------
+    float
+    dict (optional)
+    """
+    
+    # use linear guess as default starting point
+    initial_guess = initial_guess or (2*re+ro)
+    
+    # analytic continuation from the collapsed curve
+    if re==0:
+        if full_output:
+            return 0., {}
+        return 0.
+
+    def cost(rd):
+        n0 = (ro / re / I)**(1/a)
+        z = (re/(Q-1)-rd) / re / (I*n0**a - 1/(Q-1)) 
+        C = z**-1 * (np.exp(-z) - 1 + z)
+        return (rd + ro  - re / (Q-1) * (1 + 1/(1-C)))**2
+    soln = minimize(cost, initial_guess)
+    
+    # if it didn't converge, return nan
+    if soln['fun'] > tol:
+        if full_output:
+            return np.nan, soln
+        return np.nan
+    # neg values should be rounded up to 0
+    elif not return_neg and soln['x'][0] < 0:
+        if full_output:
+            return 0., soln
+        return 0.
+    
+    if full_output:
+        return soln['x'][0], soln
+    return soln['x'][0]
+
+def solve_max_rd(G, ro, re, I, Q=2, a=1.,
+                 tol=1e-10,
+                 initial_guess=None,
+                 full_output=False,
+                 return_neg=False):
+    """Solve for max rd that precedes collapsed lattice, i.e. when we estimate L~1.
+    
+    Parameters
+    ----------
+    G : float
+    ro : float
+    re : float
+    I : float
+    Q : float, 2
+    a : float, 1.
+    tol : float, 1e-10
+    initial_guess : float, None
+    full_output : bool, False
+    return_neg : bool, False
+    
+    Returns
+    -------
+    float
+    dict (optional)
+    """
+    
+    # use linear guess as default starting point
+    initial_guess = initial_guess or (G * (ro/re/I)**(-1/a) - ro + 2*re)
+    
+    # analytic continuation from the collapsed curve
+    if re==0:
+        if full_output:
+            return 0., {}
+        return 0.
+
+    def cost(rd):
+        n0 = (ro / re / I)**(1/a)
+        z = (re/(Q-1)-rd) / re / (I*n0**a - 1/(Q-1)) 
+        C = z**-1 * (np.exp(-z) - 1 + z)
+        return (rd + ro  - re / (Q-1) * (1 + 1/(1-C)) - G*(re*I)**(1./a))**2
+    soln = minimize(cost, initial_guess)
+    
+    # if it didn't converge, return nan
+    if soln['fun'] > tol:
+        if full_output:
+            return np.nan, soln
+        return np.nan
+    # neg values should be rounded up to 0
+    elif not return_neg and soln['x'][0] < 0:
+        if full_output:
+            return 0., soln
+        return 0.
+    
+    if full_output:
+        return soln['x'][0], soln
+    return soln['x'][0]
+
+def flatten_phase_boundary(G, ro, re, I, Q, a,
+                           re_data, rd_data,
+                           poly_order=5):
+    """Fit polynomial to min rd growth curve and use inverse transform to map
+    relative to 1:1 line.
+
+    Parameters
+    ----------
+    G: float
+    ro : float
+    re : ndarray
+    I : float
+    Q : float
+    a : float
+    re_data : ndarray
+    rd_data : ndarray
+    poly_order : int, 5
+
+    Returns
+    -------
+    float
+    float
+    """
+
+    if not hasattr(re_data, '__len__'):
+        re_data = np.array([re_data])
+    if not hasattr(rd_data, '__len__'):
+        rd_data = np.array([rd_data])
+
+    y = np.array([solve_min_rd(G, ro, re_, I, Q=Q, return_neg=True) for re_ in re])
+    y = y[1:]
+    x = re[1:][~np.isnan(y)]
+    y = y[~np.isnan(y)]
+
+    # rescale x to interval [0,1]
+    newx = re_data / x[-1]
+    x /= x[-1]
+
+    p = np.poly1d(np.polyfit(x, y, poly_order))
+    
+    newy = np.zeros_like(rd_data)
+    for i, y_ in enumerate(rd_data):
+        roots = (p-y_).roots
+        ny = roots[np.abs(roots-y_).argmin()]
+        if not ny.imag==0:
+            newy[i] = np.nan
+        else:
+            newy[i] = ny
+    return newx, newy.real
 
 
 # ======= #
