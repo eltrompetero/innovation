@@ -397,6 +397,103 @@ def flatten_phase_boundary(G, ro, re, I, Q, a,
             newy[i] = ny
     return newx, newy.real
 
+def L_denominator(ro, rd, Q=2):
+    """Denominator for 2nd order calculation of L at stationarity. Parameters are
+    rescaled rates.
+
+    When denom goes negative, we have no physical solution for L, i.e. it is
+    either non-stationary or it diverges there is a weird boundary at ro=1.
+
+    Parameters
+    ----------
+    ro : float or ndarray
+        ro/re
+    rd : float or ndarray
+        rd/re
+    Q : float, 2
+
+    Returns
+    -------
+    ndarray
+    """
+    
+    if not hasattr(ro, '__len__'):
+        ro = np.array([ro])
+    assert (ro>=0).all()
+    if not hasattr(rd, '__len__'):
+        rd = np.array([rd])
+    assert (rd>=0).all()
+    assert Q>=2
+
+    z = -(1/(Q-1) - rd) / (1/(Q-1) - ro)
+    C = np.zeros_like(z)
+
+    # handle numberical precision problems with z
+    # analytic limit
+    zeroix = z==0
+
+    # small z approximation
+    smallix = z > 100
+    C[smallix] = (1 - z[smallix] + z[smallix]**2/2 - 1 + z[smallix]) / z[smallix] 
+
+    # large z approximation
+    largeix = z < -200
+    C[largeix] = np.inf
+    
+    remainix = (~zeroix) & (~smallix) & (~largeix)
+    C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
+
+    return ro + rd - (1+1/(1-C)) / (Q-1)
+
+def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
+    """When this goes to 0, we are at a collapsed boundary.
+
+    Parameters
+    ----------
+    ro : float or ndarray
+        ro/re
+    rd : float or ndarray
+        rd/re
+    G : float
+        G/re
+    I : float
+    Q : float, 2
+    allow_negs : bool, False
+
+    Returns
+    -------
+    ndarray
+    """
+    
+    if not hasattr(ro, '__len__'):
+        ro = np.array([ro])
+    if not hasattr(rd, '__len__'):
+        rd = np.array([rd])
+    if not allow_negs:
+        assert (ro>=0).all()
+        assert (rd>=0).all()
+    assert Q>=2
+
+    z = -(1/(Q-1) - rd) / (1/(Q-1) - ro)
+    C = np.zeros_like(z)
+
+    # handle numberical precision problems with z
+    # analytic limit
+    zeroix = z==0
+
+    # small z approximation
+    smallix = z > 100
+    C[smallix] = (1 - z[smallix] + z[smallix]**2/2 - 1 + z[smallix]) / z[smallix] 
+
+    # large z approximation
+    largeix = z < -200
+    C[largeix] = np.inf
+    
+    remainix = (~zeroix) & (~smallix) & (~largeix)
+    C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
+
+    return rd + ro - (1+1/(1-C)) / (Q-1) - G*I/ro
+
 
 # ======= #
 # Classes #
@@ -785,7 +882,7 @@ class IterativeMFT():
         L = L or self.L
         Q = self.Q
 
-        n = np.zeros(int(L))
+        n = np.zeros(int(L)+1)
         n[0] = n0
         if n.size > 1:
             # assumption about n[-1]=0 gives n[1]
@@ -1110,7 +1207,7 @@ class ODE2():
         self.I = float(I)
         try:
             self.L = IterativeMFT(G, ro, re, rd, I).L
-        except AssertionError:
+        except (AssertionError, IndexError):
             self.L = 1
         self.alpha = alpha
         self.Q = Q
@@ -1212,7 +1309,7 @@ class ODE2():
         # if not provided, use the iterative method to initialize the search
         try:
             L0 = L0 or max(IterativeMFT(G, ro, re, rd, I, alpha=self.alpha).L, 10)
-        except AssertionError:
+        except (AssertionError, IndexError):
             L0 = L0 or 10
         
         if method==1:
