@@ -770,8 +770,9 @@ class IterativeMFT():
         self.alpha = alpha
         self.Q = Q
         self.n0 = ro/re/I  # stationary density
-
-        assert (2/(Q-1) * re - rd) * self.n0 - re*I*self.n0**2 <= 0, "Stationary criterion unmet."
+        
+        # where is this criterion from?
+        #assert (2/(Q-1) * re - rd) * self.n0 - re*I*self.n0**2 <= 0, "Stationary criterion unmet."
         
         # MFT guess for L, which we will refine using tail convergence criteria
         try:
@@ -1142,8 +1143,8 @@ class FlowMFT():
         a = self.alpha
         Q = self.Q
 
-        z = (re/(Q-1)-rd) / re / (I*n0**a - 1/(Q-1))
-        C = z**-1 * (np.exp(-z) - 1 + z)
+        z = -(1 - rd/re*(Q-1)) / (1 - ro/re*(Q-1))
+        C = (np.exp(-z) - 1 + z) / z
         
         # correcting factor is correct; matches taylor expansion
         return -G / (n0 * (re * (1+1/(1-C)) / (Q-1) - rd - re*I*n0**a))
@@ -1310,7 +1311,7 @@ class ODE2():
         try:
             L0 = L0 or max(IterativeMFT(G, ro, re, rd, I, alpha=self.alpha).L, 10)
         except (AssertionError, IndexError):
-            L0 = L0 or 10
+            L0 = L0 or 1
         
         if method==1:
             assert self.alpha==1
@@ -1335,7 +1336,8 @@ class ODE2():
         elif method==2: 
             def cost(args):
                 L = args[0]
-                return self.n(L, L, method=2)**2
+                return self.n(-1, L, method=2)**2
+                #return self.n(L, L, method=2)**2
             
             soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
 

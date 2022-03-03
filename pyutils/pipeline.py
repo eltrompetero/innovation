@@ -6,14 +6,45 @@
 import numpy as np
 
 from workspace.utils import save_pickle
-from .simple_model import UnitSimulator
+from .simple_model import UnitSimulator, ODE2
 from .utils import *
+from .plot import jangili_params
 
 
 
 # ============== #
 # Main functions #
 # ============== #
+def phase_space_ODE2():
+    #G_bar = 10
+    #re = 1
+    #I = 1
+
+    G, ro, re, rd, I, dt = jangili_params(1).values()
+    G_bar = G/re
+    re = 1
+
+    def loop_wrapper(args):
+        ro_bar, rd_bar = args
+        if ro_bar <= (2-rd_bar):
+            return 1e5
+        odemodel = ODE2(G_bar*re, ro_bar*re, re, rd_bar*re, I)
+        sol = odemodel.solve_L(full_output=True)[1]
+        if np.isnan(sol['fun']):
+            sol = odemodel.solve_L(L0=odemodel.L*2, full_output=True)[1]
+        return sol['x'][0]
+
+    ro_bar = np.linspace(0, 4, 128)
+    rd_bar = np.linspace(0, 4, 128)
+
+    ro_bar_grid, rd_bar_grid = np.meshgrid(ro_bar, rd_bar)
+
+    with Pool() as pool:
+        L = np.array(list(pool.map(loop_wrapper, zip(ro_bar_grid.ravel(), rd_bar_grid.ravel()))))
+
+    L = np.reshape(L, (ro_bar.size, rd_bar.size))
+    save_pickle(['G_bar','I','ro_bar','rd_bar','L'], 'cache/phase_space_ODE2.p', True)
+
 def automaton_rescaling():
     """For comparison of automaton model with MFT under rescaling."""
 
