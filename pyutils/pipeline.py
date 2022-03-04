@@ -15,14 +15,34 @@ from .plot import jangili_params
 # ============== #
 # Main functions #
 # ============== #
-def phase_space_ODE2():
-    #G_bar = 10
-    #re = 1
-    #I = 1
+def phase_space_ODE2(G_bar=None, re=None, I=None,
+                     n_space=128,
+                     fname='cache/phase_space_ODE2.p'):
+    """Map out regime phase space along rescaled rates ro/re and rd/re according to second-order
+    approximation, which must be solved numerically.
 
-    G, ro, re, rd, I, dt = jangili_params(1).values()
-    G_bar = G/re
-    re = 1
+    Parameters
+    ----------
+    G_bar : float, None
+    re : float, None
+    I : float, None
+    n_space : int, 128
+    fname : str, 'cache/phase_space_ODE2.p'
+
+    Returns
+    -------
+    ndarray
+        ro/re (y-axis) 
+    ndarray
+        rd/re (x-axis)
+    ndarray
+        L for each ro,rd pair
+    """
+
+    if G_bar is None:
+        G, ro, re, rd, I, dt = jangili_params(1).values()
+        G_bar = G/re
+        re = 1
 
     def loop_wrapper(args):
         ro_bar, rd_bar = args
@@ -34,8 +54,8 @@ def phase_space_ODE2():
             sol = odemodel.solve_L(L0=odemodel.L*2, full_output=True)[1]
         return sol['x'][0]
 
-    ro_bar = np.linspace(0, 4, 128)
-    rd_bar = np.linspace(0, 4, 128)
+    ro_bar = np.linspace(0, 4, n_space)
+    rd_bar = np.linspace(0, 4, n_space)
 
     ro_bar_grid, rd_bar_grid = np.meshgrid(ro_bar, rd_bar)
 
@@ -43,7 +63,10 @@ def phase_space_ODE2():
         L = np.array(list(pool.map(loop_wrapper, zip(ro_bar_grid.ravel(), rd_bar_grid.ravel()))))
 
     L = np.reshape(L, (ro_bar.size, rd_bar.size))
-    save_pickle(['G_bar','I','ro_bar','rd_bar','L'], 'cache/phase_space_ODE2.p', True)
+    if fname:
+        save_pickle(['G_bar','I','ro_bar','rd_bar','L'], fname, True)
+
+    return ro_bar, rd_bar, L
 
 def automaton_rescaling():
     """For comparison of automaton model with MFT under rescaling."""

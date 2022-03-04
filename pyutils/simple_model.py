@@ -443,7 +443,7 @@ def L_denominator(ro, rd, Q=2):
     remainix = (~zeroix) & (~smallix) & (~largeix)
     C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
 
-    return ro + rd - (1+1/(1-C)) / (Q-1)
+    return ro/(1-C) + rd - (1+1/(1-C)) / (Q-1)
 
 def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
     """When this goes to 0, we are at a collapsed boundary.
@@ -492,7 +492,7 @@ def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
     remainix = (~zeroix) & (~smallix) & (~largeix)
     C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
 
-    return rd + ro - (1+1/(1-C)) / (Q-1) - G*I/ro
+    return rd + ro / (1-C) - (1+1/(1-C)) / (Q-1) - G*I/ro
 
 
 # ======= #
@@ -888,9 +888,16 @@ class IterativeMFT():
         if n.size > 1:
             # assumption about n[-1]=0 gives n[1]
             n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L) / re)
-
+            
+            # handle overflow separately
+            overflow = False
             for i in range(2, n.size):
                 n[i] = (Q-1) * (re * I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L)) / re
+                if abs(n[i]) > 1e200:
+                    overflow = True
+                    break
+            if overflow:
+                n[i:] = np.nan
 
         return n
 
@@ -1127,6 +1134,10 @@ class FlowMFT():
     def mft_L(self):
         """Calculate stationary lattice width accounting the first order correction
         (from Firms II pg. 140, 238).
+
+        This is equivalent to
+
+        (np.exp((1-rd_bar)/(1-ro_bar)) - 1) / np.exp((1-rd_bar)/(1-ro_bar)) * -G_bar * I / ro_bar / (1-rd_bar)
         
         Returns
         -------
@@ -1146,8 +1157,10 @@ class FlowMFT():
         z = -(1 - rd/re*(Q-1)) / (1 - ro/re*(Q-1))
         C = (np.exp(-z) - 1 + z) / z
         
-        # correcting factor is correct; matches taylor expansion
-        return -G / (n0 * (re * (1+1/(1-C)) / (Q-1) - rd - re*I*n0**a))
+        # this matches exact numerical calculation
+        ro_bar = ro/re
+        rd_bar = rd/re
+        return -G / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
 #end FlowMFT
 
 

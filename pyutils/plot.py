@@ -2,6 +2,10 @@
 # Plotting helper functions.
 # Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
+import numpy as np
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+from matplotlib import colors
 
 
 def jangili_params(ix=0):
@@ -70,3 +74,115 @@ def patent_params(ix=0):
                 'dt':.1}
     else:
         raise Exception
+
+def phase_space_variations(ax):
+    """Helper function for plotting phase space for cooperative and Bethe lattice
+    variations using 1st order approximation.
+    
+    Parameters
+    ----------
+    ax : list of mpl.Axes
+    """
+    
+    # set default params
+    G, ro, re, rd, I, dt = jangili_params(1).values()
+    ro /= re
+    rd /= re
+    G /= re
+    rd_range = np.linspace(0, 4, 100)
+
+    def collapse_cost_1st(ro, rd):
+        """This is 0 for 1st order approximation of collapse boundary."""
+        return (1 - G / ((ro/I)**(1/a) * (rd + ro - 2)))**2
+    
+    # anti-cooperative
+    a = .5
+    ro_range = 2 - rd_range
+    ax[0].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+
+    ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
+                for i, rd_ in enumerate(rd_range)]
+    ax[0].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+
+    # cooperative
+    a = 1.5
+    ro_range = 2 - rd_range
+    ax[1].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+
+    ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
+                for i, rd_ in enumerate(rd_range)]
+    ax[1].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+
+    # bethe lattice Q=1.5
+    Q = 1.5
+    ro_range = 2/(Q-1) - rd_range
+    ax[2].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+
+    ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
+    ax[2].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+
+    # bethe lattice Q=3
+    Q = 3
+    ro_range = 2/(Q-1) - rd_range
+    ax[3].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+
+    ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
+    ax[3].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+
+    for a in ax:
+        a.set(xlim=(0,4), ylim=(0,4), xticklabels=[], yticklabels=[])
+    ax[0].set(yticklabels=[0,2,4])
+    ax[2].set(yticklabels=[0,2,4])
+    ax[2].set(xticklabels=[0,2,4])
+    ax[3].set(xticklabels=[0,2,4])
+
+def phase_space_ODE2(fig, ax, ro_bar, rd_bar, L,
+                     vmin=1, vmax=50):
+    """Fast way of showing results of numerical solution to phase space from 2nd
+    order approximation.
+
+    Parameters
+    ----------
+    fig : plt.Figure
+    ax : plt.Axes
+    ro_bar : ndarray
+    rd_bar : ndarray
+    L : ndarray
+    vmin : float, 1
+    vmax : float, 50
+    """
+
+    dro = (ro_bar[1] - ro_bar[0])/2
+    drd = (rd_bar[1] - rd_bar[0])/2
+
+    # static regime
+    L_ = L.copy()
+    cm = plt.cm.copper.copy()
+    cax = ax.imshow(L_, vmin=vmin, vmax=vmax, origin='lower',
+                    extent=[ro_bar[0]-dro, ro_bar[-1]+dro, rd_bar[0]-drd, rd_bar[-1]+drd],
+                    cmap=cm, zorder=0)
+
+    cmap = colors.ListedColormap(['#E1918B', '#B6CDE3'])
+    bounds=[0,1,2]
+    norm = colors.BoundaryNorm(bounds, cmap.N)
+
+    # collapse regime
+    L_ = L.copy()
+    L_[L>1] = np.nan
+    L_[L<=1] = 1.5
+    ax.imshow(L_, origin='lower',
+              extent=[ro_bar[0]-dro, ro_bar[-1]+dro, rd_bar[0]-drd, rd_bar[-1]+drd],
+              cmap=cmap, norm=norm, zorder=1)
+
+    # growth regime
+    L_ = L.copy()
+    L_[L==1e5] = .5
+    L_[L<1e5] = np.nan
+    ax.imshow(L_, origin='lower',
+              extent=[ro_bar[0]-dro, ro_bar[-1]+dro, rd_bar[0]-drd, rd_bar[-1]+drd],
+              cmap=cmap, norm=norm, zorder=2)
+
+    fig.colorbar(cax, label=r'lattice length $L$')
+    ax.set(xlabel=r'obsolescence $\bar r_o$', ylabel=r'death $\bar r_d$',
+           xlim=(ro_bar[0]-1.5*dro, ro_bar[-1]+1.5*dro),
+           ylim=(rd_bar[0]-drd, rd_bar[-1]+drd))
