@@ -128,6 +128,49 @@ def _fit_dmft(data, dt, initial_params, **params_kw):
     soln = minimize(cost, np.log(initial_params))
     return np.exp(soln['x']), soln
 
+def fit_flow(x, data, initial_params, full_output=False, **params_kw):
+    """Best fit of ODE model at stationarity.
+
+    Parameters
+    ----------
+    x : ndarray
+    data : ndarray
+    initial_params : list
+    full_output : bool, False
+        If True, return soln dict.
+    **params_kw
+
+    Returns
+    -------
+    ndarray
+        Estimates for (G, ro, re, rd, I).
+    dict
+        If full_output is True. From scipy.optimize.minimize.
+    """
+
+    def cost(params):
+        G, ro, rd, I = params
+        
+        try:
+            model = FlowMFT(G, ro, 1, rd, I, dt=.1, **params_kw)
+            model.solve_stationary()
+        except (AssertionError, ValueError):  # e.g. problem with stationarity and L
+            return 1e30
+        
+        mnlen = min(len(data), len(model.n))
+        if mnlen<=1: return 1e30
+        c = np.linalg.norm(data[:mnlen] - model.n[:mnlen])
+        return c
+
+    soln = minimize(cost, initial_params, bounds=[(1e-3, np.inf)]*4, method='SLSQP',
+                    constraints=({'type':'ineq', 'fun':lambda args: args[1] - 2 + args[2] - 1e-3,
+                                  'jac':lambda args: np.array([0,1,0,1])},))
+
+    if full_output:
+        return soln['x'], soln
+    return soln['x']
+
+
 def fit_ode(x, data, initial_params, full_output=False, **params_kw):
     """Best fit of ODE model at stationarity.
 
@@ -149,20 +192,23 @@ def fit_ode(x, data, initial_params, full_output=False, **params_kw):
     """
 
     def cost(params):
-        G, ro, re, rd, I = np.exp(params)
+        G, ro, rd, I = params
         
         try:
-            model = ODE2(G, ro, re, rd, I, **params_kw)
+            model = ODE2(G, ro, 1, rd, I, **params_kw)
         except AssertionError:  # e.g. problem with stationarity and L
             return 1e30
         
         c = np.linalg.norm(data - model.n(x))
         return c
 
-    soln = minimize(cost, np.log(initial_params))
+    soln = minimize(cost, initial_params, bounds=[(1e-3, np.inf)]*4, method='SLSQP',
+                    constraints=({'type':'ineq', 'fun':lambda args: args[1] - 2 + args[2] - 1e-3,
+                                  'jac':lambda args: np.array([0,1,0,1])},))
+
     if full_output:
-        return np.exp(soln['x']), soln
-    return np.exp(soln['x'])
+        return soln['x'], soln
+    return soln['x']
 
 def fit_piecewise_ode(x, y, initial_guess,
                       full_output=False):
@@ -1158,9 +1204,10 @@ class FlowMFT():
         C = (np.exp(-z) - 1 + z) / z
         
         # this matches exact numerical calculation
+        G_bar = G/re
         ro_bar = ro/re
         rd_bar = rd/re
-        return -G / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
+        return -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
 #end FlowMFT
 
 
