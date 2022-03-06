@@ -8,7 +8,7 @@ from scipy.signal import fftconvolve
 from scipy.optimize import minimize
 from scipy.special import erfc
 
-from .simple_model import UnitSimulator
+from .simple_model import UnitSimulator, approx_L
 from .utils import *
 
 
@@ -382,13 +382,7 @@ class Comparator():
 
         def cost(logre):
             re = np.exp(logre)
-            z = - (re - rd) / ((re-rd)/2 + re*(1 - ro/re))
-            if z==0: 
-                C = 0  # determined from continuity
-            else:
-                C = (-1 + z + np.exp(-z)) / z
-
-            L = G*I*re / ro / (ro+rd-re*(1+1/(1-C)))
+            L = approx_L(G, ro, re, rd, I)
             return L**-2.
 
         if full_output:
@@ -416,13 +410,7 @@ class Comparator():
 
         def cost(logro):
             ro = np.exp(logro)
-            z = - (re - rd) / ((re-rd)/2 + re*(1 - ro/re))
-            if z==0: 
-                C = 0  # determined from continuity
-            else:
-                C = (-1 + z + np.exp(-z)) / z
-
-            L = G*I*re / ro / (ro+rd-re*(1+1/(1-C)))
+            L = approx_L(G, ro, re, rd, I)
             return L**-2.
 
         if full_output:
@@ -455,11 +443,13 @@ class Comparator():
         
         if ensemble:
             def loop_wrapper(re):
+                np.random.seed()
                 simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = simulator.parallel_simulate(n_samples, T)
                 return snapshot_n
         else:
             def loop_wrapper(re):
+                np.random.seed()
                 simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = [simulator.simulate(T)]
                 for i in range(n_samples):
@@ -503,14 +493,16 @@ class Comparator():
         
         if ensemble:
             def loop_wrapper(ro):
+                np.random.seed()
                 simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = simulator.parallel_simulate(n_samples, T)
                 return snapshot_n
         else:
             def loop_wrapper(ro):
+                np.random.seed()
                 simulator = UnitSimulator(G, ro, re, rd, I, dt=dt)
                 snapshot_n = [simulator.simulate(T)]
-                for i in range(n_samples):
+                for i in range(n_samples-1):
                     snapshot_n.append(simulator.simulate(t_skip, occupancy=snapshot_n[-1]))
                 return snapshot_n
         

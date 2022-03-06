@@ -17,6 +17,50 @@ from .model import *
 
 
 
+def approx_L(G, ro, re, rd, I, alpha=1., Q=2):
+    """Calculate stationary lattice width accounting the first order correction
+    (from Firms II pg. 140, 238).
+
+    This is equivalent to
+
+    (np.exp((1-rd_bar)/(1-ro_bar)) - 1) / np.exp((1-rd_bar)/(1-ro_bar)) * -G_bar * I / ro_bar / (1-rd_bar)
+    
+    This matches numerical solution to first-order equation with x=-1 boundary
+    condition.
+
+    Parameters
+    ----------
+    G : float
+    ro : float
+    re : float
+    rd : float
+    I : float
+    alpha : float, 1.
+    Q : float 2.
+    
+    Returns
+    -------
+    float
+        Estimated lattice width.
+    """
+        
+    G_bar = G/re
+    ro_bar = ro/re
+    rd_bar = rd/re
+
+    z = -(1 - rd_bar*(Q-1)) / (1 - ro_bar*(Q-1))
+    if not hasattr(z, '__len__'):
+        if z==0: 
+            C = 0  # determined from continuity
+        else:
+            C = (np.exp(-z) - 1 + z) / z
+    else:
+        zeroix = z==0
+        C = np.zeros(z.size)
+        C[~zeroix] = (np.exp(-z[~zeroix]) - 1 + z[~zeroix]) / z[~zeroix]
+ 
+    return -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
+
 def match_length(y1, y2, side1='l', side2='r'):
     """Fill zeros to match two vectors. Pad zeros on either left or right sides.
 
@@ -834,7 +878,7 @@ class IterativeMFT():
         
         # MFT guess for L, which we will refine using tail convergence criteria
         try:
-            self.L0 = G * re * I / (ro * (rd - 2*re/(Q-1) + ro))
+            self.L0 = G * re * I / (ro * (rd + ro - 2*re/(Q-1)))
         except ZeroDivisionError:
             self.L0 = np.inf
         
@@ -1611,6 +1655,7 @@ class UnitSimulator(FlowMFT):
         Returns
         -------
         list
+            occupancy at each site
         """
        
         G = float(self.G)
