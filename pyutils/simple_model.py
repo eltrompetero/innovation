@@ -128,7 +128,7 @@ def _fit_dmft(data, dt, initial_params, **params_kw):
     soln = minimize(cost, np.log(initial_params))
     return np.exp(soln['x']), soln
 
-def fit_flow(x, data, initial_params, full_output=False, **params_kw):
+def fit_flow(x, data, initial_params, full_output=False, reverse=False, **params_kw):
     """Best fit of ODE model at stationarity.
 
     Parameters
@@ -138,6 +138,7 @@ def fit_flow(x, data, initial_params, full_output=False, **params_kw):
     initial_params : list
     full_output : bool, False
         If True, return soln dict.
+    reverse : bool, False
     **params_kw
 
     Returns
@@ -148,23 +149,34 @@ def fit_flow(x, data, initial_params, full_output=False, **params_kw):
         If full_output is True. From scipy.optimize.minimize.
     """
 
+    from scipy.interpolate import interp1d
+
+    data_fun = interp1d(x, data, bounds_error=False, fill_value=0)
+
     def cost(params):
-        G, ro, rd, I = params
+        A, B, G, ro, rd, I = params
         
         try:
-            model = FlowMFT(G, ro, 1, rd, I, dt=.1, **params_kw)
+            model = FlowMFT(G, ro, 1, rd, I, dt=.1, L_method=2, **params_kw)
             model.solve_stationary()
         except (AssertionError, ValueError):  # e.g. problem with stationarity and L
             return 1e30
         
-        mnlen = min(len(data), len(model.n))
-        if mnlen<=1: return 1e30
-        c = np.linalg.norm(data[:mnlen] - model.n[:mnlen])
-        return c
+        if reverse:
+            modx = np.linspace(x.max()-model.n.size, x.max(), model.n.size)
+            c = np.linalg.norm(data_fun(modx/A) - model.n*B)
+        else:
+            modx = np.arange(model.n.size)
+            c = np.linalg.norm(data_fun(modx/A) - model.n*B)
 
-    soln = minimize(cost, initial_params, bounds=[(1e-3, np.inf)]*4, method='SLSQP',
-                    constraints=({'type':'ineq', 'fun':lambda args: args[1] - 2 + args[2] - 1e-3,
-                                  'jac':lambda args: np.array([0,1,0,1])},))
+        # handle overflow
+        if np.isnan(c): c = 1e30
+        return c
+    
+    soln = minimize(cost, initial_params, bounds=[(0,np.inf),(0,np.inf),(1e-3, np.inf)]+[(1e-3,30)]*3,
+                    method='SLSQP',
+                    constraints=({'type':'ineq', 'fun':lambda args: args[3] - 2 + args[4] - 1e-3,
+                                  'jac':lambda args: np.array([0,0,0,1,0,1])},))
 
     if full_output:
         return soln['x'], soln
@@ -1021,7 +1033,7 @@ class FlowMFT():
             elif L_method==1:
                 self.L = self.mft_L()
             elif L_method==2:
-                self.L = ODE2(G, ro, re, rd, I).L
+                self.L = ODE2(G, ro, re, rd, I, Q=Q).L
             else: raise NotImplementedError
         except ZeroDivisionError:
             self.L = np.inf
@@ -1275,8 +1287,6 @@ class ODE2():
         self.n0 = (ro/re/I)**(1/alpha)  # stationary density
         
         self.L = self.solve_L(L)
-
-        assert Q==2
     
     def n(self, x, L=None, return_im=False, method=2):
         """Interpolated occupancy function.
@@ -1318,22 +1328,23 @@ class ODE2():
             G = self.G / self.re
             rd = self.rd / self.re
             I = self.I
+            Q = self.Q
             
             # compute eigenvalues of characteristic soln
-            a = (1-ro)**2 - 2 * (1-rd) * (1+ro)
-            lp = (ro-1 + sqrt(a)) / (1+ro)
-            lm = (ro-1 - sqrt(a)) / (1+ro)
+            a = (1/(Q-1)-ro)**2 - 2 * (1/(Q-1)-rd) * (1/(Q-1)+ro)
+            lp = (ro-1/(Q-1) + sqrt(a)) / (1/(Q-1)+ro)
+            lm = (ro-1/(Q-1) - sqrt(a)) / (1/(Q-1)+ro)
             
             # constants for homogenous terms
-            A = ((G * np.exp((-sqrt(a)+ro-1) / (1+ro)) / (L * (1-rd)) -
-                 (2*G*(1+ro) / (L*((1-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                (np.exp(-2*sqrt(a) / (1+ro)) - 1))
-            B = ((G * np.exp(( sqrt(a)+ro-1) / (1+ro)) / (L * (1-rd)) -
-                 (2*G*(1+ro) / (L*((1-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                (np.exp( 2*sqrt(a) / (1+ro)) - 1))
+            A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+            B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
 
             # particular soln
-            sol = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1-rd)
+            sol = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
 
             if return_im:
                 return sol.real, sol.imag
@@ -1366,15 +1377,17 @@ class ODE2():
         re = self.re
         rd = self.rd
         I = self.I
+        Q = self.Q
 
         # if not provided, use the iterative method to initialize the search
         try:
-            L0 = L0 or max(IterativeMFT(G, ro, re, rd, I, alpha=self.alpha).L, 10)
+            L0 = L0 or max(IterativeMFT(G, ro, re, rd, I, alpha=self.alpha, Q=Q).L, 10)
         except (AssertionError, IndexError):
             L0 = L0 or 1
         
         if method==1:
             assert self.alpha==1
+            assert self.Q==2
 
             # analytic eq for L solved from continuum formulation in Mathematica
             # this formulation has much bigger numerical errors
