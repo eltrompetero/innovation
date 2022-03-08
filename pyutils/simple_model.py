@@ -50,15 +50,24 @@ def approx_L(G, ro, re, rd, I, alpha=1., Q=2):
 
     z = -(1 - rd_bar*(Q-1)) / (1 - ro_bar*(Q-1))
     if not hasattr(z, '__len__'):
-        if z==0: 
-            C = 0  # determined from continuity
-        else:
-            C = (np.exp(-z) - 1 + z) / z
-    else:
-        zeroix = z==0
-        C = np.zeros(z.size)
-        C[~zeroix] = (np.exp(-z[~zeroix]) - 1 + z[~zeroix]) / z[~zeroix]
- 
+        z = np.array([z])
+    C = np.zeros_like(z)
+
+    # handle numberical precision problems with z
+    # analytic limit
+    zeroix = z==0
+
+    # small z approximation
+    #smallix = z > 100
+    #C[smallix] = (1 - z[smallix] + z[smallix]**2/2 - 1 + z[smallix]) / z[smallix] 
+
+    # large z approximation
+    largeix = z < -200
+    C[largeix] = np.inf
+    
+    remainix = (~zeroix) & (~largeix)
+    C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
+
     return -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
 
 def match_length(y1, y2, side1='l', side2='r'):

@@ -14,14 +14,14 @@ def jangili_params(ix=0):
                 'ro':.53,
                 're':.43,
                 'rd':.414,
-                'I':.1,
+                'I':.189,
                 'dt':.1}
     elif ix==1:
         return {'G':20,
                 'ro':.53,
                 're':.43,
                 'rd':.414,
-                'I':.1,
+                'I':.189,
                 'dt':.1}
     else:
         raise Exception
@@ -46,20 +46,20 @@ def prb_params(ix=0):
 
 def covid_params(ix=0):
     if ix==0:
-        return {'G':60,
-                'ro':.5,
-                're':.78,
-                'rd':.47,
-                'I':.1,
+        return {'G':70,
+                'ro':1.1,
+                're':.58,
+                'rd':.24,
+                'I':1.3,
                 'dt':.1,
                 'Q':2.3271742356782428}
     elif ix==1:
-        return {'G':45,
-                'ro':.5,
-                're':.78,
-                'rd':.47,
-                'I':.12,
-                'dt':.01,
+        return {'G':70,
+                'ro':1.1,
+                're':.58,
+                'rd':.234,
+                'I':1.3,
+                'dt':.1,
                 'Q':2.3174342105263157}
     else:
         raise Exception
@@ -69,19 +69,22 @@ def patent_params(ix=0):
         return {'G':23,
                 'ro':.54,
                 're':.43,
-                'rd':.416,
-                'I':.48,
+                'rd':.37,
+                'I':.8,
                 'dt':.1}
     else:
         raise Exception
 
-def phase_space_variations(ax):
+def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
     """Helper function for plotting phase space for cooperative and Bethe lattice
     variations using 1st order approximation.
     
     Parameters
     ----------
     ax : list of mpl.Axes
+    plot_range : list, [0,1,2,3]
+        Indices of plots to include.
+    set_ticklabels : bool, False
     """
     
     # set default params
@@ -95,46 +98,58 @@ def phase_space_variations(ax):
         """This is 0 for 1st order approximation of collapse boundary."""
         return (1 - G / ((ro/I)**(1/a) * (rd + ro - 2)))**2
     
-    # anti-cooperative
-    a = .5
-    ro_range = 2 - rd_range
-    ax[0].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+    plot_counter = 0
 
-    ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
-                for i, rd_ in enumerate(rd_range)]
-    ax[0].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+    if 0 in plot_range:
+        # anti-cooperative
+        a = .5
+        ro_range = 2 - rd_range
+        ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
+        ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
+                    for i, rd_ in enumerate(rd_range)]
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        plot_counter += 1
+    
     # cooperative
-    a = 1.5
-    ro_range = 2 - rd_range
-    ax[1].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+    if 1 in plot_range:
+        a = 1.5
+        ro_range = 2 - rd_range
+        ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-    ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
-                for i, rd_ in enumerate(rd_range)]
-    ax[1].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
+                    for i, rd_ in enumerate(rd_range)]
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        plot_counter += 1
 
     # bethe lattice Q=1.5
-    Q = 1.5
-    ro_range = 2/(Q-1) - rd_range
-    ax[2].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+    if 2 in plot_range:
+        Q = 1.5
+        ro_range = 2/(Q-1) - rd_range
+        ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-    ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
-    ax[2].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        plot_counter += 1
 
     # bethe lattice Q=3
-    Q = 3
-    ro_range = 2/(Q-1) - rd_range
-    ax[3].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
+    if 3 in plot_range:
+        Q = 3
+        ro_range = 2/(Q-1) - rd_range
+        ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-    ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
-    ax[3].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
 
     for a in ax:
-        a.set(xlim=(0,4), ylim=(0,4), xticklabels=[], yticklabels=[])
-    ax[0].set(yticklabels=[0,2,4])
-    ax[2].set(yticklabels=[0,2,4])
-    ax[2].set(xticklabels=[0,2,4])
-    ax[3].set(xticklabels=[0,2,4])
+        a.set(xlim=(0,4), ylim=(0,4))
+        if set_ticklabels:
+            a.set(xticklabels=[], yticklabels=[])
+    if set_ticklabels:
+        ax[0].set(yticklabels=[0,2,4])
+        ax[2].set(yticklabels=[0,2,4])
+        ax[2].set(xticklabels=[0,2,4])
+        ax[3].set(xticklabels=[0,2,4])
 
 def phase_space_ODE2(fig, ax, ro_bar, rd_bar, L,
                      vmin=1, vmax=50):

@@ -380,15 +380,14 @@ class Comparator():
         
         G, ro, _, rd, I, dt = self.load_params()
 
-        def cost(logre):
-            re = np.exp(logre)
+        def cost(re):
             L = approx_L(G, ro, re, rd, I)
             return L**-2.
 
         if full_output:
-            soln = minimize(cost, np.log(re0))
-            return np.exp(soln['x'])[0], soln
-        return np.exp(minimize(cost, np.log(re0))['x'])[0]
+            soln = minimize(cost, re0, bounds=[(1e-3,np.inf)])
+            return soln['x'][0], soln
+        return minimize(cost, re0)['x'][0]
 
     def find_critical_ro(self, ro0, full_output=False):
         """Find divergence point for the expansion rate according to corrected MFT.
