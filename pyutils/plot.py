@@ -93,10 +93,10 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
     rd /= re
     G /= re
     rd_range = np.linspace(0, 4, 100)
-
+    
     def collapse_cost_1st(ro, rd):
         """This is 0 for 1st order approximation of collapse boundary."""
-        return (1 - G / ((ro/I)**(1/a) * (rd + ro - 2)))**2
+        return (((ro/I)**(1/a) * (rd + ro - 2)) - G)**2
     
     plot_counter = 0
 
@@ -106,7 +106,11 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
         ro_range = 2 - rd_range
         ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-        ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
+        ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(1e-3,np.inf),],
+                             constraints=[{'type':'ineq',
+                                           'fun':lambda ro, rd: rd-2+ro,
+                                           'jac':lambda ro, rd: 1,
+                                           'args':(rd_,)}])['x'][0]
                     for i, rd_ in enumerate(rd_range)]
         ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
         plot_counter += 1
@@ -117,7 +121,11 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
         ro_range = 2 - rd_range
         ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-        ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(.1,np.inf),])['x'][0]
+        ro_range = [minimize(collapse_cost_1st, ro_range[i]+.2, args=(rd_,), bounds=[(1e-3,np.inf),],
+                             constraints=[{'type':'ineq',
+                                           'fun':lambda ro, rd: rd-2+ro,
+                                           'jac':lambda ro, rd: 1,
+                                           'args':(rd_,)}])['x'][0]
                     for i, rd_ in enumerate(rd_range)]
         ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
         plot_counter += 1
