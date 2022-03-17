@@ -1416,6 +1416,7 @@ class ODE2():
         method : int, 2
             1: 'mathematica'
             2: 'hand'
+            3: 'hand' but w/ boundary condition at x=L
             Use formulation returned by mathematica or hand written solution. Hand
             written solution is more numerically stable.
 
@@ -1443,7 +1444,7 @@ class ODE2():
             assert self.Q==2
 
             # analytic eq for L solved from continuum formulation in Mathematica
-            # this formulation has much bigger numerical errors
+            # this formulation has much bigger numerical errors (sometimes)
             a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
             num = lambda x:(np.exp(-(re-ro)/(re+ro)) * (np.exp(-sqrt(a)*(x-1)/(re+ro)) -
                                                         np.exp(sqrt(a)*(x+1)/(re+ro))) + 
@@ -1463,7 +1464,17 @@ class ODE2():
             def cost(args):
                 L = args[0]
                 return self.n(-1, L, method=2)**2
-                #return self.n(L, L, method=2)**2
+            
+            soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
+
+            if full_output:
+                return soln['x'][0], soln
+            return soln['x'][0]
+
+        elif method==3: 
+            def cost(args):
+                L = args[0]
+                return self.n(L, L, method=2)**2
             
             soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
 

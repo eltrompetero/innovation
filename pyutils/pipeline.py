@@ -5,7 +5,7 @@
 # ====================================================================================== #
 import numpy as np
 
-from workspace.utils import save_pickle
+from workspace.utils import save_pickle, increment_name
 from .simple_model import UnitSimulator, ODE2
 from .utils import *
 from .plot import jangili_params
@@ -15,11 +15,78 @@ from .plot import jangili_params
 # ============== #
 # Main functions #
 # ============== #
-def phase_space_ODE2(G_bar=None, re=None, I=None,
+def critical_ro():
+    comparator = []
+    spacing = np.linspace(-.1, .2, 10)
+
+    ro = .9
+    G = 80
+    re = .5
+    rd = .51
+    I = .8
+    ro_range = spacing + 2 * re - rd
+
+    comparator.append(Comparator(G, ro, re, rd, I))
+    comparator[-1].run_ro(ro_range, 10_000, 32);
+
+    ro = .9
+    G = 80
+    re = .5
+    rd = .51
+    I = .4
+    ro_range = spacing + 2 * re - rd
+
+    comparator.append(Comparator(G, ro, re, rd, I))
+    comparator[-1].run_ro(ro_range, 10_000, 32);
+
+    save_pickle(['comparator','ro_range'], increment_name('cache/comparator_ro'))
+
+def critical_re():
+    comparator = []
+    spacing = np.linspace(.05, .3, 10)
+
+    # small I
+    ro = .9
+    G = 80
+    re = .5  # just some arbitrary value
+    rd = .5
+    I = .1
+    re_range = -spacing[::-1] + (ro + rd)/2  # only below the critical point
+
+    comparator.append(Comparator(G, ro, re, rd, I))
+    comparator[-1].run_re(re_range, 40_000, 64);
+
+    # medium I
+    ro = .9
+    G = 20
+    re = .5
+    rd = .5
+    I = .4
+    re_range = -spacing[::-1] + (ro + rd)/2  # only below the critical point
+
+    comparator.append(Comparator(G, ro, re, rd, I))
+    comparator[-1].run_re(re_range, 40_000, 64);
+
+    # large I
+    ro = .9
+    G = 20
+    re = .5
+    rd = .5
+    I = .8
+    re_range = -spacing[::-1] + (ro + rd)/2  # only below the critical point
+
+    comparator.append(Comparator(G, ro, re, rd, I))
+    comparator[-1].run_re(re_range, 40_000, 64);
+
+    save_pickle(['comparator','re_range'], 'cache/comparator_re.p')
+
+def phase_space_ODE2(G_bar=None,
+                     re=None,
+                     I=None,
                      n_space=128,
                      fname='cache/phase_space_ODE2.p'):
-    """Map out regime phase space along rescaled rates ro/re and rd/re according to second-order
-    approximation, which must be solved numerically.
+    """Map out regime phase space along rescaled rates ro/re and rd/re according to
+    second-order approximation, which must be solved numerically.
 
     Parameters
     ----------
