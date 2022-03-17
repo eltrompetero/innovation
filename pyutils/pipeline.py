@@ -151,9 +151,6 @@ def _automaton_rescaling(params):
     assert 'death_rate' in params.keys()
     assert 'innov_rate' in params.keys()
 
-    simulator = UnitSimulator(L0=1,
-                              N0=0,
-                              dt=1e-3/2,
-                              **params)
+    simulator = UnitSimulator(*params.values(), dt=1e-3/2)
     c, occupancy = simulator.rescale_factor(2_000)
     return c, occupancy

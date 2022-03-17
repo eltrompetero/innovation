@@ -1843,11 +1843,11 @@ class UnitSimulator(FlowMFT):
         """
 
         G = float(self.G)
-        ro = float(self.obs_rate)
-        re = float(self.expand_rate)
-        rd = float(self.death_rate)
-        I = float(self.innov_rate)
-        a = float(self.cooperativity)
+        ro = float(self.ro)
+        re = float(self.re)
+        rd = float(self.rd)
+        I = float(self.I)
+        a = float(self.alpha)
         dt = float(self.dt)
  
         occupancy = self.parallel_simulate(sample_size, T)
