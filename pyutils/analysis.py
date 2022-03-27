@@ -8,7 +8,7 @@ from scipy.signal import fftconvolve
 from scipy.optimize import minimize
 from scipy.special import erfc
 
-from .simple_model import UnitSimulator, approx_L
+from .simple_model import UnitSimulator, L_1ode
 from .utils import *
 
 
@@ -381,7 +381,7 @@ class Comparator():
         G, ro, _, rd, I, dt = self.load_params()
 
         def cost(re):
-            L = approx_L(G, ro, re, rd, I)
+            L = L_1ode(G, ro, re, rd, I)
             return L**-2.
 
         if full_output:
@@ -409,7 +409,7 @@ class Comparator():
 
         def cost(logro):
             ro = np.exp(logro)
-            L = approx_L(G, ro, re, rd, I)
+            L = L_1ode(G, ro, re, rd, I)
             return L**-2.
 
         if full_output:

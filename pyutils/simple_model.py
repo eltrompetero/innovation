@@ -47,6 +47,8 @@ def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
     G_bar = G/re
     ro_bar = ro/re
     rd_bar = rd/re
+    
+    assert not hasattr(G_bar, '__len__')
 
     z = -(1 - rd_bar*(Q-1)) / (1 - ro_bar*(Q-1))
     if not hasattr(z, '__len__'):
@@ -1050,7 +1052,7 @@ class FlowMFT():
                  rd=None,
                  I=None,
                  dt=None,
-                 L_method=1,
+                 L_method=2,
                  alpha=1.,
                  Q=2):
         """Class for calculating discrete MFT quantities by running dynamics.
@@ -1092,7 +1094,7 @@ class FlowMFT():
             elif L_method==1:
                 self.L = L_1ode(G, ro, re, rd, I, alpha=alpha, Q=Q)
             elif L_method==2:
-                self.L = ODE2(G, ro, re, rd, I, Q=Q).L
+                self.L = ODE2(G, ro, re, rd, I, alpha=alpha, Q=Q).L
             else: raise NotImplementedError
         except ZeroDivisionError:
             self.L = np.inf
@@ -1297,18 +1299,11 @@ class ODE2():
             Bethe lattice branching ratio.
         """
         
-        #assert alpha==1
-        #assert Q>=2
-
         self.ro = float(ro)
         self.G = float(G)
         self.re = float(re)
         self.rd = float(rd)
         self.I = float(I)
-        try:
-            self.L = IterativeMFT(G, ro, re, rd, I).L
-        except (AssertionError, IndexError):
-            self.L = 1
         self.alpha = alpha
         self.Q = Q
         self.n0 = (ro/re/I)**(1/alpha)  # stationary density
@@ -1328,7 +1323,7 @@ class ODE2():
         ndarray
         """
         
-        L = L or self.L
+        L = L if not L is None else self.L
 
         if method==1:
             # cleaned up output from mathematica
@@ -1409,7 +1404,7 @@ class ODE2():
 
         # if not provided, use the iterative method to initialize the search
         try:
-            L0 = L0 or max(IterativeMFT(G, ro, re, rd, I, alpha=self.alpha, Q=Q).L, 10)
+            L0 = L0 or max(L_1ode(G, ro, re, rd, I, alpha=self.alpha, Q=Q), 10)
         except (AssertionError, IndexError):
             L0 = L0 or 1
         
@@ -1570,7 +1565,7 @@ class UnitSimulator(FlowMFT):
                  rd=None,
                  I=None,
                  dt=None,
-                 L_method=1,
+                 L_method=2,
                  alpha=1.,
                  Q=2,
                  rng=np.random):
@@ -1615,9 +1610,9 @@ class UnitSimulator(FlowMFT):
             if L_method==0:
                 self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
             elif L_method==1:
-                self.L = self.L_1ode(G, ro, re, rd, I, alpha=alpha, Q=Q)
+                self.L = L_1ode(G, ro, re, rd, I, alpha=alpha, Q=Q)
             elif L_method==2:
-                self.L = ODE2(G, ro, re, rd, I).L
+                self.L = ODE2(G, ro, re, rd, I, alpha=alpha, Q=Q).L
             else: raise NotImplementedError
         except ZeroDivisionError:
             self.L = np.inf

@@ -6,7 +6,7 @@
 import numpy as np
 
 from workspace.utils import save_pickle, increment_name
-from .simple_model import UnitSimulator, ODE2
+from .simple_model import UnitSimulator, ODE2, FlowMFT
 from .utils import *
 from .plot import jangili_params
 
@@ -185,8 +185,6 @@ def cooperativity_comparison():
                                        dt=dt))
         automaton[-1].parallel_simulate(1_000, 3_000)
         
-    L = np.mean([len(i) for i in automaton[0].occupancy])
-
     save_pickle(['alpha_range', 'dmftmodel', 'automaton'],
                 'plotting/cooperativity_ex.p', True)
 
