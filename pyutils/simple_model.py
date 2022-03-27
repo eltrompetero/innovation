@@ -17,7 +17,7 @@ from .model import *
 
 
 
-def approx_L(G, ro, re, rd, I, alpha=1., Q=2):
+def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
     """Calculate stationary lattice width accounting the first order correction
     (from Firms II pg. 140, 238).
 
@@ -50,10 +50,13 @@ def approx_L(G, ro, re, rd, I, alpha=1., Q=2):
 
     z = -(1 - rd_bar*(Q-1)) / (1 - ro_bar*(Q-1))
     if not hasattr(z, '__len__'):
+        is_ndarray = False
         z = np.array([z])
+    else:
+        is_ndarray = True
     C = np.zeros_like(z)
 
-    # handle numberical precision problems with z
+    # handle numerical precision problems with z
     # analytic limit
     zeroix = z==0
 
@@ -67,8 +70,11 @@ def approx_L(G, ro, re, rd, I, alpha=1., Q=2):
     
     remainix = (~zeroix) & (~largeix)
     C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
-
-    return -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
+    
+    L = -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
+    if is_ndarray:
+        return L
+    return L[0]
 
 def match_length(y1, y2, side1='l', side2='r'):
     """Fill zeros to match two vectors. Pad zeros on either left or right sides.
@@ -1084,7 +1090,7 @@ class FlowMFT():
             if L_method==0:
                 self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
             elif L_method==1:
-                self.L = self.mft_L()
+                self.L = L_1ode(G, ro, re, rd, I, alpha=alpha, Q=Q)
             elif L_method==2:
                 self.L = ODE2(G, ro, re, rd, I, Q=Q).L
             else: raise NotImplementedError
@@ -1241,38 +1247,6 @@ class FlowMFT():
         z = - (re - rd) / ((re-rd)/2 + re*(1 - I*n0))
 
         return n0 + (n02 * z**-2. * (-1 + z + np.exp(-z)) if z!=0 else 0.)
-    
-    def mft_L(self):
-        """Calculate stationary lattice width accounting the first order correction
-        (from Firms II pg. 140, 238).
-
-        This is equivalent to
-
-        (np.exp((1-rd_bar)/(1-ro_bar)) - 1) / np.exp((1-rd_bar)/(1-ro_bar)) * -G_bar * I / ro_bar / (1-rd_bar)
-        
-        Returns
-        -------
-        float
-            Estimated lattice width.
-        """
-        
-        G = self.G
-        I = self.I
-        re = self.re
-        rd = self.rd
-        ro = self.ro
-        n0 = self.n0
-        a = self.alpha
-        Q = self.Q
-
-        z = -(1 - rd/re*(Q-1)) / (1 - ro/re*(Q-1))
-        C = (np.exp(-z) - 1 + z) / z
-        
-        # this matches exact numerical calculation
-        G_bar = G/re
-        ro_bar = ro/re
-        rd_bar = rd/re
-        return -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
 #end FlowMFT
 
 
@@ -1404,7 +1378,7 @@ class ODE2():
             return sol.real
         else: raise NotImplementedError
 
-    def solve_L(self, L0=None, full_output=False, method=2):
+    def solve_L(self, L0=None, full_output=False, method=3):
         """Solve for stationary value of L that matches self-consistency condition,
         i.e. analytic solution for L should be equal to the posited value of L.
 
@@ -1413,7 +1387,7 @@ class ODE2():
         L0 : float, None
             Initial guess.
         full_output : bool, False
-        method : int, 2
+        method : int, 3
             1: 'mathematica'
             2: 'hand'
             3: 'hand' but w/ boundary condition at x=L
@@ -1641,7 +1615,7 @@ class UnitSimulator(FlowMFT):
             if L_method==0:
                 self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
             elif L_method==1:
-                self.L = self.mft_L()
+                self.L = self.L_1ode(G, ro, re, rd, I, alpha=alpha, Q=Q)
             elif L_method==2:
                 self.L = ODE2(G, ro, re, rd, I).L
             else: raise NotImplementedError
