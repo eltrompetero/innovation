@@ -35,10 +35,10 @@ def prb_params(ix=0):
                 'I':1.8,
                 'dt':.1}
     elif ix==1:
-        return {'G':40,
+        return {'G':150,
                 'ro':.6,
                 're':.43,
-                'rd':.423,
+                'rd':.422,
                 'I':.7,
                 'dt':.1}
     else:
@@ -49,7 +49,7 @@ def covid_params(ix=0):
         return {'G':70,
                 'ro':1.1,
                 're':.58,
-                'rd':.24,
+                'rd':.23,
                 'I':1.3,
                 'dt':.1,
                 'Q':2.3271742356782428}
@@ -57,7 +57,7 @@ def covid_params(ix=0):
         return {'G':70,
                 'ro':1.1,
                 're':.58,
-                'rd':.234,
+                'rd':.23,
                 'I':1.3,
                 'dt':.1,
                 'Q':2.3174342105263157}
@@ -74,6 +74,14 @@ def patent_params(ix=0):
                 'dt':.1}
     else:
         raise Exception
+
+def phase_space_example_params():
+    return {'G':40,
+            'ro':.53,
+            're':.43,
+            'rd':.414,
+            'I':.189,
+            'dt':.1}
 
 def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
     """Helper function for plotting phase space for cooperative and Bethe lattice

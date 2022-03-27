@@ -8,7 +8,7 @@ import numpy as np
 from workspace.utils import save_pickle, increment_name
 from .simple_model import UnitSimulator, ODE2, FlowMFT
 from .utils import *
-from .plot import jangili_params
+from .plot import phase_space_example_params
 
 
 
@@ -107,7 +107,7 @@ def phase_space_ODE2(G_bar=None,
     """
 
     if G_bar is None:
-        G, ro, re, rd, I, dt = jangili_params(1).values()
+        G, ro, re, rd, I, dt = phase_space_example_params().values()
         G_bar = G/re
         re = 1
 
@@ -115,10 +115,10 @@ def phase_space_ODE2(G_bar=None,
         ro_bar, rd_bar = args
         if ro_bar <= (2-rd_bar):
             return 1e5
-        odemodel = ODE2(G_bar*re, ro_bar*re, re, rd_bar*re, I)
-        sol = odemodel.solve_L(full_output=True)[1]
+        odemodel = ODE2(G_bar, ro_bar, 1, rd_bar, I)
+        sol = odemodel.solve_L(full_output=True, method=3)[1]
         if np.isnan(sol['fun']):
-            sol = odemodel.solve_L(L0=odemodel.L*2, full_output=True)[1]
+            sol = odemodel.solve_L(L0=odemodel.L*1.1, full_output=True, method=3)[1]
         return sol['x'][0]
 
     ro_bar = np.linspace(0, 4, n_space)

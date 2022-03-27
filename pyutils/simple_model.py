@@ -17,6 +17,17 @@ from .model import *
 
 
 
+def L_linear(G, ro, re, rd, I, alpha=1., Q=2):
+    assert alpha==1
+
+    G_bar = G/re
+    ro_bar = ro/re
+    rd_bar = rd/re
+    
+    if (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))==0:
+        return np.inf
+    return G_bar * I / (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))
+
 def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
     """Calculate stationary lattice width accounting the first order correction
     (from Firms II pg. 140, 238).
@@ -1403,11 +1414,11 @@ class ODE2():
         Q = self.Q
 
         # if not provided, use the iterative method to initialize the search
-        try:
-            L0 = L0 or max(L_1ode(G, ro, re, rd, I, alpha=self.alpha, Q=Q), 10)
-        except (AssertionError, IndexError):
-            L0 = L0 or 1
-        
+        L0 = L0 or L_linear(G, ro, re, rd, I, alpha=self.alpha, Q=Q)
+        # this is infinite limit, don't expect a good solution
+        if L0 < 0: L0 = 2e5
+        if np.isinf(L0): L0 = 2e5
+
         if method==1:
             assert self.alpha==1
             assert self.Q==2
