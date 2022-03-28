@@ -9,11 +9,7 @@ from scipy.optimize import minimize, root
 from cmath import sqrt
 
 from workspace.utils import save_pickle
-from .model_ext import TopicLattice, LiteFirm, snapshot_firms
-from .organizer import SimLedger
 from .utils import *
-from . import sql
-from .model import *
 
 
 
@@ -1019,34 +1015,6 @@ class FlowMFT():
 
         return n0 + (n02 * z**-2. * (-1 + z + np.exp(-z)) if z!=0 else 0.)
 #end FlowMFT
-
-
-class SimpleFirm(Firm):
-    def grow(self):
-        """Attempt to expand to a neighboring site. If successful, then it will be occupied.
-        
-        Returns
-        -------
-        int
-            If 1, then firm expanded to right.
-            If 0, then firm did not expand.
-        int
-            If 1, then lattice expanded to right.
-            If 0, then lattice should not be extended.
-        """
-        
-        lattice = self.lattice
-        
-        # consider tendency to innovate and the prob of exploiting it
-        # innovation may be rewarding but not necessarily
-        #assert self.sites[1]<=lattice.right
-        if self.sites[1]==lattice.right:
-            if self.rng.random() < self.innov:  # successful innovation?
-                return 1, 1
-            return 0, 0
-        # if no innovation is necessary to grow
-        self.sites = self.sites[0], self.sites[1] + 1
-        return 1, 0
 
 
 
