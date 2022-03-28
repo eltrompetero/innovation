@@ -28,13 +28,14 @@ def L_linear(G, ro, re, rd, I, alpha=1., Q=2):
         return np.inf
     return G_bar * I / (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))
 
-def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
+def L_1ode(G, ro, re, rd, I, alpha=1., Q=2, return_denom=False):
     """Calculate stationary lattice width accounting the first order correction
     (from Firms II pg. 140, 238).
 
     This is equivalent to
 
-    (np.exp((1-rd_bar)/(1-ro_bar)) - 1) / np.exp((1-rd_bar)/(1-ro_bar)) * -G_bar * I / ro_bar / (1-rd_bar)
+    (np.exp((1-rd_bar)/(1-ro_bar)) - 1) / np.exp((1-rd_bar)/(1-ro_bar)) * -G_bar * I
+    / ro_bar / (1-rd_bar)
     
     This matches numerical solution to first-order equation with x=-1 boundary
     condition.
@@ -48,11 +49,14 @@ def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
     I : float
     alpha : float, 1.
     Q : float 2.
+    return_denom : bool, False
     
     Returns
     -------
     float
         Estimated lattice width.
+    float (optional)
+        Denominator for L calculation.
     """
         
     G_bar = G/re
@@ -73,10 +77,6 @@ def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
     # analytic limit
     zeroix = z==0
 
-    # small z approximation
-    #smallix = z > 100
-    #C[smallix] = (1 - z[smallix] + z[smallix]**2/2 - 1 + z[smallix]) / z[smallix] 
-
     # large z approximation
     largeix = z < -200
     C[largeix] = np.inf
@@ -84,7 +84,16 @@ def L_1ode(G, ro, re, rd, I, alpha=1., Q=2):
     remainix = (~zeroix) & (~largeix)
     C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
     
-    L = -G_bar / (ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C)))
+    denom = ro_bar/I * ((1+1/(1-C))/(Q-1) - rd_bar - ro_bar/(1-C))
+    L = -G_bar / denom
+
+    # analytic form
+    #L = G_bar / (1-rd_bar) * I/ro_bar * (np.exp(-(1-rd_bar)/(1-ro_bar)) - 1)
+    
+    if return_denom:
+        if is_ndarray:
+            return L, denom
+        return L[0], denom
     if is_ndarray:
         return L
     return L[0]
@@ -562,10 +571,6 @@ def L_denominator(ro, rd, Q=2):
     # analytic limit
     zeroix = z==0
 
-    # small z approximation
-    smallix = z > 100
-    C[smallix] = (1 - z[smallix] + z[smallix]**2/2 - 1 + z[smallix]) / z[smallix] 
-
     # large z approximation
     largeix = z < -200
     C[largeix] = np.inf
@@ -576,7 +581,8 @@ def L_denominator(ro, rd, Q=2):
     return ro/(1-C) + rd - (1+1/(1-C)) / (Q-1)
 
 def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
-    """When this goes to 0, we are at a collapsed boundary.
+    """When this goes to 0, we are at a collapsed boundary. Coming from first order
+    ODE approximation.
 
     Parameters
     ----------
@@ -607,13 +613,9 @@ def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
     z = -(1/(Q-1) - rd) / (1/(Q-1) - ro)
     C = np.zeros_like(z)
 
-    # handle numberical precision problems with z
+    # handle numerical precision problems with z
     # analytic limit
     zeroix = z==0
-
-    # small z approximation
-    smallix = z > 100
-    C[smallix] = (1 - z[smallix] + z[smallix]**2/2 - 1 + z[smallix]) / z[smallix] 
 
     # large z approximation
     largeix = z < -200
@@ -628,250 +630,6 @@ def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
 # ======= #
 # Classes #
 # ======= #
-class MultiunitSimulator(Simulator):
-    def simulate(self, T, save_every, cache=True, reset_rng=False):
-        """Run firm simulation for T time steps. To minimize memory and cost of saving sim
-        results, only LiteFirms and lattice boundaries are stored.
-        
-        Parameters
-        ----------
-        T : float
-            Total duration of simulation.
-        save_every : int
-            Number of time steps to wait before saving. Time elapsed between saves is dt *
-            save_every.
-        cache : bool, True
-            If True, save simulation result into self.storage dict.
-        reset_rng : bool, False
-            If True, reinitialize rng. Useful for parallel processing.
-            
-        Returns
-        -------
-        list
-            LiteFirm copies at each time step (non-empty if cache=False).
-        list
-            Lattice copies at each time step (non-empty if cache=False).
-        """
-
-        if reset_rng:
-            self.rng = np.random.RandomState()
-        
-        # settings
-        L0 = self.L0
-        N0 = self.N0
-        G = self.G
-        obs_rate = self.obs_rate
-        expand_rate = self.expand_rate
-        innov_rate = self.innov_rate
-        exploit_rate = self.exploit_rate
-        death_rate = self.death_rate
-        dt = self.dt
-        
-        # variables for tracking history
-        save_key = ''
-        cache_every = 1_000  # this will dynamically change depending on RAM available
-        firm_snapshot = []
-        lattice_snapshot = []
-        
-        # updated parameters
-        firms = []
-        lattice = TopicLattice()
-        # initialize empty lattice
-        lattice.extend_right(L0)
-
-        # initialize
-        for i in range(N0):
-            # choose innovation tendency uniformly? how to impose selection?
-            firms.append(SimpleFirm(self.rng.randint(lattice.left+1, lattice.right+1),
-                                    innov_rate,
-                                    lattice=lattice,
-                                    wealth=np.inf,
-                                    rng=self.rng))
-            lattice.d_add(firms[-1].sites[0])
-        lattice.push()
-
-        # run sim
-        # 1. try to grow each firm
-        # 3. grow/shrink lattice
-        # 4. eliminate firms by death rate
-        # 5. spawn new firms (including at innov front)
-        t = 0
-        counter = 0
-        while t < T:
-            grow_lattice = 0  # switch for if lattice needs to be grown
-            new_occupancy = 0  # count new firms occupying innovated area
-            
-            n_firms = len(firms)
-            for i in range(n_firms):
-                f = firms[i]
-                # attempt to grow (assuming wealth is positive)
-                if f.rng.rand() < (expand_rate * dt):
-                    out = f.grow()
-                    # if the firm grows and the lattice grows
-                    if out[0] and out[1]:
-                        new_occupancy += 1  # keep track of total frontier density
-                        grow_lattice += 1
-                    # if the firm does not grow and the lattice does
-                    elif not out[0] and out[1]:
-                        grow_lattice += 1
-                    # else neither firm grows nor lattice
-
-                f.age += dt
-                i += 1
-            lattice.push()
-            # if any firm innovated, then grow the lattice
-            if grow_lattice:
-                lattice.extend_right()
-                lattice.add(lattice.right, new_occupancy)
-                for i in range(grow_lattice):
-                    # new firm
-                    firms.append(SimpleFirm(lattice.right, innov_rate,
-                                            lattice=lattice, wealth=np.inf, rng=self.rng))
-
-            # shrink topic lattice
-            if (lattice.left < (lattice.right-1)) and (self.rng.rand() < (obs_rate * dt)):
-                lattice.shrink_left()
-                # shrink all firms that have any value on the obsolete topic since lattice
-                # is now empty on obsolescent site
-                # firms of size one will be deleted by accounting for negative wealth next
-                # firms that have left boundary pass right will be deleted next
-                for i, f in enumerate(firms):
-                    if f.sites[0] <= lattice.left:  # s.t. lattice of size 1 incurs loss!
-                        f.sites = f.sites[0]+1, f.sites[1]
-
-            # kill firms with rate proportional to amount of depressed sites
-            removeix = []
-            for i, f in enumerate(firms):
-                if f.sites[1] == lattice.left: removeix.append(i)
-                else: 
-                    total_death_rate = self.rng.binomial(f.size(), self.depressed_frac)/f.size() * death_rate
-                    if self.rng.rand() < total_death_rate * dt:
-                        removeix.append(i)
-            for count, ix in enumerate(removeix):
-                f = firms.pop(ix - count)
-                lattice.d_remove_range(f.sites[0], f.sites[1])
-            lattice.push()
-            # check_firms_occupancy(firms, lattice, iprint=True)
-
-            # spawn new firms
-            nNew = self.rng.poisson(G * dt)
-            for i in range(nNew):
-                firms.append(SimpleFirm(self.rng.randint(lattice.left+1, lattice.right+1),
-                                        innov_rate,
-                                        wealth=np.inf,
-                                        lattice=lattice,
-                                        rng=self.rng))
-                lattice.d_add(firms[-1].sites[0])
-            if nNew: lattice.push()
-            # check_firms_occupancy(firms, lattice, iprint=True)
-        
-            # collect status
-            if (counter%save_every)==0:
-                firm_snapshot.append(snapshot_firms(firms))
-                lattice_snapshot.append((lattice.left, lattice.right))  # lattice endpts
-            
-            # export results to file every few thousand steps
-            if cache and (len(lattice_snapshot) > cache_every):
-                if not save_key:
-                    save_key = str(datetime.now())
-                self.storage[save_key] = firm_snapshot, lattice_snapshot
-                # this will save to file and clear the lists
-                self.save(t - save_every * dt * (len(firm_snapshot) - 1), dt*save_every)
-                firm_snapshot, lattice_snapshot = self.storage[save_key] 
-                
-                # save less frequently if less than 20% of RAM available
-                # save more frequently if more than 50% of RAM available
-                if (virtual_memory().available/virtual_memory().total) > .5:
-                    cache_every *= 2
-                    cache_every = min(cache_every, 8_000)
-                elif (virtual_memory().available/virtual_memory().total) < .2:
-                    cache_every /= 2
-                    cache_every = max(cache_every, 500)
-            
-            # update time
-            counter += 1
-            t = counter * dt
-        
-        if cache and len(lattice_snapshot):
-            # save any remnants of lists that were not saved to disk
-            if not save_key:
-                save_key = str(datetime.now())
-            self.storage[save_key] = firm_snapshot, lattice_snapshot
-            self.save(t - save_every * dt * len(firm_snapshot), dt*save_every)
-            # this will save to file and clear the lists
-            firm_snapshot, lattice_snapshot = self.storage[save_key] 
-        
-        return firm_snapshot, lattice_snapshot
-        
-    def parallel_simulate(self, n_samples, T, save_every,
-                          iprint=True,
-                          n_cpus=None):
-        """Parallelize self.simulate() and save results into self.storage data member dict.
-        
-        Parameters
-        ----------
-        n_samples : int
-            Number of random trajectories to sample.
-        T : int
-            Total simulation duration.
-        save_every : int
-            How often to snapshot simulation.
-        iprint : bool, True
-        n_cpus : int, None
-            Defaults to the max number of CPUs.
-        
-        Returns
-        -------
-        None
-        """
-        
-        assert len(self.storage)==0, "Avoid piping large members."
-
-        n_cpus = n_cpus or cpu_count()
-        t0 = perf_counter()
-        thislock = Lock()
-
-        assert not self.cache_dr is None
-        if not os.path.isdir(self.cache_dr):
-            try:
-                os.makedirs(self.cache_dr)
-            except FileExistsError:
-                pass
-
-        # save file with sim instance for info on the settings
-        if not os.path.isfile(f'{self.cache_dr}/top.p'):
-            # save class info without all of storage
-            storage = self.storage
-            self.storage = {}
-            with open(f'{self.cache_dr}/top.p', 'wb') as f:
-                pickle.dump({'simulator':self}, f)
-
-            self.storage = storage
-
-        def init(thislock):
-            """Only for generating lock shared amongst processes for file writing."""
-            global lock
-            lock = thislock
-
-        def loop_wrapper(args, self=self, T=T):
-            firm_snapshot, lattice_snapshot = self.simulate(T, save_every, cache=True, reset_rng=True)
-            assert len(firm_snapshot)==0 and len(lattice_snapshot)==0
-            if iprint: print("Done with one rand trajectory.")
-            #lock.acquire()  # only save one sim result at a time
-            #self.save()
-            #lock.release()
-        
-        if iprint: print("Starting simulations...")
-        with threadpool_limits(user_api='blas', limits=1):
-            with Pool(n_cpus, initializer=init, initargs=(thislock,)) as pool:
-                pool.map(loop_wrapper, range(n_samples))
-
-        if iprint: print(f"Runtime of {perf_counter()-t0} s.")
-#end Simulator
-
-
-
-
 class IterativeMFT():
     def __init__(self, G, ro, re, rd, I, alpha=1., Q=2):
         """Class for calculating discrete MFT quantities.

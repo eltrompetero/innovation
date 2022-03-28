@@ -11,7 +11,6 @@ from statsmodels.distributions import ECDF
 from threadpoolctl import threadpool_limits
 from scipy.special import factorial
 
-# from .data import *
 from .mft import *
 from .simple_model import *
 from .utils import *
