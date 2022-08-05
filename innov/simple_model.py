@@ -6,6 +6,7 @@
 from numba import njit, jit
 from numba.typed import List
 from scipy.optimize import minimize, root
+from scipy.interpolate import interp1d
 from cmath import sqrt
 
 from workspace.utils import save_pickle
@@ -224,8 +225,6 @@ def fit_flow(x, data, initial_params, full_output=False, reverse=False, **params
     dict
         If full_output is True. From scipy.optimize.minimize.
     """
-
-    from scipy.interpolate import interp1d
 
     data_fun = interp1d(x, data, bounds_error=False, fill_value=0)
 
@@ -877,16 +876,16 @@ class FlowMFT():
         dn = self.G / L 
 
         # innovation shift
-        dn -= self.re * self.I * self.n[0]**self.alpha * self.n
-        dn[1:] += self.re * self.I * self.n[0]**self.alpha * self.n[:-1]
+        dn -= self.re * self.I * self.n_[0]**self.alpha * self.n_
+        dn[1:] += self.re * self.I * self.n_[0]**self.alpha * self.n_[:-1]
 
         # expansion
-        dn[:-1] += self.re / (self.Q-1) * self.n[1:]
+        dn[:-1] += self.re / (self.Q-1) * self.n_[1:]
 
         # death
-        dn -= self.rd * self.n
+        dn -= self.rd * self.n_
 
-        self.n += dn * self.dt
+        self.n_ += dn * self.dt
 
     def solve_stationary(self,
                          tol=1e-5,
@@ -921,28 +920,32 @@ class FlowMFT():
         if not np.isfinite(L):
             L = 10_000
         
-        if n0 is None and 'n' in self.__dict__ and self.n.size==(L+1):
-            n0 = self.n[:-1]
+        if n0 is None and 'n' in self.__dict__ and self.n_.size==(L+1):
+            n0 = self.n_[:-1]
         elif n0 is None:
             n0 = np.ones(int(L))/2
-        self.n = n0.copy()
+        self.n_ = n0.copy()
         prev_n = np.zeros_like(n0)
 
         counter = 0
-        while (self.dt*counter) < T and np.abs(prev_n-self.n).max()>(self.dt*tol):
-            prev_n = self.n.copy()
+        while (self.dt*counter) < T and np.abs(prev_n-self.n_).max()>(self.dt*tol):
+            prev_n = self.n_.copy()
             self.update_n(L)
             counter += 1
         
         if (self.dt*counter) >= T:
             flag = 2
-        elif np.abs(self.n[0]-self.n0)/self.n.max() < 1e-5:  # relative error
+        elif np.abs(self.n_[0]-self.n0)/self.n_.max() < 1e-5:  # relative error
             flag = 0
         else:
             flag = 1
         
-        mx_err = np.abs(prev_n-self.n).max()
-        self.n = np.append(self.n, 0)
+        mx_err = np.abs(prev_n-self.n_).max()
+        self.n_ = np.append(self.n_, 0)
+
+        # interpolate discrete lattice solution
+        self.n = interp1d(np.arange(self.n_.size), self.n_, kind='cubic')
+
         return flag, mx_err
 
     def run(self, T, save_every, L=None, iprint=False):
@@ -966,7 +969,7 @@ class FlowMFT():
 
         t = []
         n0 = np.ones(int(L))/2
-        self.n = n0.copy()
+        self.n_ = n0.copy()
         snapshot_n = []
         counter = 0
         while (self.dt*counter) < T:
@@ -975,7 +978,7 @@ class FlowMFT():
             if np.isclose((self.dt*counter)%save_every, 0, atol=self.dt/10, rtol=0):
                 if iprint: print(f"Recording {dt*counter}...")
                 t.append(counter * self.dt)
-                snapshot_n.append(self.n.copy())
+                snapshot_n.append(self.n_.copy())
             counter += 1
 
         return snapshot_n, t
