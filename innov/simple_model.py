@@ -13,18 +13,18 @@ from .utils import *
 
 
 
-def L_linear(G, ro, re, rd, I, alpha=1., Q=2):
+def L_linear(G, ro, rd, I, alpha=1., Q=2):
     assert alpha==1
 
-    G_bar = G/re
-    ro_bar = ro/re
-    rd_bar = rd/re
+    G_bar = G
+    ro_bar = ro
+    rd_bar = rd
     
     if (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))==0:
         return np.inf
     return G_bar * I / (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))
 
-def L_1ode(G, ro, re, rd, I, alpha=1., Q=2, return_denom=False):
+def L_1ode(G, ro, rd, I, alpha=1., Q=2, return_denom=False):
     """Calculate stationary lattice width accounting the first order correction
     (from Firms II pg. 140, 238).
 
@@ -40,7 +40,6 @@ def L_1ode(G, ro, re, rd, I, alpha=1., Q=2, return_denom=False):
     ----------
     G : float
     ro : float
-    re : float
     rd : float
     I : float
     alpha : float, 1.
@@ -55,9 +54,9 @@ def L_1ode(G, ro, re, rd, I, alpha=1., Q=2, return_denom=False):
         Denominator for L calculation.
     """
         
-    G_bar = G/re
-    ro_bar = ro/re
-    rd_bar = rd/re
+    G_bar = G
+    ro_bar = ro
+    rd_bar = rd
     
     assert not hasattr(G_bar, '__len__')
 
@@ -542,10 +541,11 @@ def L_denominator(ro, rd, Q=2):
     Parameters
     ----------
     ro : float or ndarray
-        ro/re
+        Rescaled obsolescence rate ro/re
     rd : float or ndarray
-        rd/re
+        Rescaled death rate rd/re
     Q : float, 2
+        Branching parameter. Q=2 is linear model.
 
     Returns
     -------
@@ -627,14 +627,13 @@ def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
 # Classes #
 # ======= #
 class IterativeMFT():
-    def __init__(self, G, ro, re, rd, I, alpha=1., Q=2):
+    def __init__(self, G, ro, rd, I, alpha=1., Q=2):
         """Class for calculating discrete MFT quantities.
 
         Parameters
         ----------
-        ro : float
         G : float
-        re : float
+        ro : float
         rd : float
         I : float
         alpha : float, 1.
@@ -648,19 +647,18 @@ class IterativeMFT():
 
         self.ro = ro
         self.G = G
-        self.re = re
         self.rd = rd
         self.I = I
         self.alpha = alpha
         self.Q = Q
-        self.n0 = ro/re/I  # stationary density
+        self.n0 = ro/I  # stationary density
         
         # where is this criterion from?
         #assert (2/(Q-1) * re - rd) * self.n0 - re*I*self.n0**2 <= 0, "Stationary criterion unmet."
         
         # MFT guess for L, which we will refine using tail convergence criteria
         try:
-            self.L0 = G * re * I / (ro * (rd + ro - 2*re/(Q-1)))
+            self.L0 = G * I / (ro * (rd + ro - 2/(Q-1)))
         except ZeroDivisionError:
             self.L0 = np.inf
         
@@ -699,7 +697,6 @@ class IterativeMFT():
 
         ro = self.ro
         G = self.G
-        re = self.re
         rd = self.rd
         I = self.I
         Q = self.Q
@@ -737,7 +734,6 @@ class IterativeMFT():
 
         ro = self.ro
         G = self.G
-        re = self.re
         rd = self.rd
         I = self.I
         n0 = self.n0
@@ -748,10 +744,10 @@ class IterativeMFT():
         n[0] = n0
         if len(n) > 1:
             # assumption about n[-1]=0 gives n[1]
-            n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L) / re)
+            n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L))
 
             for i in range(2, len(n)):
-                n[i] = (Q-1) * (re * I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L)) / re
+                n[i] = (Q-1) * (I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L))
 
         return np.array([float(i) for i in n])
 
@@ -760,7 +756,6 @@ class IterativeMFT():
         
         ro = self.ro
         G = self.G
-        re = self.re
         rd = self.rd
         I = self.I
         n0 = self.n0
@@ -771,12 +766,12 @@ class IterativeMFT():
         n[0] = n0
         if n.size > 1:
             # assumption about n[-1]=0 gives n[1]
-            n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L) / re)
+            n[1] = (Q-1) * (I * n0**2 + (rd * n0 - G / L))
             
             # handle overflow separately
             overflow = False
             for i in range(2, n.size):
-                n[i] = (Q-1) * (re * I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L)) / re
+                n[i] = (Q-1) * (I * n0 * (n[i-1] - n[i-2]) + (rd * n[i-1] - G / L))
                 if abs(n[i]) > 1e200:
                     overflow = True
                     break
@@ -797,14 +792,13 @@ class IterativeMFT():
 
         ro = self.ro
         G = self.G
-        re = self.re
         rd = self.rd
         I = self.I
         Q = self.Q
         n0 = self.n0
         n = self.n
         
-        return G/re / (I * n[0] * (n[x-1]-n[x-2]) + rd/re * n[x-1] - n[x]/(Q-1))
+        return G / (I * n[0] * (n[x-1]-n[x-2]) + rd * n[x-1] - n[x]/(Q-1))
 #end IterativeMFT
 
 
@@ -825,6 +819,7 @@ class FlowMFT():
         Parameters
         ----------
         G : float
+        ro : float
         re : float
         rd : float
         I : float
@@ -857,9 +852,9 @@ class FlowMFT():
             if L_method==0:
                 self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
             elif L_method==1:
-                self.L = L_1ode(G, ro, re, rd, I, alpha=alpha, Q=Q)
+                self.L = L_1ode(G/re, ro/re, rd/re, I, alpha=alpha, Q=Q)
             elif L_method==2:
-                self.L = ODE2(G, ro, re, rd, I, alpha=alpha, Q=Q).L
+                self.L = ODE2(G/re, ro/re, rd/re, I, alpha=alpha, Q=Q).L
             else: raise NotImplementedError
         except ZeroDivisionError:
             self.L = np.inf
@@ -1019,16 +1014,19 @@ class FlowMFT():
 
 
 class ODE2():
-    def __init__(self, G, ro, re, rd, I, L=None, alpha=1., Q=2):
+    def __init__(self, G, ro, rd, I, L=None, alpha=1., Q=2):
         """Class for second-order analytic solution to MFT.
 
         Parameters
         ----------
-        ro : float
         G : float
-        re : float
+            Rescaled growth rate.
+        ro : float
+            Rescaled obsolescence rate.
         rd : float
+            Rescaled death rate.
         I : float
+            Innovation rate.
         L : float, None
         alpha : float, 1.
             Cooperativity.
@@ -1036,14 +1034,13 @@ class ODE2():
             Bethe lattice branching ratio.
         """
         
-        self.ro = float(ro)
         self.G = float(G)
-        self.re = float(re)
+        self.ro = float(ro)
         self.rd = float(rd)
         self.I = float(I)
         self.alpha = alpha
         self.Q = Q
-        self.n0 = (ro/re/I)**(1/alpha)  # stationary density
+        self.n0 = (ro/I)**(1/alpha)  # stationary density
         
         self.L = self.solve_L(L)
     
@@ -1068,9 +1065,9 @@ class ODE2():
 
             ro = self.ro
             G = self.G
-            re = self.re
             rd = self.rd
             I = self.I
+            re = 1
 
             a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
             sol = (G / ((np.exp(2*sqrt(a)/(re+ro))-1) * L * (re-rd)) *
@@ -1083,9 +1080,9 @@ class ODE2():
         elif method==2:
             # hand-written soln
             # rescale params in units of re
-            ro = self.ro / self.re
-            G = self.G / self.re
-            rd = self.rd / self.re
+            ro = self.ro
+            G = self.G
+            rd = self.rd
             I = self.I
             Q = self.Q
             
@@ -1134,13 +1131,13 @@ class ODE2():
 
         G = self.G
         ro = self.ro
-        re = self.re
         rd = self.rd
         I = self.I
         Q = self.Q
+        re = 1
 
         # if not provided, use the iterative method to initialize the search
-        L0 = L0 or L_linear(G, ro, re, rd, I, alpha=self.alpha, Q=Q)
+        L0 = L0 or L_linear(G, ro, rd, I, alpha=self.alpha, Q=Q)
         # this is infinite limit, don't expect a good solution
         if L0 < 0: L0 = 2e5
         if np.isinf(L0): L0 = 2e5
@@ -1204,27 +1201,25 @@ class ODE2():
 
         G = self.G
         ro = self.ro
-        re = self.re
         rd = self.rd
         I = self.I
         L = self.L
         
         n0 = self.n(0) 
         if x==1:
-            return self.n(x) - I * n0**2 - rd*n0/re + G/re/L
-        return self.n(x) - (I * n0 * (self.n(x-1) - self.n(x-2)) + rd*self.n(x-1)/re - G/re/L)
+            return self.n(x) - I * n0**2 - rd*n0 + G/L
+        return self.n(x) - (I * n0 * (self.n(x-1) - self.n(x-2)) + rd*self.n(x-1) - G/L)
     
     def slope(self):
         """Slope at x=0."""
 
         ro = self.ro
         G = self.G
-        re = self.re
         rd = self.rd
         I = self.I
         L = self.L
  
-        return ro**2 / re**2 / I + (rd/re-1) * ro / re / I - G / re / L
+        return ro**2 / I + (rd-1) * ro / I - G / L
 
     def d_complex(self, x):
         """Complex derivative.
@@ -1239,10 +1234,9 @@ class ODE2():
         """
         
         # transform into normal parameters
-        re = self.re
-        rd = self.rd/re
-        ro = self.ro/re
-        G = self.G/re
+        rd = self.rd
+        ro = self.ro
+        G = self.G
         I = self.I
         L = self.L
         a = -1 + (ro - 4) * ro + 2 * rd * (1 + ro) 
@@ -1274,10 +1268,9 @@ class ODE2():
             initial_guess = 2/3 * self.L
 
         # transform into normal parameters
-        re = self.re
-        rd = self.rd/re
-        ro = self.ro/re
-        G = self.G/re
+        rd = self.rd
+        ro = self.ro
+        G = self.G
         I = self.I
         L = self.L
         a = -1 + (ro - 4) * ro + 2 * rd * (1 + ro) 
