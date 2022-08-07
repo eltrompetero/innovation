@@ -8,6 +8,7 @@ from numba.typed import List
 from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from cmath import sqrt
+import warnings
 
 from workspace.utils import save_pickle
 from .utils import *
@@ -926,25 +927,35 @@ class FlowMFT():
             n0 = np.ones(int(L))/2
         self.n_ = n0.copy()
         prev_n = np.zeros_like(n0)
-
-        counter = 0
-        while (self.dt*counter) < T and np.abs(prev_n-self.n_).max()>(self.dt*tol):
-            prev_n = self.n_.copy()
-            self.update_n(L)
-            counter += 1
         
-        if (self.dt*counter) >= T:
-            flag = 2
-        elif np.abs(self.n_[0]-self.n0)/self.n_.max() < 1e-5:  # relative error
-            flag = 0
-        else:
-            flag = 1
-        
-        mx_err = np.abs(prev_n-self.n_).max()
-        self.n_ = np.append(self.n_, 0)
-
-        # interpolate discrete lattice solution
-        self.n = interp1d(np.arange(self.n_.size), self.n_, kind='cubic')
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            try:
+                counter = 0
+                while (self.dt*counter) < T and np.abs(prev_n-self.n_).max()>(self.dt*tol):
+                    prev_n = self.n_.copy()
+                    self.update_n(L)
+                    counter += 1
+                
+                if (self.dt*counter) >= T:
+                    flag = 2
+                elif np.abs(self.n_[0]-self.n0)/self.n_.max() < 1e-5:  # relative error
+                    flag = 0
+                else:
+                    flag = 1
+                
+                mx_err = np.abs(prev_n-self.n_).max()
+                self.n_ = np.append(self.n_, 0)
+                # interpolate discrete lattice solution
+                self.n = interp1d(np.arange(self.n_.size), self.n_,
+                                  kind='cubic',
+                                  bounds_error=False,
+                                  fill_value=0)
+            except RuntimeWarning:
+                self.n_[:] = np.nan
+                self.n = lambda x: np.zeros(x.size) + np.nan if hasattr(x, '__len__') else np.nan
+                flag = 2
+                mx_err = np.nan
 
         return flag, mx_err
 
@@ -1047,13 +1058,18 @@ class ODE2():
         
         self.L = self.solve_L(L)
     
-    def n(self, x, L=None, return_im=False, method=2):
+    def n(self, x, L=None, return_im=False, method=2, zero_bound=True):
         """Interpolated occupancy function.
 
         Parameters
         ----------
         x : ndarray
+            Lattice values for which to compute density.
         return_im : bool, False
+        method : int, 2
+            Either 1 or 2.
+        zero_bound : bool, True
+            If True, bound all function values outside of the range [0, L] to 0.
 
         Returns
         -------
@@ -1078,7 +1094,13 @@ class ODE2():
                     np.exp((-re*x+ro*(1+x)+sqrt(a)*(1+x)-re)/(re+ro)) +
                     (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(a)*(2+x))/(re+ro)) -
                                                  np.exp((-re*x+(ro-sqrt(a))*x)/(re+ro)))))
-            return sol.real
+            y = sol.real
+            if hasattr(y, '__len__'):
+                y[(x<0)|(x>L)] = 0
+            else:
+                if x<0 or x>L:
+                    y = 0
+            return y
         
         elif method==2:
             # hand-written soln
@@ -1103,11 +1125,17 @@ class ODE2():
                 (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
 
             # particular soln
-            sol = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+            y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+
+            if hasattr(y, '__len__'):
+                y[(x<0)|(x>L)] = 0
+            else:
+                if x<0 or x>L:
+                    y = 0 + 0j
 
             if return_im:
-                return sol.real, sol.imag
-            return sol.real
+                return y.real, y.imag
+            return y.real
         else: raise NotImplementedError
 
     def solve_L(self, L0=None, full_output=False, method=3):
@@ -1709,3 +1737,222 @@ def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
         counter += 1
     return occupancy
 
+class GridSearchFitter():
+    def __init__(self, y):
+        """Class for fitting ODE2 and FlowMFT to data using grid search.
+
+        Parameters
+        ----------
+        y : ndarray
+            Data y.
+        """
+        
+        self.y = y
+        self.x = np.arange(y.size)
+    
+    def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False):
+        """Find optimal length scales for one set of model parameter values.
+
+        Parameters
+        ----------
+        G : float
+        ro : float
+        rd : float
+        I : float
+        primary : str, 'ode'
+            'ode' or 'flow'
+        log : bool, False
+            If True, fit on log scale.
+
+        Returns
+        -------
+        float
+            Optimal x-scaling
+        float
+            Optimal y-scaling.
+        float
+            Fit error.
+        float
+            Error between ODE and flow solutions. When this is too large,
+            then the model solutions may not be trustworthy.
+        """
+
+        # scan thru parameter range, for each parameter combo,
+        # find scaling of x and y axes that is optimal
+        assert ro > 2-rd
+        assert ro < 1 - rd/2 + np.sqrt((1-rd/2)**2 + G*I/4)
+
+        # ODE model
+        model1 = ODE2(G, ro, rd, I)
+        assert model1.L > 5 and model1.L < 10_000
+        # flow model
+        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1)
+        model2.solve_stationary()
+        if primary=='flow':
+            temp = model1
+            model1 = model2
+            model2 = temp
+        elif primary=='ode':
+            pass
+        else: raise NotImplementedError
+
+        x_mod = np.arange(model1.L)
+        y_mod1 = model1.n(x_mod)
+        y_mod2 = model2.n(x_mod)
+
+        # mismatch between two solution methods for the given parameter values
+        mod_err = np.linalg.norm(y_mod1[:min(y_mod1.size, y_mod2.size)] -
+                                 y_mod2[:min(y_mod1.size, y_mod2.size)])
+
+        def cost(args):
+            """
+            Parameters
+            ----------
+            a : float
+                Horizontal length scale.
+            b : float
+                Vertical length scale.
+            """
+
+            a, b = args
+            if log:
+                c = np.linalg.norm(np.log(self.y) - np.log(model1.n(self.x*a) * b))
+                if np.isnan(c):
+                    return 1e30
+                return c
+            return np.linalg.norm(self.y - model1.n(self.x*a) * b)
+
+        # bounds on a such that model goes through at least half the data
+        a_mx = model1.L / self.y.size / 2
+
+        sol = minimize(cost, [a_mx/2,1], bounds=[(0, a_mx), (0, np.inf)])
+        a, b = sol['x']
+
+        return a, b, sol['fun'], mod_err
+    
+    def fit_length_scales_rev(self, G, ro, rd, I, primary='flow', log=False):
+        """Find optimal length scales for one set of model parameter values but rescaling
+        relative to the obsolescence front instead of the innovation front.
+        
+        Parameters
+        ----------
+        G : float
+        ro : float
+        rd : float
+        I : float
+        primary : str, 'ode'
+            'ode' or 'flow'
+        log : bool, False
+            If True, fit on log scale.
+
+        Returns
+        -------
+        float
+            Optimal x-scaling
+        float
+            Optimal y-scaling.
+        float
+            Fit error.
+        float
+            Error between ODE and flow solutions. When this is too large,
+            then the model solutions may not be trustworthy.
+        """
+
+        # scan thru parameter range, for each parameter combo,
+        # find scaling of x and y axes that is optimal
+        assert ro > 2 - rd
+        assert ro < 1 - rd/2 + np.sqrt((1-rd/2)**2 + G*I/4)
+
+        # setup ODE and flow models
+        model1 = ODE2(G, ro, rd, I)
+        assert model1.L > 5 and model1.L < 10_000
+        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1)
+        model2.solve_stationary()
+        
+        if primary=='flow':
+            temp = model1
+            model1 = model2
+            model2 = temp
+        elif primary=='ode':
+            pass
+        else: raise NotImplementedError
+
+        x_mod = np.arange(model1.L)
+        y_mod1 = model1.n(x_mod)
+        y_mod2 = model2.n(x_mod)
+
+        # mismatch between two solution methods
+        mod_err = np.linalg.norm(y_mod1[:min(y_mod1.size, y_mod2.size)] -
+                                 y_mod2[:min(y_mod1.size, y_mod2.size)])
+
+        def cost(args):
+            """
+            Parameters
+            ----------
+            a : float
+                Horizontal length scale.
+            b : float
+                Vertical length scale.
+            """
+
+            a, b = args
+            # is there an off by one error with x?
+            if log:
+                c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-1-self.x*a) * b))
+                # must decide how to handle cases where log of a negative or zero value may be taken
+                # by making it high cost, implicitly adds min length to lattice condition
+                if np.isnan(c):
+                    return 1e30
+                return c
+            return np.linalg.norm(self.y - model1.n(model1.L-1-self.x*a) * b)
+
+        # bounds on a such that model is always at least as wide as data
+        a_mx = model1.L / self.y.size / 2
+
+        sol = minimize(cost, [a_mx/2,1], bounds=[(0, a_mx), (0, np.inf)])
+        a, b = sol['x']
+
+        return a, b, sol['fun'], mod_err
+
+    def scan(self, G_range, ro_range, rd_range, I_range, rev=False, **fitter_kw):
+        """
+        Parameters
+        ----------
+        G_range
+        ro_range
+        rd_range
+        I_range
+        rev : bool, False
+        **fitter_kw
+            E.g. 'primary' and 'log'
+
+        Returns
+        -------
+        dict
+        """
+
+        from itertools import product
+
+        def loop_wrapper(params):
+            try:
+                if rev:
+                    result = self.fit_length_scales_rev(*params, **fitter_kw)
+                else:
+                    result = self.fit_length_scales(*params, **fitter_kw)
+                if not np.isnan(result[2]):
+                    return result
+                return
+            except AssertionError:
+                return
+            
+        with Pool() as pool:
+            output = pool.map(loop_wrapper, product(G_range, ro_range, rd_range, I_range))
+
+        # read out fit results
+        fit_results = {}
+        for params, output in zip(product(G_range, ro_range, rd_range, I_range), output):
+            if not output is None:
+                fit_results[params] = output
+
+        return fit_results
+#end GridSearchFitter
