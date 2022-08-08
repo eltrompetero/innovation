@@ -871,6 +871,10 @@ class FlowMFT():
         L : float, None
         """
         
+        return update_n(self.n_,
+                        self.G, self.ro, self.rd, self.re, self.I, self.alpha, self.Q,
+                        L or self.L,
+                        self.dt)
         L = L or self.L
 
         # entrance
@@ -887,6 +891,7 @@ class FlowMFT():
         dn -= self.rd * self.n_
 
         self.n_ += dn * self.dt
+        return dn
 
     def solve_stationary(self,
                          tol=1e-5,
@@ -926,16 +931,13 @@ class FlowMFT():
         elif n0 is None:
             n0 = np.ones(int(L))/2
         self.n_ = n0.copy()
-        prev_n = np.zeros_like(n0)
         
         with warnings.catch_warnings():
             warnings.simplefilter('error')
             try:
-                counter = 0
-                while (self.dt*counter) < T and np.abs(prev_n-self.n_).max()>(self.dt*tol):
-                    prev_n = self.n_.copy()
-                    self.update_n(L)
-                    counter += 1
+                # fast version of loop til stationarity, uses both jit_update_n and jit_while_loop
+                dn, counter = jit_while_loop(self.n_, self.G, self.ro, self.rd, self.re,
+                                             self.I, self.alpha, self.Q, self.dt, tol, T, L)
                 
                 if (self.dt*counter) >= T:
                     flag = 2
@@ -944,7 +946,7 @@ class FlowMFT():
                 else:
                     flag = 1
                 
-                mx_err = np.abs(prev_n-self.n_).max()
+                mx_err = np.abs(dn).max()
                 self.n_ = np.append(self.n_, 0)
                 # interpolate discrete lattice solution
                 self.n = interp1d(np.arange(self.n_.size), self.n_,
@@ -1023,6 +1025,49 @@ class FlowMFT():
         z = - (re - rd) / ((re-rd)/2 + re*(1 - I*n0))
 
         return n0 + (n02 * z**-2. * (-1 + z + np.exp(-z)) if z!=0 else 0.)
+
+@njit
+def jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt):
+    """Update occupancy number for a small time step self.dt.
+
+    Parameters
+    ----------
+    n : ndarray
+    G : float
+    ro : float
+    rd : float
+    re : float
+    I : float
+    alpha : float
+    Q : float
+    L : float, None
+    dt : float
+    """
+    
+    # entrance
+    dn = np.zeros(n.size) + G/L
+
+    # innovation shift
+    dn -= re * I * n[0]**alpha * n
+    dn[1:] += re * I * n[0]**alpha * n[:-1]
+
+    # expansion
+    dn[:-1] += re / (Q-1) * n[1:]
+
+    # death
+    dn -= rd * n
+
+    n += dn * dt
+    return dn
+
+@njit
+def jit_while_loop(n, G, ro, rd, re, I, alpha, Q, dt, tol, T, L):
+    counter = 0
+    dn = np.zeros(n.size) + dt*tol*1.1
+    while (dt*counter) < T and np.abs(dn).max() > (dt*tol):
+        dn = jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt)
+        counter += 1
+    return dn, counter
 #end FlowMFT
 
 
@@ -1898,7 +1943,7 @@ class GridSearchFitter():
             a, b = args
             # is there an off by one error with x?
             if log:
-                c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-1-self.x*a) * b))
+                c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-1-self.x*a)) - b)
                 # must decide how to handle cases where log of a negative or zero value may be taken
                 # by making it high cost, implicitly adds min length to lattice condition
                 if np.isnan(c):
@@ -1909,19 +1954,22 @@ class GridSearchFitter():
         # bounds on a such that model is always at least as wide as data
         a_mx = model1.L / self.y.size / 2
 
-        sol = minimize(cost, [a_mx/2,1], bounds=[(0, a_mx), (0, np.inf)])
+        sol = minimize(cost, [a_mx/2,0], bounds=[(0, a_mx), (-np.inf, np.inf)])
         a, b = sol['x']
-
-        return a, b, sol['fun'], mod_err
+        
+        if log:
+            # b is solved for in log terms, otherwise there are problems w/ convergence
+            return a, np.exp(b), sol, mod_err
+        return a, b, sol, mod_err
 
     def scan(self, G_range, ro_range, rd_range, I_range, rev=False, **fitter_kw):
         """
         Parameters
         ----------
-        G_range
-        ro_range
-        rd_range
-        I_range
+        G_range : ndarray
+        ro_range : ndarray
+        rd_range : ndarray
+        I_range : ndarray
         rev : bool, False
         **fitter_kw
             E.g. 'primary' and 'log'
@@ -1939,7 +1987,8 @@ class GridSearchFitter():
                     result = self.fit_length_scales_rev(*params, **fitter_kw)
                 else:
                     result = self.fit_length_scales(*params, **fitter_kw)
-                if not np.isnan(result[2]):
+                # ignore cases where the distance measure is nan (indicating problems w/ computing density)
+                if not np.isnan(result[2]['fun']):
                     return result
                 return
             except AssertionError:
