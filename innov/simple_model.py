@@ -1865,7 +1865,7 @@ class GridSearchFitter():
 
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I)
-        assert model1.L > 5 and model1.L < 10_000
+        assert model1.L > 5 and model1.L < 10_000, model1.L
         model2 = FlowMFT(G, ro, 1, rd, I, dt=.1)
         model2.solve_stationary()
         
