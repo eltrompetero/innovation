@@ -1974,7 +1974,7 @@ class GridSearchFitter():
             return np.linalg.norm(self.y - model1.n(model1.L-offset-self.x*a) * b)
 
         # bounds on a such that model is always at least as wide as data
-        a_mx = model1.L / self.y.size / 2
+        a_mx = model1.L / self.y.size * L_scale
 
         sol = minimize(cost, [a_mx/2,0], bounds=[(0, a_mx), (-np.inf, np.inf)])
         a, b = sol['x']
