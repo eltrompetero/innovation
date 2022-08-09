@@ -1875,7 +1875,11 @@ class GridSearchFitter():
 
         return a, b, sol['fun'], mod_err
     
-    def fit_length_scales_rev(self, G, ro, rd, I, primary='flow', log=False):
+    def fit_length_scales_rev(self, G, ro, rd, I,
+                              primary='flow',
+                              log=False,
+                              offset=0,
+                              L_scale=.5):
         """Find optimal length scales for one set of model parameter values but rescaling
         relative to the obsolescence front instead of the innovation front.
         
@@ -1889,6 +1893,14 @@ class GridSearchFitter():
             'ode' or 'flow'
         log : bool, False
             If True, fit on log scale.
+        offset : float, 0.
+            Amount to offset fixed point at obsolescence front to, i.e. when this is
+            0, then the function starts at 0 on the left side (the obs front). This
+            is a decision about whether the dnensity starts at 0 or not.
+        L_scale : float, .5
+            Fraction of model width that corresponds to data width, i.e. when
+            L_scale=1/2, it means that the model length will be twice as long as the
+            data width as is counted by the discrete lattice.
 
         Returns
         -------
@@ -1899,14 +1911,16 @@ class GridSearchFitter():
         float
             Fit error.
         float
-            Error between ODE and flow solutions. When this is too large,
-            then the model solutions may not be trustworthy.
+            Error between ODE and flow solutions. When this is too large, then the
+            model solutions may not be trustworthy.
         """
 
         # scan thru parameter range, for each parameter combo,
         # find scaling of x and y axes that is optimal
         assert ro > 2 - rd
         assert ro < 1 - rd/2 + np.sqrt((1-rd/2)**2 + G*I/4)
+        assert offset >= 0
+        assert 0 < L_scale <= 1
 
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I)
@@ -1941,15 +1955,18 @@ class GridSearchFitter():
             """
 
             a, b = args
-            # is there an off by one error with x?
             if log:
-                c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-1-self.x*a)) - b)
+                if offset==0:
+                    # dropping first value b/c fixing x=0 at 0
+                    c = np.linalg.norm(np.log(self.y[1:]) - np.log(model1.n(model1.L-offset-self.x[1:]*a)) - b)
+                else:
+                    c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-offset-self.x*a)) - b)
                 # must decide how to handle cases where log of a negative or zero value may be taken
                 # by making it high cost, implicitly adds min length to lattice condition
                 if np.isnan(c):
                     return 1e30
                 return c
-            return np.linalg.norm(self.y - model1.n(model1.L-1-self.x*a) * b)
+            return np.linalg.norm(self.y - model1.n(model1.L-offset-self.x*a) * b)
 
         # bounds on a such that model is always at least as wide as data
         a_mx = model1.L / self.y.size / 2
@@ -1995,7 +2012,7 @@ class GridSearchFitter():
                 return
             
         with Pool() as pool:
-            output = pool.map(loop_wrapper, product(G_range, ro_range, rd_range, I_range))
+            output = pool.map(loop_wrapper, product(G_range, ro_range, rd_range, I_range), chunksize=100)
 
         # read out fit results
         fit_results = {}
