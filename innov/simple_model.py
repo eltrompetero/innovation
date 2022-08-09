@@ -1161,16 +1161,18 @@ class ODE2():
             lp = (ro-1/(Q-1) + sqrt(a)) / (1/(Q-1)+ro)
             lm = (ro-1/(Q-1) - sqrt(a)) / (1/(Q-1)+ro)
             
-            # constants for homogenous terms
-            A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
-            B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                # constants for homogenous terms
+                A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                    (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+                B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                    (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
 
-            # particular soln
-            y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+                # particular soln
+                y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
 
             if hasattr(y, '__len__'):
                 y[(x<0)|(x>L)] = 0
@@ -1255,7 +1257,10 @@ class ODE2():
                 L = args[0]
                 return self.n(L, L, method=2)**2
             
-            soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
+            with warnings.catch_warnings():
+                # ignore overflow warnings
+                warnings.simplefilter('ignore')
+                soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
 
             if full_output:
                 return soln['x'][0], soln
@@ -1957,8 +1962,8 @@ class GridSearchFitter():
             a, b = args
             if log:
                 if offset==0:
-                    # dropping first value b/c fixing x=0 at 0
-                    c = np.linalg.norm(np.log(self.y[1:]) - np.log(model1.n(model1.L-offset-self.x[1:]*a)) - b)
+                    # dropping first value b/c fixing x=0 at 0 means that it doesn't matter in cost
+                    c = np.linalg.norm(np.log(self.y[1:]) - np.log(model1.n(model1.L-self.x[1:]*a)) - b)
                 else:
                     c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-offset-self.x*a)) - b)
                 # must decide how to handle cases where log of a negative or zero value may be taken
