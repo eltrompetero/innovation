@@ -1783,17 +1783,19 @@ def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
     return occupancy
 
 class GridSearchFitter():
-    def __init__(self, y):
+    def __init__(self, y, x=None):
         """Class for fitting ODE2 and FlowMFT to data using grid search.
 
         Parameters
         ----------
         y : ndarray
             Data y.
+        x : ndarray, None
+            Data x.
         """
         
         self.y = y
-        self.x = np.arange(y.size)
+        self.x = x if not x is None else np.arange(y.size)
     
     def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False, L_scale=.5):
         """Find optimal length scales for one set of model parameter values.
@@ -1969,7 +1971,7 @@ class GridSearchFitter():
                     else:
                         c = np.sqrt(np.nansum((np.log(self.y) -
                                                np.log(model1.n(model1.L-offset-self.x*a)) - b)**2))
-                    if c==0 or np.isnan(c).all():
+                    if np.isnan(c).all():
                         return 1e30
                 else:
                     if offset==0:

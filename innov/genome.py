@@ -19,9 +19,8 @@ def covid_clades():
     list
     """
 
-    tree = [Phylo.read("../data/covid/nextstrain_ncov_gisaid_global_tree.nwk", "newick"),
-            Phylo.read("../data/covid/nextstrain_ncov_gisaid_north-america_tree.nwk", "newick"),
-            Phylo.read("../data/covid/nextstrain_ncov_gisaid_europe_tree.nwk", "newick")]
+    tree = [Phylo.read("../data/covid/nextstrain_ncov_gisaid_europe_all-time_tree.nwk", "newick"),
+            Phylo.read("../data/covid/nextstrain_ncov_gisaid_north-america_all-time_tree.nwk", "newick")]
 
     all_dist = []
     for t in tree:
@@ -33,8 +32,6 @@ def covid_clades():
         p.append(np.bincount(branch_len))
 
     # normalized by a guess for branching ratio
-    scale = 'linear'
-    
     x = []
     y = []
     for i, (p_, br) in enumerate(zip(p, all_dist)):
