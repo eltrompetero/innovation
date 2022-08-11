@@ -1161,18 +1161,16 @@ class ODE2():
             lp = (ro-1/(Q-1) + sqrt(a)) / (1/(Q-1)+ro)
             lm = (ro-1/(Q-1) - sqrt(a)) / (1/(Q-1)+ro)
             
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore')
-                # constants for homogenous terms
-                A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                    (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
-                B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                    (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+            # constants for homogenous terms
+            A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+            B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
 
-                # particular soln
-                y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+            # particular soln
+            y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
 
             if hasattr(y, '__len__'):
                 y[(x<0)|(x>L)] = 0
@@ -1257,10 +1255,7 @@ class ODE2():
                 L = args[0]
                 return self.n(L, L, method=2)**2
             
-            with warnings.catch_warnings():
-                # ignore overflow warnings
-                warnings.simplefilter('ignore')
-                soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
+            soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
 
             if full_output:
                 return soln['x'][0], soln
@@ -1885,7 +1880,9 @@ class GridSearchFitter():
                               primary='flow',
                               log=False,
                               offset=0,
-                              L_scale=.5):
+                              L_scale=.5,
+                              ignore_nan=False,
+                              **model_kw):
         """Find optimal length scales for one set of model parameter values but rescaling
         relative to the obsolescence front instead of the innovation front.
         
@@ -1907,6 +1904,8 @@ class GridSearchFitter():
             Fraction of model width that corresponds to data width, i.e. when
             L_scale=1/2, it means that the model length will be twice as long as the
             data width as is counted by the discrete lattice.
+        ignore_nan : bool, False
+        **model_kw
 
         Returns
         -------
@@ -1929,9 +1928,9 @@ class GridSearchFitter():
         assert 0 < L_scale
 
         # setup ODE and flow models
-        model1 = ODE2(G, ro, rd, I)
+        model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
-        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1)
+        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
         model2.solve_stationary()
         
         if primary=='flow':
@@ -1962,17 +1961,31 @@ class GridSearchFitter():
 
             a, b = args
             if log:
-                if offset==0:
-                    # dropping first value b/c fixing x=0 at 0 means that it doesn't matter in cost
-                    c = np.linalg.norm(np.log(self.y[1:]) - np.log(model1.n(model1.L-self.x[1:]*a)) - b)
+                if ignore_nan:
+                    if offset==0:
+                        # dropping first value b/c fixing x=0 at 0 means that it doesn't matter in cost
+                        c = np.sqrt(np.nansum((np.log(self.y[1:]) -
+                                               np.log(model1.n(model1.L-self.x[1:]*a)) - b)**2))
+                    else:
+                        c = np.sqrt(np.nansum((np.log(self.y) -
+                                               np.log(model1.n(model1.L-offset-self.x*a)) - b)**2))
+                    if c==0 or np.isnan(c).all():
+                        return 1e30
                 else:
-                    c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-offset-self.x*a)) - b)
-                # must decide how to handle cases where log of a negative or zero value may be taken
-                # by making it high cost, implicitly adds min length to lattice condition
-                if np.isnan(c):
-                    return 1e30
+                    if offset==0:
+                        # dropping first value b/c fixing x=0 at 0 means that it doesn't matter in cost
+                        c = np.linalg.norm(np.log(self.y[1:]) - np.log(model1.n(model1.L-self.x[1:]*a)) - b)
+                    else:
+                        c = np.linalg.norm(np.log(self.y) - np.log(model1.n(model1.L-offset-self.x*a)) - b)
+                    # must decide how to handle cases where log of a negative or zero value may be taken
+                    # by making it high cost, implicitly adds min length to lattice condition
+                    if np.isnan(c):
+                        return 1e30
                 return c
-            return np.linalg.norm(self.y - model1.n(model1.L-offset-self.x*a) * b)
+            c = np.linalg.norm(self.y - model1.n(model1.L-offset-self.x*a) * b)
+            if np.isnan(c).all():
+                return 1e30
+            return c
 
         # bounds on a such that model is always at least as wide as data
         a_mx = model1.L / self.y.size * L_scale
@@ -2016,9 +2029,11 @@ class GridSearchFitter():
                 return
             except AssertionError:
                 return
-            
-        with Pool() as pool:
-            output = pool.map(loop_wrapper, product(G_range, ro_range, rd_range, I_range), chunksize=100)
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with Pool() as pool:
+                output = pool.map(loop_wrapper, product(G_range, ro_range, rd_range, I_range), chunksize=100)
 
         # read out fit results
         fit_results = {}

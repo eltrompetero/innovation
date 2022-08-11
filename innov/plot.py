@@ -6,43 +6,44 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 from matplotlib import colors
+import dill as pickle
 
 
 def jangili_params(ix=0):
-    if ix==0:
-        return {'G':30,
-                'ro':.53,
-                're':.43,
-                'rd':.414,
-                'I':.189,
-                'dt':.1}
-    elif ix==1:
-        return {'G':20,
-                'ro':.53,
-                're':.43,
-                'rd':.414,
-                'I':.189,
-                'dt':.1}
-    else:
-        raise Exception
+    with open(f'cache/jangili_{ix}.p', 'rb') as f:
+        data = pickle.load(f)
+    
+    fit_results = data['fit_results']
+
+    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    G, ro, rd, I = k
+    a, b = fit_results[k][:2]
+
+    return {'G':G,
+            'ro':ro,
+            'rd':rd,
+            'I':I,
+            'dt':.1,
+            'a':a,
+            'b':b}
 
 def prb_params(ix=0):
-    if ix==0:
-        return {'G':90,
-                'ro':.68,
-                're':.43,
-                'rd':.42,
-                'I':1.8,
-                'dt':.1}
-    elif ix==1:
-        return {'G':150,
-                'ro':.6,
-                're':.43,
-                'rd':.422,
-                'I':.7,
-                'dt':.1}
-    else:
-        raise Exception
+    with open(f'cache/prb_citations_{ix}.p', 'rb') as f:
+        data = pickle.load(f)
+    
+    fit_results = data['fit_results']
+
+    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    G, ro, rd, I = k
+    a, b = fit_results[k][:2]
+
+    return {'G':G,
+            'ro':ro,
+            'rd':rd,
+            'I':I,
+            'dt':.1,
+            'a':a,
+            'b':b}
 
 def covid_params(ix=0):
     if ix==0:
