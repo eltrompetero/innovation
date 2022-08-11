@@ -8,6 +8,25 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 import dill as pickle
 
+from .simple_model import FlowMFT
+
+
+
+def fit_sol(name, rev=False):
+    with open(f'cache/{name}.p', 'rb') as f:
+        odata = pickle.load(f)
+    fit_results = odata['fit_results']
+
+    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+
+    G, ro, rd, I = k
+    a, b = fit_results[k][:2]
+
+    model = FlowMFT(G, ro, 1, rd, I, dt=.1)
+    model.solve_stationary()
+    if rev:
+        return lambda x, a=a, b=b: model.n(model.L - x*a) * b
+    return lambda x, a=a, b=b: model.n(x*a) * b
 
 def jangili_params(ix=0):
     with open(f'cache/jangili_{ix}.p', 'rb') as f:

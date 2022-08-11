@@ -34,11 +34,13 @@ def covid_clades():
     # normalized by a guess for branching ratio
     x = []
     y = []
-    for i, (p_, br) in enumerate(zip(p, all_dist)):
+    br = []
+    for i, (p_, br_) in enumerate(zip(p, all_dist)):
         x.append(np.arange(p_.size))
-        y.append(p_ * np.mean(br)**-np.arange(p_.size, dtype=float))
-        
-    return x, y
+        y.append(p_ * np.mean(br_)**-np.arange(p_.size, dtype=float))
+        br.append(np.mean(br_))
+
+    return x, y, br
 
 def par_distance(tree):
     """Get total distance from root to each terminal.
