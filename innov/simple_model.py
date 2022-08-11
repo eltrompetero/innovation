@@ -1800,7 +1800,7 @@ class GridSearchFitter():
         self.y = y
         self.x = np.arange(y.size)
     
-    def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False):
+    def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False, L_scale=.5):
         """Find optimal length scales for one set of model parameter values.
 
         Parameters
@@ -1831,6 +1831,7 @@ class GridSearchFitter():
         # find scaling of x and y axes that is optimal
         assert ro > 2-rd
         assert ro < 1 - rd/2 + np.sqrt((1-rd/2)**2 + G*I/4)
+        assert 0 < L_scale
 
         # ODE model
         model1 = ODE2(G, ro, rd, I)
@@ -1873,12 +1874,12 @@ class GridSearchFitter():
             return np.linalg.norm(self.y - model1.n(self.x*a) * b)
 
         # bounds on a such that model goes through at least half the data
-        a_mx = model1.L / self.y.size / 2
+        a_mx = model1.L / self.y.size * L_scale
 
         sol = minimize(cost, [a_mx/2,1], bounds=[(0, a_mx), (0, np.inf)])
         a, b = sol['x']
 
-        return a, b, sol['fun'], mod_err
+        return a, b, sol, mod_err
     
     def fit_length_scales_rev(self, G, ro, rd, I,
                               primary='flow',
@@ -1925,7 +1926,7 @@ class GridSearchFitter():
         assert ro > 2 - rd
         assert ro < 1 - rd/2 + np.sqrt((1-rd/2)**2 + G*I/4)
         assert offset >= 0
-        assert 0 < L_scale <= 1
+        assert 0 < L_scale
 
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I)
