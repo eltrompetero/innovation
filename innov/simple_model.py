@@ -871,10 +871,6 @@ class FlowMFT():
         L : float, None
         """
         
-        return update_n(self.n_,
-                        self.G, self.ro, self.rd, self.re, self.I, self.alpha, self.Q,
-                        L or self.L,
-                        self.dt)
         L = L or self.L
 
         # entrance
@@ -1797,7 +1793,8 @@ class GridSearchFitter():
         self.y = y
         self.x = x if not x is None else np.arange(y.size)
     
-    def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False, L_scale=.5):
+    def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False, L_scale=.5, T=5e4,
+                          **model_kw):
         """Find optimal length scales for one set of model parameter values.
 
         Parameters
@@ -1831,11 +1828,11 @@ class GridSearchFitter():
         assert 0 < L_scale
 
         # ODE model
-        model1 = ODE2(G, ro, rd, I)
+        model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000
         # flow model
-        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1)
-        model2.solve_stationary()
+        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
+        model2.solve_stationary(T=T)
         if primary=='flow':
             temp = model1
             model1 = model2
@@ -1971,7 +1968,7 @@ class GridSearchFitter():
                     else:
                         c = np.sqrt(np.nansum((np.log(self.y) -
                                                np.log(model1.n(model1.L-offset-self.x*a)) - b)**2))
-                    if np.isnan(c).all():
+                    if c==0 or np.isnan(c).all():
                         return 1e30
                 else:
                     if offset==0:

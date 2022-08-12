@@ -91,3 +91,14 @@ def log_hist(y, nbins=20):
     
     return p, xmid, bins
 
+def del_poor_fits(fit_results):
+    # only keep the top 100 results
+    counter = 0
+    keys_to_del = []
+    for k, v in sorted(fit_results.items(), key=lambda i: i[1][2]['fun']):
+        if counter > 99:
+            keys_to_del.append(k)
+        counter += 1
+
+    for k in keys_to_del:
+        del fit_results[k]

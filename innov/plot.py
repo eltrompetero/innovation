@@ -12,7 +12,7 @@ from .simple_model import FlowMFT
 
 
 
-def fit_sol(name, rev=False):
+def fit_sol(name, rev=False, **model_kw):
     with open(f'cache/{name}.p', 'rb') as f:
         odata = pickle.load(f)
     fit_results = odata['fit_results']
@@ -22,11 +22,29 @@ def fit_sol(name, rev=False):
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 
-    model = FlowMFT(G, ro, 1, rd, I, dt=.1)
+    model = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
     model.solve_stationary()
     if rev:
         return lambda x, a=a, b=b: model.n(model.L - x*a) * b
     return lambda x, a=a, b=b: model.n(x*a) * b
+
+def iwai_params(ix=0):
+    with open(f'cache/iwai_{ix}.p', 'rb') as f:
+        data = pickle.load(f)
+    
+    fit_results = data['fit_results']
+
+    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    G, ro, rd, I = k
+    a, b = fit_results[k][:2]
+
+    return {'G':G,
+            'ro':ro,
+            'rd':rd,
+            'I':I,
+            'dt':.1,
+            'a':a,
+            'b':b}
 
 def jangili_params(ix=0):
     with open(f'cache/jangili_{ix}.p', 'rb') as f:
@@ -65,35 +83,50 @@ def prb_params(ix=0):
             'b':b}
 
 def covid_params(ix=0):
+    from .genome import covid_clades
+
+    covx, covy, br = covid_clades()
     if ix==0:
-        return {'G':70,
-                'ro':1.1,
-                're':.58,
-                'rd':.2544,
-                'I':1.3,
-                'dt':.1,
-                'Q':2.3174342105263157}
+        with open(f'cache/covid_europe.p', 'rb') as f:
+            data = pickle.load(f)
     elif ix==1:
-        return {'G':70,
-                'ro':1.1,
-                're':.58,
-                'rd':.235,
-                'I':1.3,
-                'dt':.1,
-                'Q':2.3442020665901262}
+        with open(f'cache/covid_northam.p', 'rb') as f:
+            data = pickle.load(f)
     else:
-        raise Exception
+        raise NotImplementedError
+
+    fit_results = data['fit_results']
+
+    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    G, ro, rd, I = k
+    a, b = fit_results[k][:2]
+
+    return {'G':G,
+            'ro':ro,
+            'rd':rd,
+            'I':I,
+            'dt':.1,
+            'a':a,
+            'b':b,
+            'Q':br[ix]+1}
 
 def patent_params(ix=0):
-    if ix==0:
-        return {'G':20,
-                'ro':.54,
-                're':.43,
-                'rd':.37,
-                'I':.3,
-                'dt':.1}
-    else:
-        raise Exception
+    with open(f'cache/patent_citations_{ix}.p', 'rb') as f:
+        data = pickle.load(f)
+    
+    fit_results = data['fit_results']
+
+    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    G, ro, rd, I = k
+    a, b = fit_results[k][:2]
+
+    return {'G':G,
+            'ro':ro,
+            'rd':rd,
+            'I':I,
+            'dt':.1,
+            'a':a,
+            'b':b}
 
 def phase_space_example_params():
     return {'G':40,
@@ -116,11 +149,8 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
     """
     
     # set default params
-    G, ro, re, rd, I, dt = jangili_params(1).values()
-    ro /= re
-    rd /= re
-    G /= re
-    rd_range = np.linspace(0, 4, 100)
+    G, ro, rd, I, dt, a, b = jangili_params(1).values()
+    rd_range = np.linspace(0, 10, 100)
     
     def collapse_cost_1st(ro, rd):
         """This is 0 for 1st order approximation of collapse boundary."""
@@ -140,7 +170,7 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
                                            'jac':lambda ro, rd: 1,
                                            'args':(rd_,)}])['x'][0]
                     for i, rd_ in enumerate(rd_range)]
-        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*10, fc='C0', alpha=.4)
         plot_counter += 1
     
     # cooperative
@@ -155,7 +185,7 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
                                            'jac':lambda ro, rd: 1,
                                            'args':(rd_,)}])['x'][0]
                     for i, rd_ in enumerate(rd_range)]
-        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*10, fc='C0', alpha=.4)
         plot_counter += 1
 
     # bethe lattice Q=1.5
@@ -164,8 +194,8 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
         ro_range = 2/(Q-1) - rd_range
         ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-        ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
-        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I/4)
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*10, fc='C0', alpha=.4)
         plot_counter += 1
 
     # bethe lattice Q=3
@@ -174,18 +204,18 @@ def phase_space_variations(ax, plot_range=[0,1,2,3], set_ticklabels=False):
         ro_range = 2/(Q-1) - rd_range
         ax[plot_counter].fill_between(ro_range, np.zeros_like(rd_range), rd_range, fc='C3', alpha=.4)
 
-        ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I)
-        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*4, fc='C0', alpha=.4)
+        ro_range = 1/(Q-1) - rd_range/2 + np.sqrt((1/(Q-1)-rd_range/2)**2 + G*I/4)
+        ax[plot_counter].fill_betweenx(rd_range, ro_range, np.ones_like(ro_range)*10, fc='C0', alpha=.4)
 
     for a in ax:
-        a.set(xlim=(0,4), ylim=(0,4))
+        a.set(xlim=(0,10), ylim=(0,10))
         if set_ticklabels:
             a.set(xticklabels=[], yticklabels=[])
     if set_ticklabels:
-        ax[0].set(yticklabels=[0,2,4])
-        ax[2].set(yticklabels=[0,2,4])
-        ax[2].set(xticklabels=[0,2,4])
-        ax[3].set(xticklabels=[0,2,4])
+        ax[0].set(yticklabels=[0,5,10])
+        ax[2].set(yticklabels=[0,5,10])
+        ax[2].set(xticklabels=[0,5,10])
+        ax[3].set(xticklabels=[0,5,10])
 
 def phase_space_ODE2(fig, ax, ro_bar, rd_bar, L,
                      vmin=1, vmax=50):
