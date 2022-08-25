@@ -17,3 +17,4 @@ from .utils import *
 from .analysis import Comparator
 from . import pipeline as pipe
 from . import plot as iplot
+from . import patents
