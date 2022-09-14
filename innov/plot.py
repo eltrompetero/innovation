@@ -12,7 +12,7 @@ from .simple_model import FlowMFT
 
 
 
-def fit_sol(name, rev=False, **model_kw):
+def fit_sol(name, rev=False, offset=0, **model_kw):
     with open(f'cache/{name}.p', 'rb') as f:
         odata = pickle.load(f)
     fit_results = odata['fit_results']
@@ -25,8 +25,8 @@ def fit_sol(name, rev=False, **model_kw):
     model = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
     model.solve_stationary()
     if rev:
-        return lambda x, a=a, b=b: model.n(model.L - x*a) * b
-    return lambda x, a=a, b=b: model.n(x*a) * b
+        return lambda x, a=a, b=b: model.n(model.L - x*a - offset) * b
+    return lambda x, a=a, b=b: model.n(x*a - offset) * b
 
 def iwai_params(ix=0):
     with open(f'cache/iwai_{ix}.p', 'rb') as f:
