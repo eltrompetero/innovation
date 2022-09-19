@@ -64,13 +64,13 @@ def jangili_params(ix=0):
             'a':a,
             'b':b}
 
-def prb_params(ix=0):
+def prb_params(ix=0, sol_ix=0):
     with open(f'cache/prb_citations_{ix}.p', 'rb') as f:
         data = pickle.load(f)
     
     fit_results = data['fit_results']
 
-    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    k = list(fit_results.keys())[np.argsort([i[2]['fun'] for i in fit_results.values()])[sol_ix]]
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 
@@ -110,13 +110,28 @@ def covid_params(ix=0):
             'b':b,
             'Q':br[ix]+1}
 
-def patent_params(ix=0):
-    with open(f'cache/patent_citations_{ix}.p', 'rb') as f:
+def patent_params(ix=0, tech_class=5, sol_ix=0):
+    """Model fit parameters.
+
+    Parameters
+    ----------
+    ix : int, 0
+        Citation class index.
+    tech_class : int, 5
+    sol_ix : int, 0
+        Solution index when ordered by closeness of fit.
+
+    Returns
+    -------
+    dict
+    """
+    
+    with open(f'cache/fit_patent_cites_{tech_class}_1990_{ix}.p', 'rb') as f:
         data = pickle.load(f)
     
     fit_results = data['fit_results']
-
-    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    
+    k = list(fit_results.keys())[np.argsort([i[2]['fun'] for i in fit_results.values()])[sol_ix]]
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 

@@ -3,7 +3,7 @@
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import pandas as pd
-
+from .utils import db_conn
 
 
 def uspc_codes(cat):
@@ -32,3 +32,108 @@ def uspc_codes(cat):
         raise NotImplementedError
     df = pd.DataFrame(c, columns=['uspc_class'])
     return df
+
+def setup_cites(select_code, select_year):
+    """Set up database connection for extracting citation curves.
+
+    Created data tables include filtered_patents, app_year, grant_year, cites,
+    avg_cites_per_year, apps_per_year.
+
+    Parameters
+    ----------
+    select_code : int, 4
+    select_year : int, 1990
+
+    Returns
+    -------
+    duckdb.DuckDBPyConnection
+    """
+
+    codes = uspc_codes(select_code)
+
+    # set up dataframes needed to calculate application citation trajectories for a given tech
+    # class with normalization based on the no. of app's per year
+    q = f'''PRAGMA threads=32;
+         /* records of all citations to a select set of patents within the given technology
+            class following Higham et al.
+            some patents may have multiple pertinent classes */
+            
+         /* get all patent id's of patents that fall within the chosen tech category */
+         CREATE TABLE filtered_patents AS
+             SELECT uspc.patent_id, uspc.mainclass_id
+             /* ignore patents that fall outside of the normal integer classes since we are
+                only considering patents that have been put into the six main categories 
+                defined by Hall et al. */
+             FROM (SELECT patent_id, CAST(mainclass_id AS INTEGER) AS mainclass_id
+                   FROM parquet_scan('../data/uspto/uspc_20220904.pq')
+                   WHERE mainclass_id ~ '^[0-9]+') uspc
+             INNER JOIN codes
+                 ON codes.uspc_class = uspc.mainclass_id;
+                 
+         /* year of patent application */
+         CREATE TABLE app_year AS
+             SELECT CAST(app.patent_id AS VARCHAR) AS patent_id,
+                 CAST(SUBSTRING(date,1,4) AS INTEGER) AS year
+                 /*CAST(REPLACE(SUBSTRING(date,1,7),'-','.') AS DOUBLE) - .01 AS year*/
+             FROM parquet_scan('../data/uspto/application_20220904.pq') app
+             WHERE year>=1900 and year<=2021;
+         
+         /* year when patent granted */
+         CREATE TABLE grant_year AS
+             SELECT CAST(patent_id AS VARCHAR) AS patent_id,
+                    year AS year
+             FROM parquet_scan('../data/uspto/patent_20220904.pq')
+             WHERE year>=1900 and year<=2021;
+
+         /* citation connection between citing and cited patents
+            assuming that citation year is equal to when the citing patent's application
+            year, but also recorded the year when patent was granted */
+         CREATE TABLE cites AS
+             SELECT DISTINCT cites.cited_patent_id AS cited,
+                             cites.citing_patent_id AS citing,
+                             grant_year.year AS citing_grant_year,
+                             app_year.year AS citing_app_year,
+                             grant_year_cited.year AS cited_grant_year,
+                             app_year_cited.year AS cited_app_year
+             FROM parquet_scan('../data/uspto/uspatentcitation_20220904.pq') cites
+             /* only consider cited patents w/in chosen tech category */
+             INNER JOIN filtered_patents
+                 ON filtered_patents.patent_id = cites.cited_patent_id
+             /* grant year of citing patents */
+             INNER JOIN grant_year
+                 ON cites.citing_patent_id = grant_year.patent_id
+             /* app year of citing patents */
+             INNER JOIN app_year
+                 ON cites.citing_patent_id = app_year.patent_id
+             /* grant year of cited patents */
+             INNER JOIN grant_year AS grant_year_cited
+                 ON cites.cited_patent_id = grant_year_cited.patent_id
+             INNER JOIN app_year AS app_year_cited
+                 ON cites.cited_patent_id = app_year_cited.patent_id;
+                 
+         /* avg. no. of citations per application by year
+           this is problematic because we can't see the true number of citations
+           back into the past b/c many patents cite decades back 
+           you can see this by plotting the typical number of citations per app
+           against the no. of apps per year */
+         CREATE TABLE avg_cites_per_year AS
+             SELECT year,
+                SUM(count)::FLOAT / COUNT(*) AS norm
+             FROM (SELECT cites.cited, COUNT(*) AS count, MODE(cites.cited_app_year) AS year
+                   FROM cites
+                   GROUP BY cites.cited) thiscites
+             GROUP BY year;
+             
+         /* normalize by the no. of patent applications per year
+            this counts all apps across all tech categories unless filtered */
+         CREATE TABLE apps_per_year AS
+             SELECT year,
+                    COUNT(*) AS norm
+             FROM app_year
+             INNER JOIN filtered_patents
+                 ON filtered_patents.patent_id = app_year.patent_id
+             GROUP BY year;
+         '''
+    conn = db_conn()
+    conn.execute(q)
+    return conn
