@@ -94,7 +94,8 @@ def setup_cites(select_code, select_year):
                              grant_year.year AS citing_grant_year,
                              app_year.year AS citing_app_year,
                              grant_year_cited.year AS cited_grant_year,
-                             app_year_cited.year AS cited_app_year
+                             app_year_cited.year AS cited_app_year,
+                             cites.category AS category
              FROM parquet_scan('../data/uspto/uspatentcitation_20220904.pq') cites
              /* only consider cited patents w/in chosen tech category */
              INNER JOIN filtered_patents
@@ -110,7 +111,7 @@ def setup_cites(select_code, select_year):
                  ON cites.cited_patent_id = grant_year_cited.patent_id
              INNER JOIN app_year AS app_year_cited
                  ON cites.cited_patent_id = app_year_cited.patent_id;
-                 
+
          /* avg. no. of citations per application by year
            this is problematic because we can't see the true number of citations
            back into the past b/c many patents cite decades back 

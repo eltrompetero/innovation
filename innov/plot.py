@@ -12,12 +12,12 @@ from .simple_model import FlowMFT
 
 
 
-def fit_sol(name, rev=False, offset=0, **model_kw):
+def fit_sol(name, rev=False, offset=0, sol_ix=0, **model_kw):
     with open(f'cache/{name}.p', 'rb') as f:
         odata = pickle.load(f)
     fit_results = odata['fit_results']
 
-    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    k = list(fit_results.keys())[np.argsort([i[2]['fun'] for i in fit_results.values()])[sol_ix]]
 
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
@@ -28,13 +28,13 @@ def fit_sol(name, rev=False, offset=0, **model_kw):
         return lambda x, a=a, b=b: model.n(model.L - x*a - offset) * b
     return lambda x, a=a, b=b: model.n(x*a - offset) * b
 
-def iwai_params(ix=0):
+def iwai_params(ix=0, sol_ix=0):
     with open(f'cache/iwai_{ix}.p', 'rb') as f:
         data = pickle.load(f)
     
     fit_results = data['fit_results']
 
-    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    k = list(fit_results.keys())[np.argsort([i[2]['fun'] for i in fit_results.values()])[sol_ix]]
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 
@@ -46,13 +46,13 @@ def iwai_params(ix=0):
             'a':a,
             'b':b}
 
-def jangili_params(ix=0):
+def jangili_params(ix=0, sol_ix=0):
     with open(f'cache/jangili_{ix}.p', 'rb') as f:
         data = pickle.load(f)
     
     fit_results = data['fit_results']
 
-    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    k = list(fit_results.keys())[np.argsort([i[2]['fun'] for i in fit_results.values()])[sol_ix]]
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 
@@ -82,7 +82,7 @@ def prb_params(ix=0, sol_ix=0):
             'a':a,
             'b':b}
 
-def covid_params(ix=0):
+def covid_params(ix=0, sol_ix=0):
     from .genome import covid_clades
 
     covx, covy, br = covid_clades()
@@ -97,7 +97,7 @@ def covid_params(ix=0):
 
     fit_results = data['fit_results']
 
-    k = list(fit_results.keys())[np.argmin([i[2]['fun'] for i in fit_results.values()])]
+    k = list(fit_results.keys())[np.argsort([i[2]['fun'] for i in fit_results.values()])[sol_ix]]
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 
