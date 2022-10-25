@@ -7,6 +7,20 @@ from .utils import db_conn
 
 
 def uspc_codes(cat):
+    """Including categories 1-5.
+    
+    Parameters
+    ----------
+    cat : int
+    
+    Returns
+    -------
+    list of int
+        USPC main classes that belong to the specified category.
+    """
+    
+    assert 1<=cat<=5
+    
     if cat==1:
         c = [8, 19, 71, 127, 442, 504, 106, 118, 401, 427, 48, 55, 95, 96, 534, 536, 540, 544, 546, 548, 549,
              552, 554, 556, 558, 560, 562, 564, 568, 570, 520, 521, 522, 523, 524, 525, 526, 527, 528, 530,
@@ -58,7 +72,8 @@ def setup_cites(select_code, select_year):
             class following Higham et al.
             some patents may have multiple pertinent classes */
             
-         /* get all patent id's of patents that fall within the chosen tech category */
+         /* get all patent id's of patents that fall within the chosen tech category, but remember that 
+            patents may appear multiple times if they belong to multiple tech classes */
          CREATE TABLE filtered_patents AS
              SELECT uspc.patent_id, uspc.mainclass_id
              /* ignore patents that fall outside of the normal integer classes since we are
@@ -98,8 +113,11 @@ def setup_cites(select_code, select_year):
                              cites.category AS category
              FROM parquet_scan('../data/uspto/uspatentcitation_20220904.pq') cites
              /* only consider cited patents w/in chosen tech category */
-             INNER JOIN filtered_patents
-                 ON filtered_patents.patent_id = cites.cited_patent_id
+             INNER JOIN (SELECT DISTINCT patent_id FROM filtered_patents) AS filtered_patents_cited
+                 ON filtered_patents_cited.patent_id = cites.cited_patent_id
+             /* only consider citing patents w/in chosen tech category */
+             INNER JOIN (SELECT DISTINCT patent_id FROM filtered_patents) AS filtered_patents_citing
+                 ON filtered_patents_citing.patent_id = cites.citing_patent_id
              /* grant year of citing patents */
              INNER JOIN grant_year
                  ON cites.citing_patent_id = grant_year.patent_id
@@ -131,8 +149,12 @@ def setup_cites(select_code, select_year):
              SELECT year,
                     COUNT(*) AS norm
              FROM app_year
-             INNER JOIN filtered_patents
-                 ON filtered_patents.patent_id = app_year.patent_id
+             /* only consider unique entries from filtered_patents, which can have repetition
+                from the fact that some patents have multiple classes */
+             RIGHT JOIN (SELECT DISTINCT patent_id 
+                         FROM filtered_patents) AS filtered_patents
+                 ON app_year.patent_id = filtered_patents.patent_id
+             WHERE year IS NOT NULL
              GROUP BY year;
          '''
     conn = db_conn()
