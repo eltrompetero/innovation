@@ -7,7 +7,7 @@ from .utils import db_conn
 
 
 def uspc_codes(cat):
-    """Including categories 1-5.
+    """Including categories 1-6.
     
     Parameters
     ----------
@@ -19,7 +19,7 @@ def uspc_codes(cat):
         USPC main classes that belong to the specified category.
     """
     
-    assert 1<=cat<=5
+    assert 1<=cat<=6
     
     if cat==1:
         c = [8, 19, 71, 127, 442, 504, 106, 118, 401, 427, 48, 55, 95, 96, 534, 536, 540, 544, 546, 548, 549,
