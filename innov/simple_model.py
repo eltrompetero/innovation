@@ -1156,17 +1156,19 @@ class ODE2():
             a = (1/(Q-1)-ro)**2 - 2 * (1/(Q-1)-rd) * (1/(Q-1)+ro)
             lp = (ro-1/(Q-1) + sqrt(a)) / (1/(Q-1)+ro)
             lm = (ro-1/(Q-1) - sqrt(a)) / (1/(Q-1)+ro)
-            
-            # constants for homogenous terms
-            A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
-            B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                 (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+             
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                # constants for homogenous terms
+                A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                    (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
+                B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
+                    (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
 
-            # particular soln
-            y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+                # particular soln
+                y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
 
             if hasattr(y, '__len__'):
                 y[(x<0)|(x>L)] = 0
