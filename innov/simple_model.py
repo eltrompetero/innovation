@@ -622,6 +622,51 @@ def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
 
     return rd + ro / (1-C) - (1+1/(1-C)) / (Q-1) - G*I/ro
 
+def weibull_b_k(el, n=100):
+    """Average obsolescence tail from Weibull process as a function of exponent k.
+    
+    k=1 corresponds to exponential decay.
+    
+    Parameters
+    ----------
+    el : float
+        Decay rate. el=0 is infinitely slow decay.
+    n : int, 100
+        Number of terms to include in series approximation.
+    
+    Returns
+    -------
+    func
+    """
+    from scipy.special import gamma, gammaincc
+    func = lambda k: np.sum([b * np.exp(-(b*el)**k) *
+                             np.exp(-gamma(1/k) * gammaincc(1/k, (b*el)**k)/(el*k))
+                             for b in range(n)])
+    return np.vectorize(func)
+
+def weibull_b_el(k, n=100):
+    """Average obsolescence tail from Weibull process as a function of correlation
+    time el.
+    
+    Parameters
+    ----------
+    k : float
+        Exponent. k=1 corresponds to exponential decay.
+    n : int, 100
+        Number of terms to include in series approximation.
+    
+    Returns
+    -------
+    func
+    """
+    from scipy.special import gamma, gammaincc
+
+    func = lambda el: np.sum([b * np.exp(-(b*el)**k) *
+                              np.exp(-gamma(1/k) * gammaincc(1/k, (b*el)**k)/(el*k))
+                              for b in range(n)])
+    return np.vectorize(func)
+
+
 
 # ======= #
 # Classes #
@@ -1780,6 +1825,8 @@ def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
         counter += 1
     return occupancy
 
+
+
 class GridSearchFitter():
     def __init__(self, y, x=None):
         """Class for fitting ODE2 and FlowMFT to data using grid search.
@@ -1831,7 +1878,7 @@ class GridSearchFitter():
 
         # ODE model
         model1 = ODE2(G, ro, rd, I, **model_kw)
-        assert model1.L > 5 and model1.L < 10_000
+        assert model1.L > 5 and model1.L < 10_000, model1.L
         # flow model
         model2 = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
         model2.solve_stationary(T=T)
