@@ -617,7 +617,7 @@ def collapse_condition(ro, rd, G, I, Q=2, allow_negs=False):
     largeix = z < -200
     C[largeix] = np.inf
     
-    remainix = (~zeroix) & (~smallix) & (~largeix)
+    remainix = (~zeroix) & (~largeix)
     C[remainix] = (np.exp(-z[remainix]) - 1 + z[remainix]) / z[remainix]
 
     return rd + ro / (1-C) - (1+1/(1-C)) / (Q-1) - G*I/ro
