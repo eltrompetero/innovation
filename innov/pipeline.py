@@ -105,7 +105,6 @@ def phase_space_ODE2(G_bar=None,
     ndarray
         L for each ro,rd pair
     """
-
     if G_bar is None:
         G, ro, re, rd, I, dt = phase_space_example_params().values()
         G_bar = G/re
@@ -115,7 +114,7 @@ def phase_space_ODE2(G_bar=None,
         ro_bar, rd_bar = args
         if ro_bar <= (2-rd_bar):
             return 1e5
-        odemodel = ODE2(G_bar, ro_bar, 1, rd_bar, I)
+        odemodel = ODE2(G_bar, ro_bar, rd_bar, I)
         sol = odemodel.solve_L(full_output=True, method=3)[1]
         if np.isnan(sol['fun']):
             sol = odemodel.solve_L(L0=odemodel.L*1.1, full_output=True, method=3)[1]

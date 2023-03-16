@@ -9,6 +9,7 @@ from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from cmath import sqrt
 import warnings
+from scipy.special import logsumexp
 
 from workspace.utils import save_pickle
 from .utils import *
@@ -1161,8 +1162,9 @@ class ODE2():
         -------
         ndarray
         """
-        
         L = L if not L is None else self.L
+        if not hasattr(x, '__len__'):
+            x = np.array([x])
 
         if method==1:
             # cleaned up output from mathematica
@@ -1174,12 +1176,12 @@ class ODE2():
             I = self.I
             re = 1
 
-            a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
-            sol = (G / ((np.exp(2*sqrt(a)/(re+ro))-1) * L * (re-rd)) *
-                   (1 - np.exp(2*sqrt(a)/(re+ro)) + np.exp(-(sqrt(a)*(x-1)+re*x-ro*(1+x)+re)/(re+ro)) -
-                    np.exp((-re*x+ro*(1+x)+sqrt(a)*(1+x)-re)/(re+ro)) +
-                    (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(a)*(2+x))/(re+ro)) -
-                                                 np.exp((-re*x+(ro-sqrt(a))*x)/(re+ro)))))
+            z = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+            sol = (G / ((np.exp(2*sqrt(z)/(re+ro))-1) * L * (re-rd)) *
+                   (1 - np.exp(2*sqrt(z)/(re+ro)) + np.exp(-(sqrt(z)*(x-1)+re*x-ro*(1+x)+re)/(re+ro)) -
+                    np.exp((-re*x+ro*(1+x)+sqrt(z)*(1+x)-re)/(re+ro)) +
+                    (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(z)*(2+x))/(re+ro)) -
+                                                 np.exp((-re*x+(ro-sqrt(z))*x)/(re+ro)))))
             y = sol.real
             if hasattr(y, '__len__'):
                 y[(x<0)|(x>L)] = 0
@@ -1198,22 +1200,53 @@ class ODE2():
             Q = self.Q
             
             # compute eigenvalues of characteristic soln
-            a = (1/(Q-1)-ro)**2 - 2 * (1/(Q-1)-rd) * (1/(Q-1)+ro)
-            lp = (ro-1/(Q-1) + sqrt(a)) / (1/(Q-1)+ro)
-            lm = (ro-1/(Q-1) - sqrt(a)) / (1/(Q-1)+ro)
+            z = (1/(Q-1)-ro)**2 - 2 * (1/(Q-1)-rd) * (1/(Q-1)+ro)
+            lp = (ro-1/(Q-1) + sqrt(z)) / (1/(Q-1)+ro)
+            lm = (ro-1/(Q-1) - sqrt(z)) / (1/(Q-1)+ro)
              
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 # constants for homogenous terms
-                A = ((G * np.exp((-sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                    (np.exp(-2*sqrt(a) / (1/(Q-1)+ro)) - 1))
-                B = ((G * np.exp(( sqrt(a)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
-                     (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - a)) + (ro/I)**(1./self.alpha))) / 
-                    (np.exp( 2*sqrt(a) / (1/(Q-1)+ro)) - 1))
-
-                # particular soln
-                y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+                # divergences occur at special values of ro and rd
+                try:
+                    A = ((G * np.exp((-sqrt(z)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                         (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - z)) + (ro/I)**(1./self.alpha))) / 
+                        (np.exp(-2*sqrt(z) / (1/(Q-1)+ro)) - 1))
+                except ZeroDivisionError:
+                    if np.exp((ro - 1 - sqrt(z)) / (1 + ro)) > 1:
+                        A = np.inf
+                    elif np.exp((ro - 1 - sqrt(z)) / (1 + ro)) < 1:
+                        A = -np.inf
+                    else:
+                        A = 0
+                try:
+                    B = ((G * np.exp(( sqrt(z)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                         (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - z)) + (ro/I)**(1./self.alpha))) / 
+                        (np.exp( 2*sqrt(z) / (1/(Q-1)+ro)) - 1))
+                except ZeroDivisionError:
+                    if np.exp((ro - 1 + sqrt(z)) / (1 + ro)) > 1:
+                        B = np.inf
+                    elif np.exp((ro - 1 + sqrt(z)) / (1 + ro)) < 1:
+                        B = -np.inf
+                    else:
+                        B = 0
+ 
+                # particular soln using numerical precision tricks with logsumexp
+                #y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+                logexp1 = np.log(abs(A)) + lp * x
+                logexp2 = np.log(abs(B)) + lm * x
+                logexp3 = np.zeros_like(x) + np.log(G) - np.log(L)
+                s1 = np.sign(A)
+                s2 = np.sign(B)
+                if (1/(Q-1)-rd)==0:
+                    s3 = -np.inf
+                else:
+                    s3 = -1/(1/(Q-1)-rd)
+                y = logsumexp(np.vstack([logexp1, logexp2, logexp3]),
+                              axis=0,
+                              b=np.array([s1, s2, s3])[:,None],
+                              return_sign=True)
+                y = np.exp(y[0]) * y[1]
 
             if hasattr(y, '__len__'):
                 y[(x<0)|(x>L)] = 0
@@ -1558,7 +1591,9 @@ class UnitSimulator(FlowMFT):
         Parameters
         ----------
         n_samples : int
+            Number of parallel simulations to run.
         T : int
+            Simulation time.
         **kwargs
         
         Returns

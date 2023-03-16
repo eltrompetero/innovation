@@ -278,7 +278,7 @@ def phase_space_ODE2(fig, ax, ro_bar, rd_bar, L,
               extent=[ro_bar[0]-dro, ro_bar[-1]+dro, rd_bar[0]-drd, rd_bar[-1]+drd],
               cmap=cmap, norm=norm, zorder=2)
 
-    fig.colorbar(cax, label=r'lattice length $L$')
+    #fig.colorbar(cax, label=r'lattice length $L$')
     ax.set(xlabel=r'obsolescence $\bar r_o$', ylabel=r'death $\bar r_d$',
            xlim=(ro_bar[0]-1.5*dro, ro_bar[-1]+1.5*dro),
            ylim=(rd_bar[0]-drd, rd_bar[-1]+drd))
