@@ -853,7 +853,6 @@ class FlowMFT():
     def __init__(self,
                  G=None,
                  ro=None,
-                 re=None,
                  rd=None,
                  I=None,
                  dt=None,
@@ -866,7 +865,6 @@ class FlowMFT():
         ----------
         G : float
         ro : float
-        re : float
         rd : float
         I : float
         dt : float
@@ -879,28 +877,26 @@ class FlowMFT():
         Q : int, 2
             Bethe lattice branching ratio.
         """
-        
         assert alpha>0
         assert Q>=2
 
         self.G = G
         self.ro = ro
-        self.re = re
         self.rd = rd
         self.I = I
         self.dt = dt
         self.alpha = float(alpha)
         self.Q = Q
 
-        self.n0 = (ro/re/I)**(1/alpha)
+        self.n0 = (ro/I)**(1/alpha)
         
         try:
             if L_method==0:
-                self.L = G / (self.n0 * (rd - (1+1/(Q-1))*re + re*I*self.n0**self.alpha))
+                self.L = G / (self.n0 * (rd - (1+1/(Q-1)) + I*self.n0**self.alpha))
             elif L_method==1:
-                self.L = L_1ode(G/re, ro/re, rd/re, I, alpha=alpha, Q=Q)
+                self.L = L_1ode(G, ro, rd, I, alpha=alpha, Q=Q)
             elif L_method==2:
-                self.L = ODE2(G/re, ro/re, rd/re, I, alpha=alpha, Q=Q).L
+                self.L = ODE2(G, ro, rd, I, alpha=alpha, Q=Q).L
             else: raise NotImplementedError
         except ZeroDivisionError:
             self.L = np.inf
@@ -923,11 +919,11 @@ class FlowMFT():
         dn = self.G / L 
 
         # innovation shift
-        dn -= self.re * self.I * self.n_[0]**self.alpha * self.n_
-        dn[1:] += self.re * self.I * self.n_[0]**self.alpha * self.n_[:-1]
+        dn -= self.I * self.n_[0]**self.alpha * self.n_
+        dn[1:] += self.I * self.n_[0]**self.alpha * self.n_[:-1]
 
         # expansion
-        dn[:-1] += self.re / (self.Q-1) * self.n_[1:]
+        dn[:-1] += 1 / (self.Q-1) * self.n_[1:]
 
         # death
         dn -= self.rd * self.n_
@@ -978,7 +974,7 @@ class FlowMFT():
             warnings.simplefilter('error')
             try:
                 # fast version of loop til stationarity, uses both jit_update_n and jit_while_loop
-                dn, counter = jit_while_loop(self.n_, self.G, self.ro, self.rd, self.re,
+                dn, counter = jit_while_loop(self.n_, self.G, self.ro, self.rd, 1,
                                              self.I, self.alpha, self.Q, self.dt, tol, T, L)
                 
                 if (self.dt*counter) >= T:
@@ -1044,20 +1040,18 @@ class FlowMFT():
         assert self.alpha==1, "This does not apply for alpha!=1."
         assert self.Q==2
         G = self.G
-        re = self.re
         rd = self.rd
         I = self.I
 
-        return ((2-rd/re) + np.sqrt((2-rd/re)**2 + 4*I*G/re/L)) / 2 / I
+        return ((2-rd) + np.sqrt((2-rd)**2 + 4*I*G/L)) / 2 / I
 
     def corrected_n0(self):
         """Stil figuring out the logic of this.
         """
-         
         assert self.alpha==1 and self.Q==2
         G = self.G
         I = self.I
-        re = self.re
+        re = 1
         rd = self.rd
         ro = self.ro
         n0 = self.n0
