@@ -1504,7 +1504,8 @@ class UnitSimulator(FlowMFT):
                  reset_rng=False,
                  jit=True,
                  occupancy=None,
-                 no_expansion=False):
+                 no_expansion=False,
+                 return_fronts=False):
         """
         NOTE: dt must be small enough to ignore coincident events.
 
@@ -1519,6 +1520,9 @@ class UnitSimulator(FlowMFT):
         no_expansion : bool, False
             When True, expansion term is removed from simulation. This only
             works without occupancy.
+        return_fronts : bool, False
+            If True, return twople of obs and innov front location at end of
+            simulation.
 
         Returns
         -------
@@ -1541,26 +1545,37 @@ class UnitSimulator(FlowMFT):
         if jit and occupancy is None:
             if reset_rng: np.random.seed()
             if no_expansion:
-                return jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a)
-            return jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a)
+                sim_output = jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a)
+            else:
+                sim_output = jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a)
+            if return_fronts:
+                return sim_output
+            return sim_output[0]
         elif jit and not occupancy is None:
             if reset_rng: np.random.seed()
             occupancy = List(occupancy)
-            return list(jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a))
+            sim_output = jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a)
+            if return_fronts:
+                return list(sim_output[0]), sim_output[1], sim_output[2]
+            return list(sim_output[0])
  
         if reset_rng: self.rng.seed()
         counter = 0
         occupancy = [0]
+        obs_loc = 0  # anything below this value is empty 
+        innov_loc = 1  # anything at this value or greater is the adjacent possible
         while (counter * dt) < T:
             # innov
             innov = False
             if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
                 occupancy.append(1)
+                innov_loc += 1
                 innov = True
 
             # obsolescence
             if len(occupancy) > 1 and np.random.rand() < (ro * dt):
                 occupancy.pop(0)
+                obs_loc += 1
             
             # from right to left b/c of expansion
             for x in range(len(occupancy)-1, -1, -1):
@@ -1580,6 +1595,8 @@ class UnitSimulator(FlowMFT):
                     occupancy[x] += 1
 
             counter += 1
+        if return_fronts:
+            return occupancy, (obs_loc, innov_loc)
         return occupancy
 
     def parallel_simulate(self, n_samples, T, **kwargs):
@@ -1598,8 +1615,15 @@ class UnitSimulator(FlowMFT):
             Each inner list is an occupancy list.
         """
         with Pool() as pool:
+            if 'return_fronts' in kwargs.keys() and kwargs['return_fronts']:
+                self.occupancy, obs_loc, innov_loc = list(zip(*pool.map(lambda args: self.simulate(T,
+                                                                                                   True,
+                                                                                                   **kwargs),
+                                                                        range(n_samples))))
+                return self.occupancy, obs_loc, innov_loc
+
             self.occupancy = list(pool.map(lambda args: self.simulate(T, True, **kwargs), range(n_samples)))
-        return self.occupancy
+            return self.occupancy
 
     def mean_occupancy(self,
                        occupancy=None,
@@ -1732,16 +1756,20 @@ def jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a):
     """
     counter = 0
     occupancy = [0]
+    obs_loc = 0
+    innov_loc = 1
     while (counter * dt) < T:
         # innov
         innov = False
         if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
             occupancy.append(1)
             innov = True
+            innov_loc += 1
 
         # obsolescence
         if len(occupancy) > 1 and np.random.rand() < (ro * dt):
             occupancy.pop(0)
+            obs_loc += 1
         
         # from right to left b/c of expansion
         for x in range(len(occupancy)-1, -1, -1):
@@ -1759,7 +1787,7 @@ def jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a):
                 occupancy[x] += 1
 
         counter += 1
-    return occupancy
+    return occupancy, obs_loc, innov_loc
 
 @njit
 def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
@@ -1777,6 +1805,8 @@ def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
     a : float
     """
     counter = 0
+    obs_loc = 0
+    innov_loc = 1
     while (counter * dt) < T:
         # innov
         innov = False
@@ -1804,7 +1834,7 @@ def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
             occupancy.pop(0)
         
         counter += 1
-    return occupancy
+    return occupancy, obs_loc, innov_loc
 
 @njit
 def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
@@ -1824,16 +1854,20 @@ def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
     """
     counter = 0
     occupancy = [0]
+    obs_loc = 0
+    innov_loc = 1
     while (counter * dt) < T:
         # innov
         innov = False
         if occupancy[-1] and np.random.rand() < (re * I * occupancy[-1]**a * dt):
             occupancy.append(1)
             innov = True
+            innov_loc += 1
 
         # obsolescence
         if len(occupancy) > 1 and np.random.rand() < (ro * dt):
             occupancy.pop(0)
+            obs_loc += 1
         
         # from right to left b/c of expansion
         for x in range(len(occupancy)-1, -1, -1):
