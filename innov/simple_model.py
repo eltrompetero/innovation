@@ -912,7 +912,6 @@ class FlowMFT():
         ----------
         L : float, None
         """
-        
         L = L or self.L
 
         # entrance
@@ -1898,7 +1897,6 @@ class GridSearchFitter():
             Error between ODE and flow solutions. When this is too large,
             then the model solutions may not be trustworthy.
         """
-
         # scan thru parameter range, for each parameter combo,
         # find scaling of x and y axes that is optimal
         assert ro > 2-rd
@@ -1909,7 +1907,7 @@ class GridSearchFitter():
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
         # flow model
-        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
+        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
         model2.solve_stationary(T=T)
         if primary=='flow':
             temp = model1
