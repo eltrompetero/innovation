@@ -1444,17 +1444,22 @@ class UnitSimulator(FlowMFT):
                  alpha=1.,
                  Q=2,
                  rng=np.random):
-        """Independent unit simulation of firms, which is the same thing as a
-        density evolution equation. This is the simplest implementation possible
-        that only keeps track of the occupancy number and processes to order dt.
+        """Independent unit simulation innovating agents. This is the simplest
+        implementation possible that only keeps track of the occupancy number and
+        processes to order dt.
 
         Parameters
         ----------
         G : float
+            Growth rate.
         re : float
+            Replication rate.
         rd : float
+            Death rate.
         I : float
+            Innovation rate.
         dt : float
+            Time step.
         L_method : int
             0, naive
             1, corrected
@@ -1465,7 +1470,6 @@ class UnitSimulator(FlowMFT):
             Bethe lattice branching ratio.
         rng : RandomState, np.random
         """
-        
         assert alpha>0
         assert Q>=2
 
@@ -1521,7 +1525,6 @@ class UnitSimulator(FlowMFT):
         list
             occupancy at each site
         """
-       
         G = float(self.G)
         ro = float(self.ro)
         rd = float(self.rd)
@@ -1594,7 +1597,6 @@ class UnitSimulator(FlowMFT):
         list of lists
             Each inner list is an occupancy list.
         """
-
         with Pool() as pool:
             self.occupancy = list(pool.map(lambda args: self.simulate(T, True, **kwargs), range(n_samples)))
         return self.occupancy
@@ -1622,7 +1624,6 @@ class UnitSimulator(FlowMFT):
         ndarray
             Standard deviation as error bars.
         """
-        
         if occupancy is None:
             occupancy = self.occupancy
         if not hasattr(width, '__len__'):
@@ -1698,7 +1699,6 @@ class UnitSimulator(FlowMFT):
         -------
         float
         """
-
         G = float(self.G)
         ro = float(self.ro)
         re = float(self.re)
@@ -1730,7 +1730,6 @@ def jit_unit_sim_loop(T, dt, G, ro, re, rd, I, a):
     I : float
     a : float
     """
-    
     counter = 0
     occupancy = [0]
     while (counter * dt) < T:
@@ -1777,7 +1776,6 @@ def jit_unit_sim_loop_with_occupancy(occupancy, T, dt, G, ro, re, rd, I, a):
     I : float
     a : float
     """
-    
     counter = 0
     while (counter * dt) < T:
         # innov
@@ -1824,7 +1822,6 @@ def jit_unit_sim_loop_no_expand(T, dt, G, ro, re, rd, I, a):
     I : float
     a : float
     """
-    
     counter = 0
     occupancy = [0]
     while (counter * dt) < T:
@@ -1866,11 +1863,11 @@ class GridSearchFitter():
         x : ndarray, None
             Data x.
         """
-        
         self.y = y
         self.x = x if not x is None else np.arange(y.size)
     
-    def fit_length_scales(self, G, ro, rd, I, primary='flow', log=False, L_scale=.5, T=5e4,
+    def fit_length_scales(self, G, ro, rd, I,
+                          primary='flow', log=False, L_scale=.5, T=5e4,
                           **model_kw):
         """Find optimal length scales for one set of model parameter values.
 
