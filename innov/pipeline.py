@@ -134,7 +134,7 @@ def phase_space_ODE2(G_bar=None,
 
     return ro_bar, rd_bar, L
 
-def automaton_rescaling():
+def automaton_rescaling(iprint=True):
     """For comparison of automaton model with MFT under rescaling."""
     params = [{'G':15,
                'obs_rate':.55,
@@ -155,12 +155,15 @@ def automaton_rescaling():
         occupancy.append(occupancy_)
         
         save_pickle(['c','occupancy','params'], 'cache/automaton_rescaling.p', True)
-        print(f"Done with parameter set {i}.")
+        if iprint: print(f"Done with parameter set {i}.")
 
-def cooperativity_comparison():
+def cooperativity_comparison(iprint=True):
     """Comparing mean-field flow with automaton for different cooperativities.
-    """
 
+    Parameters
+    ----------
+    iprint : bool, True
+    """
     G = 10
     ro = .5
     re = .4
@@ -168,13 +171,19 @@ def cooperativity_comparison():
     I = .9
     dt = .1
     alpha_range = [.5, 1, 1.5]
-
+    
+    if iprint: print("Starting DMFT calculation...")
     dmftmodel = []
     for alpha in alpha_range:
-        dmftmodel.append(FlowMFT(G, ro, re, rd, I, dt, alpha=alpha))
+        dmftmodel.append(FlowMFT(G/re, ro/re, rd/re, I, dt, alpha=alpha))
+        # try alternative L solution method if it is too short for computation
+        if dmftmodel[-1].L<1:
+            dmftmodel[-1].L = ODE2(G/re, ro/re, rd/re, I, alpha=alpha).solve_L(method=2)
         flag, mxerr = dmftmodel[-1].solve_stationary()
+    if iprint: print("Done.")
 
     # automaton model (dt must be small for good convergence)
+    if iprint: print("Starting automaton calculation...")
     dt = 1e-3
     automaton = []
     for alpha in alpha_range:
@@ -182,6 +191,7 @@ def cooperativity_comparison():
                                        alpha=alpha,
                                        dt=dt))
         automaton[-1].parallel_simulate(1_000, 3_000)
+    if iprint: print("Done.")
         
     save_pickle(['alpha_range', 'dmftmodel', 'automaton'],
                 'plotting/cooperativity_ex.p', True)

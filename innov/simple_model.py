@@ -17,14 +17,30 @@ from .utils import *
 
 
 def L_linear(G, ro, rd, I, alpha=1., Q=2):
-    assert alpha==1
+    """Lattice length given linear pseudogap approximation.
 
+    Parameters
+    ----------
+    G : float
+    ro : float
+    rd : float
+    I : float
+    alpha : float, 1.
+    Q : float, 2
+
+    Returns
+    -------
+    float
+        Approximate lattice length.
+    """
     G_bar = G
     ro_bar = ro
     rd_bar = rd
+    n0 = ro_bar / I
     
     if (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))==0:
         return np.inf
+    return G_bar * I / (ro_bar * (rd_bar + I*n0**alpha - 2/(Q-1)))
     return G_bar * I / (ro_bar * (rd_bar + ro_bar - 2/(Q-1)))
 
 def L_1ode(G, ro, rd, I, alpha=1., Q=2, return_denom=False):
@@ -957,11 +973,13 @@ class FlowMFT():
         float
             Maximum absolute difference between last two steps of simulation.
         """
-        
         L = L or self.L
         # simply impose a large upper limit for infinite L
         if not np.isfinite(L):
+            warnings.warn("Imposing upper limit on L to be 1e4.")
             L = 10_000
+        elif L<1:
+            raise Exception("Lattice L<1.")
         
         if n0 is None and 'n' in self.__dict__ and self.n_.size==(L+1):
             n0 = self.n_[:-1]
@@ -1127,7 +1145,6 @@ class ODE2():
         Q : int, 2
             Bethe lattice branching ratio.
         """
-        
         self.G = float(G)
         self.ro = float(ro)
         self.rd = float(rd)
@@ -1226,27 +1243,25 @@ class ODE2():
  
                 # particular soln using numerical precision tricks with logsumexp
                 #y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
-                logexp1 = np.log(abs(A)) + lp * x
-                logexp2 = np.log(abs(B)) + lm * x
-                logexp3 = np.zeros_like(x) + np.log(G) - np.log(L)
-                s1 = np.sign(A)
-                s2 = np.sign(B)
+                logexp1 = np.log(A * np.exp(lp * x))
+                logexp2 = np.log(B * np.exp(lm * x))
+                logexp3 = np.zeros_like(x) + np.log(G) - np.log(L)  # constant over all x
                 if (1/(Q-1)-rd)==0:
                     s3 = -np.inf
                 else:
                     s3 = -1/(1/(Q-1)-rd)
                 y = logsumexp(np.vstack([logexp1, logexp2, logexp3]),
                               axis=0,
-                              b=np.array([s1, s2, s3])[:,None],
+                              b=np.array([1, 1, s3])[:,None],
                               return_sign=True)
                 y = np.exp(y[0]) * y[1]
-
+            
             if hasattr(y, '__len__'):
                 y[(x<0)|(x>L)] = 0
             else:
                 if x<0 or x>L:
                     y = 0 + 0j
-
+            
             if return_im:
                 return y.real, y.imag
             return y.real
@@ -1273,7 +1288,6 @@ class ODE2():
         float
         dict (optional)
         """
-
         G = self.G
         ro = self.ro
         rd = self.rd
@@ -1698,9 +1712,13 @@ class UnitSimulator(FlowMFT):
         return y.mean(0), y.std(0)
 
     def rescale_factor(self, T, sample_size=1_000):
-        """Rescaling factor needed to correct for bias in mean L. The returned
-        factor c can be used to modify the automaton model with the set of
-        transformations
+        """Rescaling factor needed to correct for bias in mean L. This comes from the
+        fact that the mean field theory assumes that the average of the inverse of L
+        is the same as the inverse of the average, which is not true given
+        fluctuations in its value.
+
+        The returned factor c can be used to modify the automaton model with the set
+        of transformations
             x -> x * c
             G -> G * c
             n -> n / c
@@ -1734,7 +1752,7 @@ class UnitSimulator(FlowMFT):
         occupancy = self.parallel_simulate(sample_size, T)
         L = np.array([(len(i)-1) for i in occupancy])
 
-        odemodel = ODE2(G, ro, re, rd, I)
+        odemodel = ODE2(G/re, ro/re, rd/re, I)
 
         return odemodel.L / L.mean(), occupancy
 #end UnitSimulator
