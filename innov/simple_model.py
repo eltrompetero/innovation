@@ -234,7 +234,7 @@ def fit_flow(x, data, initial_params, full_output=False, reverse=False, **params
         A, B, G, ro, rd, I = params
         
         try:
-            model = FlowMFT(G, ro, 1, rd, I, dt=.1, L_method=2, **params_kw)
+            model = FlowMFT(G, ro, rd, I, dt=.1, L_method=2, **params_kw)
             model.solve_stationary()
         except (AssertionError, ValueError):  # e.g. problem with stationarity and L
             return 1e30
@@ -2025,7 +2025,6 @@ class GridSearchFitter():
             Error between ODE and flow solutions. When this is too large, then the
             model solutions may not be trustworthy.
         """
-
         # scan thru parameter range, for each parameter combo,
         # find scaling of x and y axes that is optimal
         assert ro > 2 - rd
@@ -2036,7 +2035,7 @@ class GridSearchFitter():
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
-        model2 = FlowMFT(G, ro, 1, rd, I, dt=.1, **model_kw)
+        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
         model2.solve_stationary()
         
         if primary=='flow':
@@ -2064,7 +2063,6 @@ class GridSearchFitter():
             b : float
                 Vertical length scale.
             """
-
             a, b = args
             if log:
                 if ignore_nan:
@@ -2120,7 +2118,6 @@ class GridSearchFitter():
         -------
         dict
         """
-
         from itertools import product
 
         def loop_wrapper(params):

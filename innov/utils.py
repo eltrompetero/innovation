@@ -91,12 +91,20 @@ def log_hist(y, nbins=20):
     
     return p, xmid, bins
 
-def del_poor_fits(fit_results):
-    # only keep the top 100 results
+def del_poor_fits(fit_results, n_keep=100):
+    """Only keep best fit results from grid scan fit to data. Deleted from passed
+    list in place.
+    
+    Parameters
+    ----------
+    fit_results : tuple
+        As returned by GridSearchFitter.fit_length_scales().
+    n_keep : int, 100
+    """
     counter = 0
     keys_to_del = []
     for k, v in sorted(fit_results.items(), key=lambda i: i[1][2]['fun']):
-        if counter > 99:
+        if counter > (n_keep-1):
             keys_to_del.append(k)
         counter += 1
 

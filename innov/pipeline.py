@@ -4,12 +4,12 @@
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import numpy as np
+from scipy.interpolate import interp1d
 
 from workspace.utils import save_pickle, increment_name
-from .simple_model import UnitSimulator, ODE2, FlowMFT
+from .simple_model import UnitSimulator, ODE2, FlowMFT, GridSearchFitter
 from .utils import *
 from .plot import phase_space_example_params
-
 
 
 # ============== #
@@ -136,7 +136,6 @@ def phase_space_ODE2(G_bar=None,
 
 def automaton_rescaling():
     """For comparison of automaton model with MFT under rescaling."""
-
     params = [{'G':15,
                'obs_rate':.55,
                'expand_rate':.4351,
@@ -187,7 +186,156 @@ def cooperativity_comparison():
     save_pickle(['alpha_range', 'dmftmodel', 'automaton'],
                 'plotting/cooperativity_ex.p', True)
 
+def fit_iwai():
+    data1958 = pd.read_csv('plotting/iwai1958.csv', header=None).values[:,:2]
+    data1963 = pd.read_csv('plotting/iwai1963.csv', header=None).values[:,:2]
 
+    x = data1958[:,0]
+    y = data1958[:,1]
+    ix = np.unique(x, return_index=True)[1]
+
+    yfun = interp1d(x[ix], y[ix], kind='cubic')
+
+    y = yfun(np.linspace(x.min(), x.max(), 30))
+    x = np.arange(30)
+
+    fitter = GridSearchFitter(y)
+
+    # pre-selected fitting range from previous manual fits
+    G_range = np.arange(50, 100, 2)
+    ro_range = np.linspace(1., 3., 40)
+    rd_range = np.linspace(.4, 1.2, 20)
+    I_range = np.logspace(-5, -1, 20)
+
+    fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                              L_scale=2)
+    del_poor_fits(fit_results)
+
+    save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                f'cache/iwai_0.p', True)
+
+def fit_jangili(fit_ix):
+    assert fit_ix==0 or fit_ix==1
+    
+    if fit_ix==0:
+        data2014 = pd.read_csv('plotting/jangili2014_small.csv', header=None).values
+    else:
+        data2014 = pd.read_csv('plotting/jangili2014_large.csv', header=None).values
+
+    x = data2014[:,0]
+    y = data2014[:,1]
+    ix = np.unique(x, return_index=True)[1]
+
+    yfun = interp1d(x[ix], y[ix], kind='cubic')
+
+    y = yfun(np.linspace(x.min(), x.max(), 30))
+    x = np.arange(30)
+
+    fitter = GridSearchFitter(y)
+
+    # pre-selected fitting range from previous manual fits
+    G_range = np.arange(40, 90, 2)
+    if fit_ix==0:
+        ro_range = np.linspace(1., 3., 40)
+    else:
+        ro_range = np.linspace(2.5, 4.5, 40)
+    rd_range = np.linspace(.2, 1., 20)
+    I_range = np.logspace(-3, 0, 20)
+
+    fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                              L_scale=2)
+    del_poor_fits(fit_results)
+
+    save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                 f'cache/jangili_{fit_ix}.p', True)
+
+def fit_covid(fit_ix):
+    from .genome import covid_clades
+
+    covx, covy, br = covid_clades()
+    x = covx[fit_ix]
+    y = covy[fit_ix]
+    x = x[y>0]
+    y = y[y>0]
+
+    fitter = GridSearchFitter(y, x)
+
+    # pre-selected fitting range from previous manual fits
+    G_range = np.arange(80, 130, 2)
+    ro_range = np.linspace(1., 3., 40)
+    rd_range = np.logspace(-2, -1, 20)
+    I_range = np.linspace(3, 5, 20)
+
+    fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                              L_scale=.5, log=True, ignore_nan=True, rev=True, Q=br[fit_ix]+1)
+    del_poor_fits(fit_results)
+
+    if fit_ix==0:
+        save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                    f'cache/covid_europe.p', True)
+    else:
+        save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                    f'cache/covid_northam.p', True)
+
+def fit_prb():
+    with open('cache/prb_citations_by_class.p', 'rb') as f:
+        corrected_citation_rate_prb = pickle.load(f)['corrected_citation_rate_prb']
+
+    for i in range(len(corrected_citation_rate_prb)):
+        # only fit to the first decade
+        y = corrected_citation_rate_prb[i][:11]
+        x = np.arange(y.size)
+        fitter = GridSearchFitter(y)
+
+        # pre-selected fitting range from previous manual fits
+        G_range = np.arange(100, 205, 5)
+        ro_range = np.linspace(1., 2., 20)
+        rd_range = np.linspace(.75, 1.5, 20)
+        I_range = np.logspace(0, 1, 30)
+
+        fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                                  rev=True, log=True, L_scale=.25, offset=1)
+        del_poor_fits(fit_results)
+        
+        save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                    f'cache/prb_citations_{i}.p', True)
+        print(f"Done with cache/prb_citations_{i}.p")
+
+def fit_patents():
+    factor = 2
+    fit_year_count = 6
+    start_year = 1990
+
+    for tech_class in [5]:
+        with open(f'cache/patent_cites_{tech_class}_{start_year}.p', 'rb') as f:
+            data = pickle.load(f)
+            cite_traj = data['cite_traj']
+            n = data['n']
+
+        # separate trajectories out by total number of citations in the first 20 years
+        sum_cites = np.array([i[:21].sum() for i in cite_traj])
+        y = []
+        for i in range(1, 8):
+            ix = (factor*i<=sum_cites) & (sum_cites<factor*(i+1))
+            y.append(cite_traj[ix].mean(0)[:fit_year_count] / n[:fit_year_count] * n[0])
+        
+        for j in range(len(y)):
+            # only fit the first five years after publication
+            fitter = GridSearchFitter(y[j])
+
+            # pre-selected fitting range from previous manual fits
+            G_range = np.arange(70, 110, 2)
+            ro_range = np.linspace(1.5, 3.5, 20)
+            rd_range = np.logspace(-3, -1.5, 20)
+            I_range = np.logspace(-1.5, 0, 20)
+
+            fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                                      rev=True, log=True, L_scale=6/51, offset=1)
+            del_poor_fits(fit_results)
+
+            save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                        f'cache/fit_patent_cites_{tech_class}_{start_year}_{j}.p', True)
+            print(f"Done with cache/fit_patent_cites_{tech_class}_{start_year}_{j}.p")
 
 # ================ #
 # Helper functions #
@@ -208,7 +356,6 @@ def _automaton_rescaling(params):
     list
         Occupancy list per sample.
     """
-    
     assert 'G' in params.keys()
     assert 'obs_rate' in params.keys()
     assert 'expand_rate' in params.keys()
