@@ -7,7 +7,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from workspace.utils import save_pickle, increment_name
-from .simple_model import UnitSimulator, ODE2, FlowMFT, GridSearchFitter
+from .simple_model import UnitSimulator, ODE2, FlowMFT, GridSearchFitter, L_1ode
 from .utils import *
 from .plot import phase_space_example_params
 
@@ -178,7 +178,8 @@ def cooperativity_comparison(iprint=True):
         dmftmodel.append(FlowMFT(G/re, ro/re, rd/re, I, dt, alpha=alpha))
         # try alternative L solution method if it is too short for computation
         if dmftmodel[-1].L<1:
-            dmftmodel[-1].L = ODE2(G/re, ro/re, rd/re, I, alpha=alpha).solve_L(method=2)
+            L0 = L_1ode(G/re, ro/re, rd/re, I, alpha=alpha)
+            dmftmodel[-1].L = ODE2(G/re, ro/re, rd/re, I, alpha=alpha).solve_L(L0=L0, method=2)
         flag, mxerr = dmftmodel[-1].solve_stationary()
     if iprint: print("Done.")
 
@@ -194,11 +195,11 @@ def cooperativity_comparison(iprint=True):
     if iprint: print("Done.")
         
     save_pickle(['alpha_range', 'dmftmodel', 'automaton'],
-                'plotting/cooperativity_ex.p', True)
+                'cache/cooperativity_ex.p', True)
 
 def fit_iwai():
-    data1958 = pd.read_csv('plotting/iwai1958.csv', header=None).values[:,:2]
-    data1963 = pd.read_csv('plotting/iwai1963.csv', header=None).values[:,:2]
+    data1958 = pd.read_csv('cache/iwai1958.csv', header=None).values[:,:2]
+    data1963 = pd.read_csv('cache/iwai1963.csv', header=None).values[:,:2]
 
     x = data1958[:,0]
     y = data1958[:,1]
@@ -215,7 +216,7 @@ def fit_iwai():
     G_range = np.arange(50, 100, 2)
     ro_range = np.linspace(1., 3., 40)
     rd_range = np.linspace(.4, 1.2, 20)
-    I_range = np.logspace(-5, -1, 20)
+    I_range = np.logspace(-2, -.5, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                               L_scale=2)
@@ -228,9 +229,9 @@ def fit_jangili(fit_ix):
     assert fit_ix==0 or fit_ix==1
     
     if fit_ix==0:
-        data2014 = pd.read_csv('plotting/jangili2014_small.csv', header=None).values
+        data2014 = pd.read_csv('cache/jangili2014_small.csv', header=None).values
     else:
-        data2014 = pd.read_csv('plotting/jangili2014_large.csv', header=None).values
+        data2014 = pd.read_csv('cache/jangili2014_large.csv', header=None).values
 
     x = data2014[:,0]
     y = data2014[:,1]
@@ -250,7 +251,10 @@ def fit_jangili(fit_ix):
     else:
         ro_range = np.linspace(2.5, 4.5, 40)
     rd_range = np.linspace(.2, 1., 20)
-    I_range = np.logspace(-3, 0, 20)
+    if fit_ix==1:
+        I_range = np.logspace(-1, .5, 20)
+    else:
+        I_range = np.logspace(-3, 0, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                               L_scale=2)
@@ -375,3 +379,13 @@ def _automaton_rescaling(params):
     simulator = UnitSimulator(*params.values(), dt=1e-3/2)
     c, occupancy = simulator.rescale_factor(2_000)
     return c, occupancy
+
+
+if __name__=='__main__':
+    #fit_iwai()
+    fit_jangili(0)
+    fit_jangili(1)
+    fit_covid(0)
+    fit_covid(1)
+    fit_patents()
+    fit_prb()
