@@ -959,6 +959,7 @@ class FlowMFT():
         tol : float, 1e-5
             Max absolute change permitted per lattice site per unit time.
         T : float, 5e4
+            Total simulation time to run.
         L : int, None
         n0 : ndarray, None
         iprint : bool, False
@@ -970,8 +971,10 @@ class FlowMFT():
                 (0) to stationary solution with correct innov. density
                 (1) to stationary soln with wrong innov. density
                 (2) or did not converge
+                (3) NaN seen during iteration
         float
-            Maximum absolute difference between last two steps of simulation.
+            Maximum relative absolute difference between last two steps of
+            simulation.
         """
         L = L or self.L
         # simply impose a large upper limit for infinite L
@@ -1001,7 +1004,8 @@ class FlowMFT():
                 else:
                     flag = 1
                 
-                mx_err = np.abs(dn).max()
+                mx_ix = np.abs(dn).argmax()
+                mx_err = abs(dn[mx_ix])/self.n_[mx_ix]
                 self.n_ = np.append(self.n_, 0)
                 # interpolate discrete lattice solution
                 self.n = interp1d(np.arange(self.n_.size), self.n_,
@@ -1011,7 +1015,7 @@ class FlowMFT():
             except RuntimeWarning:
                 self.n_[:] = np.nan
                 self.n = lambda x: np.zeros(x.size) + np.nan if hasattr(x, '__len__') else np.nan
-                flag = 2
+                flag = 3
                 mx_err = np.nan
 
         return flag, mx_err
@@ -1096,15 +1100,14 @@ def jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt):
     L : float, None
     dt : float
     """
-    
-    # entrance
+    # startup rate
     dn = np.zeros(n.size) + G/L
 
     # innovation shift
     dn -= re * I * n[0]**alpha * n
     dn[1:] += re * I * n[0]**alpha * n[:-1]
 
-    # expansion
+    # mimetic replication
     dn[:-1] += re / (Q-1) * n[1:]
 
     # death
@@ -1115,10 +1118,15 @@ def jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt):
 
 @njit
 def jit_while_loop(n, G, ro, rd, re, I, alpha, Q, dt, tol, T, L):
+    """Iterate linear rule until max runtime is exceeded or relative error is below
+    tolerance.
+    """
     counter = 0
     dn = np.zeros(n.size) + dt*tol*1.1
-    while (dt*counter) < T and np.abs(dn).max() > (dt*tol):
+    mxix = 0
+    while (dt*counter) < T and abs(dn[mxix])/n[mxix] > (dt*tol):
         dn = jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt)
+        mxix = np.abs(dn).argmax()
         counter += 1
     return dn, counter
 #end FlowMFT
