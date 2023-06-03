@@ -291,11 +291,12 @@ def fit_covid(fit_ix):
         save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
                     f'cache/covid_northam.p', True)
 
-def fit_prb():
+def fit_prb(fit_range=None):
+    if fit_range is None: fit_range = range(len(corrected_citation_rate_prb))
     with open('cache/prb_citations_by_class.p', 'rb') as f:
         corrected_citation_rate_prb = pickle.load(f)['corrected_citation_rate_prb']
-
-    for i in range(len(corrected_citation_rate_prb)):
+    
+    for i in fit_range:
         # only fit to the first decade
         y = corrected_citation_rate_prb[i][:11]
         x = np.arange(y.size)
@@ -305,7 +306,10 @@ def fit_prb():
         G_range = np.arange(100, 205, 5)
         ro_range = np.linspace(1., 2., 20)
         rd_range = np.linspace(.75, 1.5, 20)
-        I_range = np.logspace(0, 1, 30)
+        if i==0:  # allow for larger range for minimally cited papers
+            I_range = np.logspace(.5, 1.5, 30)
+        else:
+            I_range = np.logspace(0, 1, 30)
 
         fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                                   rev=True, log=True, L_scale=.25, offset=1)
@@ -350,6 +354,48 @@ def fit_patents():
             save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
                         f'cache/fit_patent_cites_{tech_class}_{start_year}_{j}.p', True)
             print(f"Done with cache/fit_patent_cites_{tech_class}_{start_year}_{j}.p")
+
+def distance_to_divergence():
+    from .plot import iwai_params, jangili_params, covid_params, patent_params, prb_params
+    dist_to_div = []
+
+    dist_to_div.append(['iwai', []])
+    for sol_ix in range(5):
+        G, ro, rd, I, dt, a, b = iwai_params(sol_ix=sol_ix).values()
+        sol = solve_dist_to_div(ro, rd)
+        dist_to_div[-1][1].append(sol['fun'][0])
+
+    for i in range(2):
+        dist_to_div.append(['jangili', []])
+        for sol_ix in range(5):
+            G, ro, rd, I, dt, a, b = jangili_params(i, sol_ix=sol_ix).values()
+            sol = solve_dist_to_div(ro, rd)
+            dist_to_div[-1][1].append(sol['fun'][0])
+
+    for i in range(2):
+        dist_to_div.append(['covid', []])
+        for sol_ix in range(5):
+            G, ro, rd, I, dt, a, b, Q = covid_params(i, sol_ix=sol_ix).values()
+            sol = solve_dist_to_div(ro, rd, Q)
+            dist_to_div[-1][1].append(sol['fun'][0])
+
+    for i in [1,3,5]:
+        dist_to_div.append(['patent', []])
+        for sol_ix in range(5):
+            G, ro, rd, I, dt, a, b = patent_params(i, sol_ix=sol_ix, tech_class=4).values()
+            sol = solve_dist_to_div(ro, rd)
+            dist_to_div[-1][1].append(sol['fun'][0])
+
+    for i in [0,2,4]:
+        dist_to_div.append(['prb', []])
+        for sol_ix in range(5):
+            G, ro, rd, I, dt, a, b = prb_params(i, sol_ix=sol_ix).values()
+            sol = solve_dist_to_div(ro, rd)
+            dist_to_div[-1][1].append(sol['fun'][0])
+
+    save_pickle(['dist_to_div'], 'cache/dist_to_div.p', True)
+
+
 
 # ================ #
 # Helper functions #

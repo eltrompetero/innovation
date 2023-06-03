@@ -1,11 +1,9 @@
 # ====================================================================================== #
-# Useful functions for analyzing corp data.
-# Author: Eddie Lee, edlee@santafe.edu
+# Useful functions for innovation model.
+# Author: Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 import numpy as np
 import pandas as pd
-from fastparquet import ParquetFile
-import snappy
 import os
 import datetime as dt
 from warnings import warn
@@ -14,15 +12,13 @@ from threadpoolctl import threadpool_limits
 import dill as pickle
 import duckdb as db
 from itertools import combinations
+from scipy.optimize import minimize
 
 DATADR = os.path.expanduser('~')+'/Dropbox/Research/corporations/starter_packet' 
 
 
 def db_conn():
     return db.connect(database=':memory:', read_only=False)
-
-def snappy_decompress(data, uncompressed_size):
-        return snappy.decompress(data)
 
 def topic_added_dates():
     """Dates on which new topics were added according to the "topic taxonomy.csv".
@@ -31,7 +27,6 @@ def topic_added_dates():
     -------
     ndarray
     """
-
     df = pd.read_csv('%s/topic taxonomy.csv'%DATADR)
     udates, count = np.unique(df['Active Date'], return_counts=True)
     udates = np.array([dt.datetime.strptime(d,'%m/%d/%Y').date() for d in udates])
@@ -55,7 +50,6 @@ def bin_laplace(y, nbins, center=1):
     ndarray
         Bin centers.
     """
-     
     logy = np.log(y)
 
     bins = np.linspace(0, np.abs(logy).max()+1e-6, nbins//2)
@@ -110,3 +104,29 @@ def del_poor_fits(fit_results, n_keep=100):
 
     for k in keys_to_del:
         del fit_results[k]
+
+def solve_dist_to_div(ro_data, rd_data, Q=2, mx_ro=4):
+    """Distance to divergence boundary in phase space with x-axis ro/r and y-axis
+    rd/r.
+    
+    Parameters
+    ----------
+    ro_data : ndarray
+    rd_data : ndarray
+    Q : float, 2
+    mx_ro : float, 4
+        Upper boundary for numerical solution.
+    
+    Returns
+    -------
+    dict
+        Output from scipy.optimize.minimize.
+    """
+    def growth_fit_cost(ro):
+        return (ro - ro_data)**2 + (rd_data - 2/(Q-1) + ro)**2
+    growth_ro_soln = minimize(growth_fit_cost, 1.5, bounds=[(0, mx_ro)])
+
+    assert growth_ro_soln['x']!=mx_ro and growth_ro_soln['x']!=1 and growth_ro_soln['x']!=0
+    assert growth_ro_soln['success']
+    return growth_ro_soln
+
