@@ -263,7 +263,7 @@ def fit_jangili(fit_ix):
     save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
                  f'cache/jangili_{fit_ix}.p', True)
 
-def fit_covid(fit_ix):
+def fit_covid(fit_ix, save=True):
     from .genome import covid_clades
 
     covx, covy, br = covid_clades()
@@ -275,26 +275,27 @@ def fit_covid(fit_ix):
     fitter = GridSearchFitter(y, x)
 
     # pre-selected fitting range from previous manual fits
-    G_range = np.arange(80, 130, 2)
+    G_range = np.arange(70, 130, 2)
     ro_range = np.linspace(1., 3., 40)
     rd_range = np.logspace(-2, -1, 20)
-    I_range = np.linspace(3, 5, 20)
+    I_range = np.linspace(2, 4, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                               L_scale=.5, log=True, ignore_nan=True, rev=True, Q=br[fit_ix]+1)
     del_poor_fits(fit_results)
-
+    
     if fit_ix==0:
-        save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
-                    f'cache/covid_europe.p', True)
+        region = 'europe'
     else:
+        region = 'northam'
+    if save:
         save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
-                    f'cache/covid_northam.p', True)
+                    f'cache/covid_{region}.p', True)
 
 def fit_prb(fit_range=None):
-    if fit_range is None: fit_range = range(len(corrected_citation_rate_prb))
     with open('cache/prb_citations_by_class.p', 'rb') as f:
         corrected_citation_rate_prb = pickle.load(f)['corrected_citation_rate_prb']
+    if fit_range is None: fit_range = range(len(corrected_citation_rate_prb))
     
     for i in fit_range:
         # only fit to the first decade

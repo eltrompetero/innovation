@@ -949,7 +949,6 @@ class FlowMFT():
     def solve_stationary(self,
                          tol=1e-5,
                          T=5e4,
-                         L=None,
                          n0=None,
                          iprint=False):
         """Run til stationary state is met using convergence criterion.
@@ -960,7 +959,6 @@ class FlowMFT():
             Max absolute change permitted per lattice site per unit time.
         T : float, 5e4
             Total simulation time to run.
-        L : int, None
         n0 : ndarray, None
         iprint : bool, False
 
@@ -976,7 +974,7 @@ class FlowMFT():
             Maximum relative absolute difference between last two steps of
             simulation.
         """
-        L = L or self.L
+        L = self.L
         # simply impose a large upper limit for infinite L
         if not np.isfinite(L):
             warnings.warn("Imposing upper limit on L to be 1e4.")
@@ -994,8 +992,8 @@ class FlowMFT():
             warnings.simplefilter('error')
             try:
                 # fast version of loop til stationarity, uses both jit_update_n and jit_while_loop
-                dn, counter = jit_while_loop(self.n_, self.G, self.ro, self.rd, 1,
-                                             self.I, self.alpha, self.Q, self.dt, tol, T, L)
+                dn, counter = jit_while_loop(self.n_, self.G, self.ro, self.rd,
+                                             self.I, self.alpha, self.Q, self.dt, tol, T)
                 
                 if (self.dt*counter) >= T:
                     flag = 2
@@ -1004,8 +1002,6 @@ class FlowMFT():
                 else:
                     flag = 1
                 
-                mx_ix = np.abs(dn).argmax()
-                mx_err = abs(dn[mx_ix])/self.n_[mx_ix]
                 self.n_ = np.append(self.n_, 0)
                 # interpolate discrete lattice solution
                 self.n = interp1d(np.arange(self.n_.size), self.n_,
@@ -1016,9 +1012,9 @@ class FlowMFT():
                 self.n_[:] = np.nan
                 self.n = lambda x: np.zeros(x.size) + np.nan if hasattr(x, '__len__') else np.nan
                 flag = 3
-                mx_err = np.nan
+                dn = np.nan
 
-        return flag, mx_err
+        return flag, dn
 
     def run(self, T, save_every, L=None, iprint=False):
         """
@@ -1084,7 +1080,7 @@ class FlowMFT():
         return n0 + (n02 * z**-2. * (-1 + z + np.exp(-z)) if z!=0 else 0.)
 
 @njit
-def jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt):
+def jit_update_n(n, G, ro, rd, I, alpha, Q, dt):
     """Update occupancy number for a small time step self.dt.
 
     Parameters
@@ -1093,13 +1089,14 @@ def jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt):
     G : float
     ro : float
     rd : float
-    re : float
     I : float
     alpha : float
     Q : float
-    L : float, None
     dt : float
     """
+    re = 1
+    L = n.size
+
     # startup rate
     dn = np.zeros(n.size) + G/L
 
@@ -1114,21 +1111,24 @@ def jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt):
     dn -= rd * n
 
     n += dn * dt
-    return dn
 
 @njit
-def jit_while_loop(n, G, ro, rd, re, I, alpha, Q, dt, tol, T, L):
+def jit_while_loop(n, G, ro, rd, I, alpha, Q, dt, tol, T):
     """Iterate linear rule until max runtime is exceeded or relative error is below
     tolerance.
     """
-    counter = 0
-    dn = np.zeros(n.size) + dt*tol*1.1
+    L = n.size
+    n_old = np.zeros(L)
+    dn = np.zeros(L) + np.inf
     mxix = 0
-    while (dt*counter) < T and abs(dn[mxix])/n[mxix] > (dt*tol):
-        dn = jit_update_n(n, G, ro, rd, re, I, alpha, Q, L, dt)
+    counter = 0
+    while (dt*counter) < T and np.abs(dn[mxix]/n[mxix]) > (dt*tol):
+        n_old[:] = n[:]
+        jit_update_n(n, G, ro, rd, I, alpha, Q, dt)
+        dn = n - n_old
         mxix = np.abs(dn).argmax()
         counter += 1
-    return dn, counter
+    return dn[mxix]/n[mxix], counter
 #end FlowMFT
 
 
@@ -1964,7 +1964,7 @@ class GridSearchFitter():
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
         # flow model
-        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+        model2 = FlowMFT(G, ro, rd, I, dt=.01, **model_kw)
         model2.solve_stationary(T=T)
         if primary=='flow':
             temp = model1
@@ -2061,7 +2061,7 @@ class GridSearchFitter():
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
-        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+        model2 = FlowMFT(G, ro, rd, I, dt=.01, **model_kw)
         model2.solve_stationary()
         
         if primary=='flow':
