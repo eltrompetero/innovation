@@ -12,22 +12,23 @@ import warnings
 import math
 import jax.numpy as jnp
 from jax import jit as jaxjit
-from scipy.special import factorial, gammaln, logsumexp
-
+from scipy.special import factorial
+from jax.scipy.special import gammaln, logsumexp
+import jax.lax as lax
+from functools import partial
 
 from workspace.utils import save_pickle
 from .utils import *
 
 # Suggestions:
 
-@jaxjit
-def compute_logP_O_1(P_O, τo, t, init):
-        """ Read parameters, variavles and vectors
-        """
-        logP_O = P_O
-        for i in range(logP_O.size):
+@partial(jaxjit, static_argnums=(0,1,2,3))
+def compute_P_O_1(N, τo, t, init):
+        logP_O = jnp.zeros(N)
+        for i in range(N):
             logP_O = logP_O.at[i].set(jnp.log(τo)*i - τo*t + jnp.log(t)*i - gammaln(i+1))
-        return logP_O
+
+        return jnp.exp(logP_O - logsumexp(logP_O))
 
 # 1. object-oriented code
 class RKPropagator1D():
@@ -118,16 +119,12 @@ class RKPropagator1D():
         self.Fix_O = τo*(self.Ady-jnp.eye(self.N))
     
     def propagate(self):
-        """Propagate density function by fixed amount of time.
-        """
+        """Propagate density function by some amount of time."""
         self.n, self.P_I = jax_propagate(self.n, self.Fix_R, self.Fix_P, self.G_in,
                                          self.Δt, self.r, self.τo, self.rd, self.I,
                                          self.N, self.init, self.P_I, self.P_O)
-        if self.t > 0:
-            logP_O = compute_logP_O_1(self.P_O, self.τo, self.t, self.init)
-            self.P_O = jnp.exp(logP_O - logsumexp(logP_O))
-
         self.t += self.Δt
+        self.P_O = compute_P_O_1(self.N, self.τo, self.t, self.init)
 
     def propagate_P_O(self, *args, **kwargs):          # propagate density function by some amount of time
         
@@ -201,15 +198,14 @@ class RKPropagator1D():
         self.P_I = P_I + q
         self.P_O = P_O + w
         
-    def run_and_save(self, *args, **kwargs):
+    def run_and_save(self, save_dt=1., tmax=None, **kwargs):
         """Propagate over multiple time steps and save simulation steps.
         
         Parameters
         ----------
+        save_dt : float, 1.
         tmax : float
             End simulation time.
-        *args
-            To pass into self.propagate.
         **kwargs
             To pass into self.propagate.
             
@@ -225,25 +221,27 @@ class RKPropagator1D():
         n = [self.n[:]]
         time = [0]
         P_I = [self.P_I]
-
-        while self.t < self.tmax:
+        tmax = tmax if not tmax is None else self.tmax
+        
+        import time
+        start = time.time()
+        while self.t < tmax:
             if self.method == "frequency":
-                self.propagate(*args, **kwargs)
+                self.propagate(**kwargs)
             else:
-                self.propagate_P_O(*args, **kwargs)
+                self.propagate_P_O(**kwargs)
 
             #H_sub_in_time.append(self.In_H_sub[:])
             #Obs_in_time.append(self.In_Obs_Front[:])
             #Inn_in_time.append(self.In_Inn[:])
             
-            if jnp.isnan(self.P_I[-1]).any():
-                print("nan values")
-                break
-
-            n.append(self.n[:])
-            P_I.append(self.P_I[:])
-            time.append(self.t)
-            
+            if np.isclose(self.t%save_dt, 0):
+                n.append(self.n[:])
+                P_I.append(self.P_I[:])
+                time.append(self.t)
+            print(time.time()-start)
+            start = time.time()
+        
         return n, P_I, time
 
 @jaxjit
