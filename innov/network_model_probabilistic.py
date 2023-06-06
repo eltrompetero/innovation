@@ -9,36 +9,25 @@ from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from cmath import sqrt
 import warnings
-import networkx as nx
 import math
+import jax.numpy as jnp
+from jax import jit as jaxjit
+from scipy.special import factorial, gammaln, logsumexp
+
 
 from workspace.utils import save_pickle
 from .utils import *
 
 # Suggestions:
 
-def compute_P_O_1(n, τo, t, init,  *args, **kwargs):
-        
+@jaxjit
+def compute_logP_O_1(P_O, τo, t, init):
         """ Read parameters, variavles and vectors
         """
-        
-        N = len(n)
-        P_O = np.zeros(N)
-        cum_P_O = np.zeros(N)
-        Z = 0
-        for i in range(N-1, -1, -1):
-            #print(N, i)
-            P_O[i] = τo**(i)*math.exp(-τo*(t))*t**(i)/math.factorial(i)
-            cum_P_O[i: N] += P_O[i]
-            Z+= P_O[i] 
-        if t==0:
-            P_O[0] = 1
-            cum_P_O=np.ones(N)
-            Z = 1
-        return P_O/Z
-    
-def compute_P_L(P_I, P_O, *args, **kwargs):
-        return (np.cumsum(P_O)/sum(P_O)) * (np.cumsum(P_I[::-1])[::-1]/sum(P_I))
+        logP_O = P_O
+        for i in range(logP_O.size):
+            logP_O = logP_O.at[i].set(jnp.log(τo)*i - τo*t + jnp.log(t)*i - gammaln(i+1))
+        return logP_O
 
 # 1. object-oriented code
 class RKPropagator1D():
@@ -75,16 +64,9 @@ class RKPropagator1D():
                 2- 'frequency'
         """
         
-        """ Graph generator
-        """
-        G = nx.circulant_graph(N, [1])
-        G.remove_edge(0, N-1)      
-        self.H = nx.DiGraph()
-        self.H.add_edges_from(G.edges())
-        
         """ Initializing parametrers 
         """
-        self.N = len(self.H)  # Total size of the system    
+        self.N = N
         self.τo = τo          
         self.rd = rd
         self.r = r
@@ -100,125 +82,53 @@ class RKPropagator1D():
         self.method = method
         """ Creating sites and densities
         """
-        self.sites = np.arange(N)
-        self.n = np.zeros(N)
-        #self.P_L = np.zeros(N)
-        self.P_I = np.zeros(N)
-        self.Fix_V = np.zeros(N)
-        self.P_L = np.zeros(N)
-        self.P_O = np.zeros(N)
-        self.cum_P_O = np.ones(N)
+        self.sites = jnp.arange(N)
+        self.n = jnp.zeros(N)
+        self.Fix_V = jnp.zeros(N)
+        self.P_L = jnp.zeros(N)
+
         """ Initializing densities
         """
-        
-        if isinstance(sub_ix, list):
-            pass
-        elif isinstance(sub_ix, tuple):
-            sub_ix = list(range(*sub_ix))
-        #else:
-        #    raise NotImplementedError
-        self.n[sub_ix] = n0
+        self.n = self.n.at[sub_ix[0]:sub_ix[1]].set(n0)
         
         self.init = sub_ix[-1]
         
         """Init obsolescence and Innovation fronts
         """
-        
-        self.P_I[sub_ix[-1]] = 1
-        self.P_O[sub_ix[0]] = 1
+        self.P_I = jnp.asarray([0. if i!=sub_ix[-1] else 1. for i in range(self.N)])
+        self.P_O = jnp.asarray([0. if i!=sub_ix[0] else 1. for i in range(self.N)])       
         #self.cum_P_O[sub_ix[0]] = 1
         #self.P_O, self.cum_P_O = compute_P_O(self, sub_ix[0],  *args, **kwargs)
-        """ Getting adyacency matrix
+        """ Getting adjacency matrix
         """
         
-        A = nx.adjacency_matrix(self.H, weight=None)
-        A = A.toarray()
-        nodes_sub = np.array(list(self.H.nodes()))
-        perm = nodes_sub.argsort()
-        self.Ady =np.transpose(np.transpose(A[:, perm])[:, perm])
+        self.Ady = jnp.eye(self.N, k=1)
         
         """ Computing inverse of offspring vector
         """
-        inverse_sons = np.sum(self.Ady, axis=1)
-        inverse_sons[inverse_sons==0]=1
-        self.inverse_sons = 1./inverse_sons
+        self.inverse_sons = jnp.sum(self.Ady, axis=1)
+        self.inverse_sons = self.inverse_sons.at[self.inverse_sons==0].set(1)
+        self.inverse_sons = 1./self.inverse_sons
         
         """ Initialize Fix Matrix
         """
-        self.Fix_M = (-rd)*np.eye(self.N, self.N)            # Set death    
-        self.Fix_R = r*self.Ady
-        self.Fix_P = r*I*(self.Ady-np.eye(self.N, self.N))
-        self.Fix_O = τo*(self.Ady-np.eye(self.N, self.N))
-        
+        self.Fix_M = (-rd) * jnp.eye(self.N)            # Set death    
+        self.Fix_R = r * self.Ady
+        self.Fix_P = r*I*(self.Ady-jnp.eye(self.N))
+        self.Fix_O = τo*(self.Ady-jnp.eye(self.N))
     
-    
-    def propagate(self, *args, **kwargs):          # propagate density function by some amount of time
-        
-        """ Read parameters, variavles and vectors
+    def propagate(self):
+        """Propagate density function by fixed amount of time.
         """
-        n = self.n
-        Fix_M = self.Fix_M
-        Fix_R = self.Fix_R
-        Fix_P = self.Fix_P
-        G_in =self.G_in
-        Δt=self.Δt
-        λ = self.λ
-        Ady = self.Ady
-        r = self.r
-        τo = self.τo
-        rd = self.rd
-        I = self.I
-        N= self.N
-        init = self.init
-        P_I = self.P_I
-        P_O = compute_P_O_1(n, τo, self.t, init,  *args, **kwargs)
-        self.P_O = P_O
-        #self.cum_P_O = cum_P_O
-        P_L = compute_P_L(P_I, P_O, *args, **kwargs)
-        self.P_L = P_L
-        
-        """ Creat vector of Growth
-        """
-        Fix_V = G_in * P_L/sum(P_L)
-        self.Fix_V = Fix_V 
-        """ Runge kutta order 4 update equations
-        """
-        
-        k1 = Δt*(-rd*n + (n*P_L) @ Fix_R + Fix_V)
-        q1 = Δt*(((n*P_I)) @ Fix_P)
-        #q1 = (P_I) @ Fix_P
-        
-        k2 = Δt*(-rd*(n+k1/2) +((n+k1/2)*P_L) @ Fix_R + Fix_V)
-        q2 = Δt*(((n+k1/2)*(P_I+q1/2)) @ Fix_P)
-        #q2 = ((P_I+q1/2)) @ Fix_P
-        
-        k3 = Δt*(-rd*(n+k2/2) +((n+k2/2)*P_L) @ Fix_R + Fix_V)
-        q3 = Δt*(((n+k2/2)*(P_I+q2/2)) @ Fix_P)
-        #q3 = ((P_I+q2/2)) @ Fix_P
-        
-        k4 = Δt*(-rd*(n+k3) +((n+k3)*P_L) @ Fix_R + Fix_V)
-        q4 = Δt*(((n+k2/2)*(P_I+q3)) @ Fix_P)
-        #q4 = ((P_I+q3)) @ Fix_P
-        
-        k = (k1 + 2*k2 + 2*k3 + k4)/6
-        q = (q1 + 2*q2 + 2*q3 + q4)/6
-        #print(q)
-        #print(q1)
-        #print(q2)
-        #print(q3)
-        #print(q4)
-        #print(k)
-        #print(k1)
-        #print(k2)
-        #print(k3)
-        #print(k4)
-        
-        """ Update densities and time
-        """
-        self.n = n + k
-        self.t += Δt
-        self.P_I = P_I + q
-        
+        self.n, self.P_I = jax_propagate(self.n, self.Fix_R, self.Fix_P, self.G_in,
+                                         self.Δt, self.r, self.τo, self.rd, self.I,
+                                         self.N, self.init, self.P_I, self.P_O)
+        if self.t > 0:
+            logP_O = compute_logP_O_1(self.P_O, self.τo, self.t, self.init)
+            self.P_O = jnp.exp(logP_O - logsumexp(logP_O))
+
+        self.t += self.Δt
+
     def propagate_P_O(self, *args, **kwargs):          # propagate density function by some amount of time
         
         """ Read parameters, variavles and vectors
@@ -239,9 +149,7 @@ class RKPropagator1D():
         N= self.N
         init = self.init
         P_I = self.P_I
-        #P_O, cum_P_O = compute_P_O_1(n, τo, self.t, init,  *args, **kwargs)
         P_O = self.P_O
-        #self.cum_P_O = cum_P_O
         P_L = compute_P_L(P_I, P_O, *args, **kwargs)
         self.P_L = P_L
         
@@ -315,28 +223,59 @@ class RKPropagator1D():
             Time.
         """
         n = [self.n[:]]
-        #L = [len(self.In_H_sub)]
         time = [0]
         P_I = [self.P_I]
-        dt = self.Δt
-        t = 0
-        #time_to_check_stability=int(100./dt)
-        #err =1./time_to_check_stability
-        while t < self.tmax:
-            #print(t)
+
+        while self.t < self.tmax:
             if self.method == "frequency":
                 self.propagate(*args, **kwargs)
             else:
                 self.propagate_P_O(*args, **kwargs)
-            n.append(self.n[:])
-            P_I.append(self.P_I[:])
-            t += dt
-            time.append(t)
+
             #H_sub_in_time.append(self.In_H_sub[:])
             #Obs_in_time.append(self.In_Obs_Front[:])
             #Inn_in_time.append(self.In_Inn[:])
             
+            if jnp.isnan(self.P_I[-1]).any():
+                print("nan values")
+                break
+
+            n.append(self.n[:])
+            P_I.append(self.P_I[:])
+            time.append(self.t)
+            
         return n, P_I, time
+
+@jaxjit
+def jax_propagate(n, Fix_R, Fix_P, G_in, Δt, r, τo, rd, I, N, init, P_I, P_O):
+    """Propagate density function by some amount of time.
+    """
+    P_L = jnp.cumsum(P_O) * jnp.cumsum(P_I[::-1])[::-1]
+    
+    # Create growth vector
+    Fix_V = G_in * P_L/(jnp.nextafter(0, 1) + jnp.sum(P_L))
+
+    # Runge kutta order 4 update equations
+    k1 = Δt*(-rd*n + (n*P_L) @ Fix_R + Fix_V)
+    q1 = Δt*(((n*P_I)) @ Fix_P)
+    #q1 = (P_I) @ Fix_P
+    
+    k2 = Δt*(-rd*(n+k1/2) +((n+k1/2)*P_L) @ Fix_R + Fix_V)
+    q2 = Δt*(((n+k1/2)*(P_I+q1/2)) @ Fix_P)
+    #q2 = ((P_I+q1/2)) @ Fix_P
+    
+    k3 = Δt*(-rd*(n+k2/2) +((n+k2/2)*P_L) @ Fix_R + Fix_V)
+    q3 = Δt*(((n+k2/2)*(P_I+q2/2)) @ Fix_P)
+    #q3 = ((P_I+q2/2)) @ Fix_P
+    
+    k4 = Δt*(-rd*(n+k3) +((n+k3)*P_L) @ Fix_R + Fix_V)
+    q4 = Δt*(((n+k2/2)*(P_I+q3)) @ Fix_P)
+    #q4 = ((P_I+q3)) @ Fix_P
+    
+    k = (k1 + 2*k2 + 2*k3 + k4)/6
+    q = (q1 + 2*q2 + 2*q3 + q4)/6
+  
+    return n + k, P_I + q
 
 def diffusion_simulation_deterministic(lattice_size, num_steps, num_particles, ro, r, rd, I , inn_pos, G):
     lattice = [0] * lattice_size
