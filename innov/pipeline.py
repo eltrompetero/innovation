@@ -263,7 +263,7 @@ def fit_jangili(fit_ix):
     save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
                  f'cache/jangili_{fit_ix}.p', True)
 
-def fit_covid(fit_ix, save=True):
+def fit_covid(fit_ix):
     from .genome import covid_clades
 
     covx, covy, br = covid_clades()
@@ -275,22 +275,21 @@ def fit_covid(fit_ix, save=True):
     fitter = GridSearchFitter(y, x)
 
     # pre-selected fitting range from previous manual fits
-    G_range = np.arange(70, 130, 2)
+    G_range = np.arange(80, 130, 2)
     ro_range = np.linspace(1., 3., 40)
     rd_range = np.logspace(-2, -1, 20)
-    I_range = np.linspace(2, 4, 20)
+    I_range = np.linspace(3, 5, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                               L_scale=.5, log=True, ignore_nan=True, rev=True, Q=br[fit_ix]+1)
     del_poor_fits(fit_results)
-    
+
     if fit_ix==0:
-        region = 'europe'
-    else:
-        region = 'northam'
-    if save:
         save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
-                    f'cache/covid_{region}.p', True)
+                    f'cache/covid_europe.p', True)
+    else:
+        save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
+                    f'cache/covid_northam.p', True)
 
 def fit_prb(fit_range=None):
     with open('cache/prb_citations_by_class.p', 'rb') as f:
@@ -304,13 +303,10 @@ def fit_prb(fit_range=None):
         fitter = GridSearchFitter(y)
 
         # pre-selected fitting range from previous manual fits
-        G_range = np.arange(100, 205, 5)
+        G_range = np.arange(60, 205, 5)
         ro_range = np.linspace(1., 2., 20)
         rd_range = np.linspace(.75, 1.5, 20)
-        if i==0:  # allow for larger range for minimally cited papers
-            I_range = np.logspace(.5, 1.5, 30)
-        else:
-            I_range = np.logspace(0, 1, 30)
+        I_range = np.logspace(.5, 1.5, 30)
 
         fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                                   rev=True, log=True, L_scale=.25, offset=1)
@@ -320,12 +316,13 @@ def fit_prb(fit_range=None):
                     f'cache/prb_citations_{i}.p', True)
         print(f"Done with cache/prb_citations_{i}.p")
 
-def fit_patents():
+def fit_patents(fit_range=None):
     factor = 2
     fit_year_count = 6
     start_year = 1990
+    fit_range = fit_range if not fit_range is None else range(7)
 
-    for tech_class in [5]:
+    for tech_class in [4]:
         with open(f'cache/patent_cites_{tech_class}_{start_year}.p', 'rb') as f:
             data = pickle.load(f)
             cite_traj = data['cite_traj']
@@ -338,15 +335,15 @@ def fit_patents():
             ix = (factor*i<=sum_cites) & (sum_cites<factor*(i+1))
             y.append(cite_traj[ix].mean(0)[:fit_year_count] / n[:fit_year_count] * n[0])
         
-        for j in range(len(y)):
+        for j in fit_range:
             # only fit the first five years after publication
             fitter = GridSearchFitter(y[j])
 
             # pre-selected fitting range from previous manual fits
-            G_range = np.arange(70, 110, 2)
-            ro_range = np.linspace(1.5, 3.5, 20)
-            rd_range = np.logspace(-3, -1.5, 20)
-            I_range = np.logspace(-1.5, 0, 20)
+            G_range = np.arange(50, 90, 2)
+            ro_range = np.linspace(1.5, 3, 25)
+            rd_range = np.logspace(-4, -1.5, 20)
+            I_range = np.logspace(-1.2, .3, 20)
 
             fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
                                       rev=True, log=True, L_scale=6/51, offset=1)

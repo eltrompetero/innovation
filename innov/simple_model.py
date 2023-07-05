@@ -250,7 +250,7 @@ def fit_flow(x, data, initial_params, full_output=False, reverse=False, **params
         A, B, G, ro, rd, I = params
         
         try:
-            model = FlowMFT(G, ro, rd, I, dt=.1, L_method=2, **params_kw)
+            model = FlowMFT(G, ro, rd, I, dt=.01, L_method=2, **params_kw)
             model.solve_stationary()
         except (AssertionError, ValueError):  # e.g. problem with stationarity and L
             return 1e30
@@ -1964,8 +1964,8 @@ class GridSearchFitter():
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
         # flow model
-        model2 = FlowMFT(G, ro, rd, I, dt=.01, **model_kw)
-        model2.solve_stationary(T=T)
+        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+        model2.solve_stationary(T=T, tol=1e-3)
         if primary=='flow':
             temp = model1
             model1 = model2
@@ -2013,6 +2013,7 @@ class GridSearchFitter():
                               log=False,
                               offset=0,
                               L_scale=.5,
+                              T=5e4,
                               ignore_nan=False,
                               **model_kw):
         """Find optimal length scales for one set of model parameter values but rescaling
@@ -2036,6 +2037,7 @@ class GridSearchFitter():
             Fraction of model width that corresponds to data width, i.e. when
             L_scale=1/2, it means that the model length will be twice as long as the
             data width as is counted by the discrete lattice.
+        T : float, 5e4
         ignore_nan : bool, False
         **model_kw
 
@@ -2061,8 +2063,8 @@ class GridSearchFitter():
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
-        model2 = FlowMFT(G, ro, rd, I, dt=.01, **model_kw)
-        model2.solve_stationary()
+        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+        model2.solve_stationary(T=T, tol=1e-3)
         
         if primary=='flow':
             temp = model1

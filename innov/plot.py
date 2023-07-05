@@ -22,7 +22,7 @@ def fit_sol(name, rev=False, offset=0, sol_ix=0, **model_kw):
     G, ro, rd, I = k
     a, b = fit_results[k][:2]
 
-    model = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+    model = FlowMFT(G, ro, rd, I, dt=.01, **model_kw)
     model.solve_stationary()
     if rev:
         return lambda x, a=a, b=b: model.n(model.L - x*a - offset) * b
@@ -110,7 +110,7 @@ def covid_params(ix=0, sol_ix=0):
             'b':b,
             'Q':br[ix]+1}
 
-def patent_params(ix=0, tech_class=5, sol_ix=0):
+def patent_params(ix=0, tech_class=4, sol_ix=0):
     """Model fit parameters.
 
     Parameters
