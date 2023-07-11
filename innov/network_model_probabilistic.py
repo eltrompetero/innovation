@@ -125,78 +125,13 @@ class RKPropagator1D():
                                          self.N, self.init, self.P_I, self.P_O)
         self.t += self.Δt
         self.P_O = compute_P_O_1(self.N, self.τo, self.t, self.init)
-
-    def propagate_P_O(self, *args, **kwargs):          # propagate density function by some amount of time
         
-        """ Read parameters, variavles and vectors
-        """
-        n = self.n
-        Fix_M = self.Fix_M
-        Fix_R = self.Fix_R
-        Fix_P = self.Fix_P
-        Fix_O = self.Fix_O
-        G_in =self.G_in
-        Δt=self.Δt
-        λ = self.λ
-        Ady = self.Ady
-        r = self.r
-        τo = self.τo
-        rd = self.rd
-        I = self.I
-        N= self.N
-        init = self.init
-        P_I = self.P_I
-        P_O = self.P_O
-        P_L = compute_P_L(P_I, P_O, *args, **kwargs)
-        self.P_L = P_L
-        
-        """ Creat vector of Growth
-        """
-        Fix_V = G_in * P_L/sum(P_L)
-        self.Fix_V = Fix_V 
-        """ Runge kutta order 4 update equations
-        """
-        
-        k1 = Δt*(-rd*n + (n*P_L) @ Fix_R + Fix_V)
-        q1 = Δt*(((n*P_I)) @ Fix_P)
-        w1 = Δt* P_O @ Fix_O
-        #q1 = (P_I) @ Fix_P
-        
-        k2 = Δt*(-rd*(n+k1/2) +((n+k1/2)*P_L) @ Fix_R + Fix_V)
-        q2 = Δt*(((n+k1/2)*(P_I+q1/2)) @ Fix_P)
-        w2 = Δt*((P_O+w1/2) @ Fix_O)
-        #q2 = ((P_I+q1/2)) @ Fix_P
-        
-        k3 = Δt*(-rd*(n+k2/2) +((n+k2/2)*P_L) @ Fix_R + Fix_V)
-        q3 = Δt*(((n+k2/2)*(P_I+q2/2)) @ Fix_P)
-        w3 = Δt*((P_O+w2/2) @ Fix_O)
-        #q3 = ((P_I+q2/2)) @ Fix_P
-        
-        k4 = Δt*(-rd*(n+k3) +((n+k3)*P_L) @ Fix_R + Fix_V)
-        q4 = Δt*(((n+k2/2)*(P_I+q3)) @ Fix_P)
-        w4 = Δt*((P_O+w3) @ Fix_O)
-        #q4 = ((P_I+q3)) @ Fix_P
-        
-        k = (k1 + 2*k2 + 2*k3 + k4)/6
-        q = (q1 + 2*q2 + 2*q3 + q4)/6
-        w = (w1 + 2*w2 + 2*w3 + w4)/6
-        #print(q)
-        #print(q1)
-        #print(q2)
-        #print(q3)
-        #print(q4)
-        #print(k)
-        #print(k1)
-        #print(k2)
-        #print(k3)
-        #print(k4)
-        
-        """ Update densities and time
-        """
-        self.n = n + k
-        self.t += Δt
-        self.P_I = P_I + q
-        self.P_O = P_O + w
+    def propagate_with_P_O(self):
+        """Propagate density function by some amount of time."""
+        self.n, self.P_I, self.P_O = jax_propagate(self.n, self.Fix_R, self.Fix_P, self.Fix_O, self.G_in,
+                                         self.Δt, self.r, self.τo, self.rd, self.I,
+                                         self.N, self.init, self.P_I, self.P_O)
+        self.t += self.Δt
         
     def run_and_save(self, save_dt=1., tmax=None, **kwargs):
         """Propagate over multiple time steps and save simulation steps.
@@ -219,8 +154,9 @@ class RKPropagator1D():
             Time.
         """
         n = [self.n[:]]
-        time = [0]
+        t = [0]
         P_I = [self.P_I]
+        P_O = [self.P_O]
         tmax = tmax if not tmax is None else self.tmax
         
         import time
@@ -229,7 +165,7 @@ class RKPropagator1D():
             if self.method == "frequency":
                 self.propagate(**kwargs)
             else:
-                self.propagate_P_O(**kwargs)
+                self.propagate_with_P_O(**kwargs)
 
             #H_sub_in_time.append(self.In_H_sub[:])
             #Obs_in_time.append(self.In_Obs_Front[:])
@@ -238,11 +174,12 @@ class RKPropagator1D():
             if np.isclose(self.t%save_dt, 0):
                 n.append(self.n[:])
                 P_I.append(self.P_I[:])
-                time.append(self.t)
-            print(time.time()-start)
+                P_O.append(self.P_O[:])
+                t.append(self.t)
+            print(self.t)
             start = time.time()
         
-        return n, P_I, time
+        return n, P_I, P_O, t
 
 @jaxjit
 def jax_propagate(n, Fix_R, Fix_P, G_in, Δt, r, τo, rd, I, N, init, P_I, P_O):
@@ -275,6 +212,39 @@ def jax_propagate(n, Fix_R, Fix_P, G_in, Δt, r, τo, rd, I, N, init, P_I, P_O):
   
     return n + k, P_I + q
 
+@jaxjit
+def jax_propagate_with_P_O(n, Fix_R, Fix_P, Fix_O, G_in, Δt, r, τo, rd, I, N, init, P_I, P_O):
+    """Propagate density function by some amount of time.
+    """
+    P_L = jnp.cumsum(P_O) * jnp.cumsum(P_I[::-1])[::-1]
+    
+    # Create growth vector
+    Fix_V = G_in * P_L/(jnp.nextafter(0, 1) + jnp.sum(P_L))
+
+    # Runge kutta order 4 update equations
+    k1 = Δt*(-rd*n + (n*P_L) @ Fix_R + Fix_V)
+    q1 = Δt*(((n*P_I)) @ Fix_P)
+    w1 = (P_O) @ Fix_O
+    
+    k2 = Δt*(-rd*(n+k1/2) +((n+k1/2)*P_L) @ Fix_R + Fix_V)
+    q2 = Δt*(((n+k1/2)*(P_I+q1/2)) @ Fix_P)
+    w2 = ((P_O+w1/2)) @ Fix_O
+    
+    k3 = Δt*(-rd*(n+k2/2) +((n+k2/2)*P_L) @ Fix_R + Fix_V)
+    q3 = Δt*(((n+k2/2)*(P_I+q2/2)) @ Fix_P)
+    w3 = ((P_O+w2/2)) @ Fix_O
+    
+    k4 = Δt*(-rd*(n+k3) +((n+k3)*P_L) @ Fix_R + Fix_V)
+    q4 = Δt*(((n+k2/2)*(P_I+q3)) @ Fix_P)
+    w4 = ((P_O+w3)) @ Fix_O
+    
+    k = (k1 + 2*k2 + 2*k3 + k4)/6
+    q = (q1 + 2*q2 + 2*q3 + q4)/6
+    w = (w1 + 2*w2 + 2*w3 + w4)/6
+  
+  
+    return n + k, P_I + q, P_O + w
+
 def diffusion_simulation_deterministic(lattice_size, num_steps, num_particles, ro, r, rd, I , inn_pos, G):
     lattice = [0] * lattice_size
     obs_front_position = 0
@@ -305,7 +275,7 @@ def diffusion_simulation_deterministic(lattice_size, num_steps, num_particles, r
             
                 # Move the front to the right with probability ro
         #print(t)
-        if random.random() < ro and obs_front_position < lattice_size - 1:
+        if random.random() < ro and obs_front_position < inn_front_position:
             obs_front_position += 1
         
     return lattice, obs_front_position, inn_front_position
@@ -339,7 +309,7 @@ def diffusion_simulation_stochastic(lattice_size, num_steps, num_particles, ro, 
                         lattice[q+1] += 1  # Increase the particle count at the new position
             
                 # Move the front to the right with probability ro
-        if random.random() < ro and obs_front_position < lattice_size - 1:
+        if random.random() < ro and obs_front_position < inn_front_position:
             obs_front_position += 1
         
     return lattice, obs_front_position, inn_front_position
