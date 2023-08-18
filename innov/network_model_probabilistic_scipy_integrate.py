@@ -12,6 +12,12 @@ import warnings
 import math
 import jax.numpy as jnp
 from jax import jit as jaxjit
+from jax import config
+from jax import random
+from jax.lax import fori_loop
+from jax import jit
+
+config.update('jax_enable_x64', True)
 from scipy.special import factorial
 from scipy.special import gammaln, logsumexp
 import jax.lax as lax
@@ -462,7 +468,212 @@ class UnitSimulatonNetworks():
         
         return n, P_I, P_O, t
     
-                                                                     
+class UnitSimulatonNetworksJax():
+    def __init__(self, N, Ady, sub_ix= [0, 1], obs_ix = [0], inn_ix = [1], n0 = 10, τo = 0.3, rd = 0.3, r = 0.4, I = 0.8, G_in= 4., tmax = 100, dt = 0.1, method='ant', seed = None):
+        """
+            Parameters
+            ----------
+            N : int
+                Size of whole graph.
+            sub_ix : list of indices or twople, None
+                If list of indices, then fill in those values with n0. If a twople,
+                fill entries between the two indices with n0.
+            obs_ix: list
+                list of sites in the obsolescence front
+            inn_ix: list
+                list of sites in the innovation front
+            Ady: np.array()
+                Adyacency Matrix
+            n0 : int or list
+                If int Initial value of density in each site in sub_ix.
+                If list, initial densities in the system
+            τo: float
+                obsolecence decay
+            rd: float
+                death rate
+            r: float
+                expansion rate
+            I: float
+                innovation rate
+            G_in: float
+                growth rate
+            tmax: float
+                max computing time
+            dt: float
+                time step for update
+            method: str
+                innovation method:
+                    1- 'ant'
+                    2- 'explorer'
+        """
+
+        """ Initializing parametrers 
+        """
+        if not seed:
+            seed = np.random.randint(100000)
+        #print(seed)
+        self.key = random.PRNGKey(seed)
+        self.N = N
+        self.τo = τo          
+        self.rd = rd
+        self.r = r
+        self.I= I
+        self.G_in= G_in
+        self.tmax = tmax
+        self.dt = dt
+        self.n0 = n0 
+        self.t = 0
+        self.count = 1
+        self.switch = 1
+        self.method = method
+        """ Creating sites and densities
+        """
+        self.sites = jnp.arange(N, dtype=jnp.int64)
+        self.n = jnp.zeros(N, dtype=jnp.int64)
+
+        """ Initializing densities
+        """
+        self.n = self.n.at[0].set(10)
+        self.n = self.n.at[1].set(10)
+        
+        """Init obsolescence and Innovation fronts
+        """
+        self.obs_front = jnp.zeros(1, dtype=jnp.int64)
+        self.inn_front = jnp.ones(1, dtype=jnp.int64)
+        self.in_sub_pop = jnp.array([0,1])
+        """Getting adjacency matrix
+        """
+
+        self.Ady = jnp.eye(N, k=1, dtype=jnp.bool_)
+
+        """ Computing inverse of offspring vector
+        """
+        inverse_sons = Ady.sum(1)
+        inverse_sons = inverse_sons.at[~inverse_sons].set(1)
+        self.inverse_sons = 1 / inverse_sons
+
+    def move_innovation_ant(self):
+        self.key, subkey = random.split(self.key)
+        #print(self.key)
+        inn_front = self.inn_front
+        to_innov = random.uniform(subkey, (inn_front.size,)) < self.r*self.I*self.dt*self.n[inn_front]
+        n_growing_sites = to_innov.sum()
+
+        if n_growing_sites:
+            new = jnp.zeros(n_growing_sites, dtype=jnp.int64)
+            self.key, *subkeys = random.split(self.key, n_growing_sites+1)
+            for i, ix in enumerate(inn_front[to_innov]):
+                new = new.at[i].set(random.choice(subkeys[i], self.sites[self.Ady[ix]]))
+
+            self.inn_front = jnp.concatenate((inn_front, new))
+            self.inn_front = jnp.unique(self.inn_front)
+            self.in_sub_pop = jnp.concatenate((self.in_sub_pop, new))
+            self.in_sub_pop = jnp.unique(self.in_sub_pop)
+            #print(self.inn_front, inn_front[to_innov], new, jnp.concatenate((inn_front, new)))
+        self.inn_front = jnp.setdiff1d(self.inn_front, inn_front[to_innov])  # is it unnecessary?
+
+    def move_innovation_explorer(self):
+
+            n = self.n
+            obs_front = self.obs_front
+            inn_front = self.inn_front
+
+            to_innov = np.random.random(len(inn_front)) < self.r*self.I*self.dt*n[inn_front]
+            for i in inn_front[to_innov]:
+                space_posible = self.sites[self.Ady[i]>0]
+                space_posible = np.setdiff1d(space_posible, self.in_sub_pop)
+                new = np.random.choice(space_posible)
+                #print(new)
+                self.inn_front = np.concatenate((self.inn_front, np.array([new])))
+                self.inn_front = np.unique(self.inn_front)
+                self.in_sub_pop = np.concatenate((self.in_sub_pop, np.array([new])))
+                self.in_sub_pop = np.unique(self.in_sub_pop)
+                if len(space_posible)==1:
+                    self.inn_front = np.setdiff1d(self.inn_front, i)
+            
+    def automaton_evolve(self, oq, initwqw):
+
+            n = self.n
+            obs_front = self.obs_front
+            inn_front = self.inn_front
+
+            """
+            Update the innovation front
+            """
+            self.move_innovation_ant()
+            
+            """
+            Replication 
+            """
+            self.key, subkey = random.split(self.key)
+            to_replicate = random.poisson(subkey, (self.r * self.inverse_sons * n * self.dt) @ self.Ady)
+            self.n = self.n.at[self.in_sub_pop].set(n[self.in_sub_pop] + to_replicate[self.in_sub_pop])
+
+            """
+            Death
+            """
+            self.key, subkey = random.split(self.key)
+            to_died = random.poisson(subkey, self.rd * n * self.dt)
+            self.n = self.n - to_died                            
+            self.n = self.n.at[self.n<0].set(0)
+
+            """
+            Growth
+            """
+            key, subkey = random.split(self.key)
+            G_dt = random.poisson(subkey, self.G_in*self.dt/self.in_sub_pop.size, (self.in_sub_pop.size,))
+            self.n = self.n.at[self.in_sub_pop].set(n[self.in_sub_pop] + G_dt)
+
+            """
+            Update obsolescence front 
+            """
+            obs_not_inn = jnp.setdiff1d(self.obs_front, self.inn_front)
+
+            self.key, subkey = random.split(self.key)
+            to_obsolete = random.uniform(subkey, (obs_not_inn.size,)) < self.τo*self.dt
+            to_obsolete = obs_not_inn[to_obsolete]
+            self.obs_front = jnp.setdiff1d(self.obs_front, to_obsolete)
+            self.in_sub_pop = jnp.setdiff1d(self.in_sub_pop, to_obsolete)
+
+            to_add_obs = self.sites[self.Ady[to_obsolete].sum(0)>0]
+            to_add_obs = jnp.intersect1d(to_add_obs, self.in_sub_pop)
+            self.obs_front = jnp.concatenate((self.obs_front, to_add_obs))                            
+            self.obs_front = jnp.unique(self.obs_front)
+     
+    def run_and_save(self, tmax= None):
+        """Propagate over multiple time steps and save simulation steps.
+                Returns
+        -------
+        list
+            Density at each time step.
+        list
+            System length at each time step.
+        list
+            Time.
+        """
+        
+        n = [np.copy(self.n)]
+        n1= np.copy(self.n)
+        t = [0]
+        P_I = list(self.inn_front[:])
+        P_O = list(self.obs_front[:])
+        tmax = tmax if not tmax is None else self.tmax
+        
+        import time
+        start = time.time()
+        #print(tmax)
+        while self.t < tmax:
+            self.automaton_evolve()
+            #print(self.t, self.n[0:10], n1[0:10])
+            n.append(np.copy(self.n))
+            P_I.append(self.inn_front[:])
+            P_O.append(self.obs_front[:])
+            t.append(self.t)
+            #print(self.t)
+            self.t+=self.dt
+            start = time.time()
+        
+        return n, P_I, P_O, t                                                                     
        
 @jaxjit
 def jax_propagate(n, Fix_R, Fix_P, G_in, Δt, r, τo, rd, I, N, init, P_I, P_O):
@@ -528,6 +739,4 @@ def jax_propagate_with_P_O(n, Fix_R, Fix_P, Fix_O, G_in, Δt, r, τo, rd, I, N, 
   
     return n + k, P_I + q, P_O + w
 
-
-import random
 
