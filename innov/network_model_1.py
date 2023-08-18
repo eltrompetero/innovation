@@ -3,8 +3,6 @@
 # 
 # Author : Ernesto Ortega, ortega@csh.ac.at
 # ====================================================================================== #
-from numba import njit, jit
-from numba.typed import List
 from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from cmath import sqrt
