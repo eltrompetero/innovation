@@ -15,7 +15,7 @@ from .utils import *
 # Suggestions:
 # 1. object-oriented code
 class RKPropagator1D():
-    def __init__(self, N, sub_ix=None, n0=0, τo = 0.3, rd = 0.3, r = 0.4, I = 0.8, G_in= 4., tmax = 100, Δt = 0.1, λ = 1., method='density'):
+    def __init__(self, N, sub_ix = [1], inn = [1], obs = [0], Ady = None, n0=0, τo = 0.3, rd = 0.3, r = 0.4, I = 0.8, G_in= 4., tmax = 100, Δt = 0.1, λ = 1., method='density'):
         """
         Parameters
         ----------
@@ -24,6 +24,12 @@ class RKPropagator1D():
         sub_ix : list of indices or twople, None
             If list of indices, then fill in those values with n0. If a twople,
             fill entries between the two indices with n0.
+        inn: list
+            list of nodes in the innovation front
+        obs: list
+            list of nodes in the obsolescence front
+        Ady: np.array
+            adjacency matrix
         n0 : float, 0.
             Initial value of density.
         τo: float
@@ -50,11 +56,11 @@ class RKPropagator1D():
         
         """ Graph generator
         """
-        self.Ady = np.eye(N, k=1)
+        self.Ady = Ady
         
         """ Initializing parametrers 
         """
-        self.N = N  # Total size of the system    
+        self.N = len(Ady)  # Total size of the system    
         self.τo = τo          
         self.rd = rd
         self.r = r
@@ -76,13 +82,13 @@ class RKPropagator1D():
         """ Initializing densities
         """
         
-        if isinstance(sub_ix, list):
-            pass
-        elif isinstance(sub_ix, tuple):
-            sub_ix = list(range(*sub_ix))
+        #if isinstance(sub_ix, list):
+        #    pass
+        #elif isinstance(sub_ix, tuple):
+        #sub_ix = list(range(*sub_ix))
         #else:
         #    raise NotImplementedError
-        self.n[sub_ix[0]] = n0
+        self.n[[sub_ix]] = n0
         
         
         """Init obsolescence method
@@ -95,8 +101,8 @@ class RKPropagator1D():
         
         """Init obsolescence and Innovation fronts
         """
-        self.In_Obs_Front = [sub_ix[0]]
-        self.In_Inn = [sub_ix[1]]
+        self.In_Obs_Front = obs
+        self.In_Inn = inn
                 
         """ Init distance to space of posible
         """
@@ -151,28 +157,28 @@ class RKPropagator1D():
         #print(In_H_sp, space_possible, In_H_sub)
         n_in = np.zeros(self.N)
         n_in[In_H_sub] = self.n[In_H_sub] 
-        self.Fix_V = (n_in>0) * self.G_in/(len(In_H_sub)-1)
+        self.Fix_V = (n_in>0) * self.G_in/(len(In_H_sub))
         
         """ Runge kutta order 4 update equations
         """
         
-        k1 = self.Δt*(-self.rd*self.n + n_in @ self.Fix_R + self.Fix_V)
+        k1 = self.Δt*(-self.rd*n + (n_in*self.inverse_sons) @ self.Fix_R + self.Fix_V)
         
         k11 = np.zeros(self.N)
-        k11[In_H_sp] = k1[In_H_sp] 
+        k11[In_H_sub] = k1[In_H_sub] 
         
-        k2 = self.Δt*(-self.rd*(self.n+k1/2) + (n_in +k11/2)@ self.Fix_R + self.Fix_V)
+        k2 = self.Δt*(-self.rd*(n+k1/2) + ((n_in +k11/2)*self.inverse_sons)@ self.Fix_R + self.Fix_V)
         
         
         k22 = np.zeros(self.N)
-        k22[In_H_sp] = k1[In_H_sp]
+        k22[In_H_sub] = k1[In_H_sub]
         
-        k3 = self.Δt*(-self.rd*(self.n+k2/2) + (n_in +k22/2)@ self.Fix_R + self.Fix_V)
+        k3 = self.Δt*(-self.rd*(n+k2/2) + ((n_in +k22/2)*self.inverse_sons)@ self.Fix_R + self.Fix_V)
         
         k33 = np.zeros(self.N)
-        k33[In_H_sp] = k1[In_H_sp] 
+        k33[In_H_sub] = k1[In_H_sub] 
         
-        k4 = self.Δt*(-self.rd*(self.n+k3) + (n_in +k33)@ self.Fix_R + self.Fix_V)
+        k4 = self.Δt*(-self.rd*(n+k3) + ((n_in +k33)*self.inverse_sons)@ self.Fix_R + self.Fix_V)
         
         k = (k1 + 2*k2 + 2*k3 + k4)/6
         
@@ -259,14 +265,15 @@ class RKPropagator1D():
         x = self.x
         x_obs = self.x_obs
         t = self.t
-        
+        #print(x)
         if self.method=="frequency":
             if t>=self.count*(1/τo):
                 self.count+=1
-                to_remove = In_Obs_Front[:]
+                to_remove = In_Obs_Front.copy()
                 """ Remove nodes from obsolescence front and the populated subgraph if not in Innovation front
                 """
                 space_obs = self.sites[np.sum(Ady[to_remove], axis=0)>0]
+                space_obs = list(np.unique(space_obs))
                 to_obs = np.setdiff1d(space_obs, to_remove)
                 In_Obs_Front = to_obs
                 In_H_sub = np.setdiff1d(In_H_sub, to_remove)
@@ -320,9 +327,9 @@ class RKPropagator1D():
         x = self.x
         t = self.t
         
-        In_Inn_1 = In_Inn[:]
+        In_Inn_1 = In_Inn.copy()
         for i in In_Inn_1:
-            #print(i, x)
+            #print(i, x, In_Inn_1)
             x[i]+= n[i]*r*I*Δt
             if x[i]>=λ:
                 """ Remove node from Inn
@@ -343,9 +350,12 @@ class RKPropagator1D():
                 #print(space_poss, In_Inn, In_Inn + list(space_poss))
                 In_Inn += list(space_poss)
                 In_H_sub = list(In_H_sub)+ list(space_poss)
+                In_Inn = list(np.unique(In_Inn))
+                In_H_sub = list(np.unique(In_H_sub))
                 #x.fromkeys(In_Inn, 0)
                 for j in space_poss:
-                    x[j]= 0
+                    if j not in In_Inn_1:
+                        x[j]= 0
                 x.pop(i)    
                 #print(x, In_Inn, type(In_Inn), type(list(space_poss)))
                     
