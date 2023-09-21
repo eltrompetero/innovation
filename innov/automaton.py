@@ -4,7 +4,7 @@
 from jax import jit, vmap, config, random
 from jax.lax import fori_loop, cond
 import jax.numpy as jnp
-
+#import torch
 
 
 # ================ #
@@ -97,6 +97,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         inn_front = jnp.logical_xor(inn_front, old_front_ix)
         # set children innovation fronts
         in_sub_pop = jnp.logical_or(in_sub_pop, new_front_ix)
+        print("algo", in_sub_pop.size * in_sub_pop.itemsize/1e6 + front_moved.size * front_moved.itemsize/1e6 +new_front_ix.size * new_front_ix.itemsize/1e6+old_front_ix.size * old_front_ix.itemsize/1e6+inn_front.size * inn_front.itemsize/1e6)
         return key, inn_front, in_sub_pop
 
     @jit
@@ -172,7 +173,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         
         return key, obs_sub, in_sub_pop, inn_front
 
-    @jit
+    #@jit
     def one_loop(i, val):
         # read in values
         key = val[0]
@@ -188,7 +189,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # replicate
         key, subkey = random.split(key)
         to_replicate = random.poisson(subkey, (r * inverse_sons * n * dt) @ Ady)
-        #print("r",  to_replicate)
         n = n + to_replicate
     #     debug.print("DREP {x}", x=(Ady.T @ (r * inverse_sons * n * dt))[:10])
     #     debug.print("REP {x}", x=n[:10])
@@ -196,7 +196,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # death
         key, subkey = random.split(key)
         to_died = random.poisson(subkey, rd * n * dt)
-        #print("r",  to_died)
         n = n - jnp.minimum(n, to_died)
 
         # growth
@@ -207,7 +206,8 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # obsolescence front 
         key, obs_sub, in_sub_pop, inn_front = move_obs_front(key, obs_sub, in_sub_pop, inn_front)
     #     debug.print("OBS {x}", x=n[:10])
-        
+ 
+       
         return [key, inn_front, obs_sub, in_sub_pop, n]
 
     init_vars = init_fcn(Ady.shape[0],
