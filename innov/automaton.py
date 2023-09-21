@@ -54,14 +54,14 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         To set up the initial parameter values for running.
     """
     # initialize graph properties
-    n = jnp.zeros((samples, N), dtype=jnp.int32)
+    n = jnp.zeros((samples, N), dtype=jnp.uint32)
 
     # obsolescence sites must always have a presence on the initial graph condition
     obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)
     inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
-    sites = jnp.arange(N, dtype=jnp.int32)
+    sites = jnp.arange(N, dtype=jnp.uint32)
 
     inverse_sons = Ady.sum(1)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
@@ -250,19 +250,3 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         return key, t, n, inn_front, obs_sub, in_sub_pop
     return init_vars, one_loop, run_save
 
-
-@jit
-def run_multiple_sims(i, val):
-    key = val[0]
-    inn_front_1 = val[1]
-    obs_sub_1 = val[2]
-    in_sub_pop_1 = val[3]
-    n_1 = val[4]
-    inn_front = val[5]
-    obs_sub = val[6]
-    in_sub_pop = val[7]
-    n = val[8]
-    Ady = val[9]
-    key, inn_front_2, obs_sub_2, in_sub_pop_2, n_2 = fori_loop(0, 1000, one_loop, [key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1, Ady])
-    
-    return [key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1, inn_front+inn_front_2, obs_sub + obs_sub_2, in_sub_pop+in_sub_pop_2, n+n_2, Ady]
