@@ -1,7 +1,7 @@
 # JAX automaton implemenation of innov/obs model on network.
 # Authors: Eddie Lee, edlee@csh.ac.at
 #          Ernesto Ortega, ortega@csh.ac.at
-from jax import jit, vmap, config, random
+from jax import jit, vmap, config, random, device_put, devices
 from jax.lax import fori_loop, cond
 import jax.numpy as jnp
 
@@ -241,6 +241,19 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             obs_sub.append(obs_sub_1)
             in_sub_pop.append(in_sub_pop_1)
             t.append((i+1)*save_dt)
+
+            # move previous results into CPU mem
+            n[-2] = device_put(n[-2], devices('cpu')[0])
+            inn_front[-2] = device_put(inn_front[-2], devices('cpu')[0])
+            obs_sub[-2] = device_put(obs_sub[-2], devices('cpu')[0])
+            in_sub_pop[-2] = device_put(in_sub_pop[-2], devices('cpu')[0])
+        
+        # move previous results into CPU mem
+        n[-1] = device_put(n[-1], devices('cpu')[0])
+        inn_front[-1] = device_put(inn_front[-1], devices('cpu')[0])
+        obs_sub[-1] = device_put(obs_sub[-1], devices('cpu')[0])
+        in_sub_pop[-1] = device_put(in_sub_pop[-1], devices('cpu')[0])
+
         return key, t, n, inn_front, obs_sub, in_sub_pop
     return init_vars, one_loop, run_save
 
