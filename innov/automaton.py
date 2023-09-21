@@ -54,14 +54,14 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         To set up the initial parameter values for running.
     """
     # initialize graph properties
-    n = jnp.zeros((samples, N), dtype=jnp.uint32)
+    n = jnp.zeros((samples, N), dtype=jnp.int32)
 
     # obsolescence sites must always have a presence on the initial graph condition
     obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)
     inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
-    sites = jnp.arange(N, dtype=jnp.uint32)
+    sites = jnp.arange(N, dtype=jnp.int32)
 
     inverse_sons = Ady.sum(1)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
@@ -174,16 +174,14 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
 
     @jit
     def one_loop(i, val):
+        # read in values
         key = val[0]
         inn_front = val[1]
         obs_sub = val[2]
         in_sub_pop = val[3]
         n = val[4]
-
-        inverse_sons = Ady.sum(1)
-        to_set_to_1 = sites * (inverse_sons==0)
-        inverse_sons = inverse_sons.at[to_set_to_1].set(1)
-        inverse_sons = 1 / inverse_sons
+            
+        
         # move innovation front
         key, inn_front, in_sub_pop = move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n, Ady)
     #     debug.print("{x}", x=inn_front)
@@ -200,7 +198,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         key, subkey = random.split(key)
         to_died = random.poisson(subkey, rd * n * dt)
         #print("r",  to_died)
-        n = jnp.maximum(n - to_died, 0)
+        n = n - jnp.minimum(n, to_died)
 
         # growth
         key, subkey = random.split(subkey)
