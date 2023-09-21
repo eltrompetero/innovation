@@ -21,18 +21,19 @@ class BiTree():
         self.adj = np.zeros((n0+n1*2,n0+n1*2), dtype=np.uint8)
         self.rng = rng if not rng is None else np.random
 
-        for i in range(n0):
-            self.adj[i,i+1] = 1
-        for i in range(n0, 2*n1+n0-2):
-            self.adj[i,i+2] = 1
+        ix = zip(*((i,i+1) for i in range(n0)))
+        self.adj[tuple(ix)] = 1
+        ix = zip(*((i,i+2) for i in range(n0, 2*n1+n0-2)))
+        self.adj[tuple(ix)] = 1
+
         self.adj[n0-1,n0] = 1
         self.adj[n0-1,n0+1] = 1
         
         self.gamma = gamma
         if gamma:
-            for i in range(n0, 2*n1+n0-3):
-                if self.rng.rand()<gamma:
-                    self.adj[i,i+3] = 1
+            seq = (self.rng.rand(2*n1-3)<gamma).astype(np.uint8)
+            ix = zip(*((i,i+3) for i in range(n0, 2*n1+n0-3)))
+            self.adj[tuple(ix)] = seq
         
     def as_graph(self):
         return nx.DiGraph(self.adj)

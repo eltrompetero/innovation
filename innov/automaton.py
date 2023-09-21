@@ -68,7 +68,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     inverse_sons = 1 / inverse_sons
 
     @jit
-    def move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n, Ady):
+    def move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n):
         """Move all innovation fronts stochastically.
         
         Parameters
@@ -100,7 +100,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         return key, inn_front, in_sub_pop
 
     @jit
-    def move_innov_front(key, inn_front, in_sub_pop, n, Ady):
+    def move_innov_front(key, inn_front, in_sub_pop, n):
         """Move all innovation fronts stochastically.
         
         Parameters
@@ -161,7 +161,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         
         # move into all children vertices
         key, subkey = random.split(key)
-        #new_front_ix = jnp.argmax(Ady * random.uniform(subkey, (N,N)), axis=1) * front_moved
         new_front_ix = front_moved @ Ady
         new_front_ix = new_front_ix * jnp.invert(inn_front)
         # set children obsolescence sites
@@ -182,7 +181,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         n = val[4]
         
         # move innovation front
-        key, inn_front, in_sub_pop = move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n, Ady)
+        key, inn_front, in_sub_pop = move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n)
     #     debug.print("{x}", x=inn_front)
         
         # replicate
