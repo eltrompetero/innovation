@@ -107,9 +107,7 @@ class RKPropagator1D():
         """ Init distance to space of posible
         """
         
-        self.x = {}
-        for i in self.In_Inn:
-            self.x[i]=0
+        self.x = {i:0 for i in self.sites}
         
         """ Init distance to obsolescence
         """
@@ -272,6 +270,7 @@ class RKPropagator1D():
                 to_remove = In_Obs_Front.copy()
                 """ Remove nodes from obsolescence front and the populated subgraph if not in Innovation front
                 """
+                #print(type(Ady), Ady[0][0], len(Ady), type(to_remove), len(to_remove), self.sites[to_remove])
                 space_obs = self.sites[np.sum(Ady[to_remove], axis=0)>0]
                 space_obs = list(np.unique(space_obs))
                 to_obs = np.setdiff1d(space_obs, to_remove)
@@ -353,10 +352,6 @@ class RKPropagator1D():
                 In_Inn = list(np.unique(In_Inn))
                 In_H_sub = list(np.unique(In_H_sub))
                 #x.fromkeys(In_Inn, 0)
-                for j in space_poss:
-                    if j not in In_Inn_1:
-                        x[j]= 0
-                x.pop(i)    
                 #print(x, In_Inn, type(In_Inn), type(list(space_poss)))
                     
         """ update vectors and Matrices
