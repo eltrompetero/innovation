@@ -12,8 +12,8 @@ import warnings
 from workspace.utils import save_pickle
 from .utils import *
 
-# Suggestions:
-# 1. object-oriented code
+
+
 class RKPropagator1D():
     def __init__(self, N, sub_ix = [1], inn = [1], obs = [0], Ady = None, n0=0, τo = 0.3, rd = 0.3, r = 0.4, I = 0.8, G_in= 4., tmax = 100, Δt = 0.1, λ = 1., method='density'):
         """
@@ -364,4 +364,4 @@ class RKPropagator1D():
         self.In_Inn = In_Inn
         self.In_H_sub = In_H_sub
         self.x = x
-        
+#end RKPropagator1D 
