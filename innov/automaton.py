@@ -180,7 +180,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         obs_sub = val[2]
         in_sub_pop = val[3]
         n = val[4]
-            
         
         # move innovation front
         key, inn_front, in_sub_pop = move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n, Ady)
@@ -212,9 +211,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         return [key, inn_front, obs_sub, in_sub_pop, n]
 
     init_vars = init_fcn(Ady.shape[0],
-                         obs_sub,
-                         inn_front,
-                         in_sub_pop,
                          samples)
 
     def run_save(init_vars, save_dt, tmax):
