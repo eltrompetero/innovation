@@ -6,7 +6,7 @@ from .utils import *
 
 
 class BiTree():
-    def __init__(self, n0, n1):
+    def __init__(self, n0, n1, gamma=0, rng=None):
         """
         Parameters
         ----------
@@ -14,8 +14,12 @@ class BiTree():
             Length of initial single branch.
         n1 : int, 10
             Length of the two branches to diverge from initial branch.
+        gamma : float, 0.
+            Probability of connection between parallel branches.
+        rng : np.random.RandomState, None
         """
         self.adj = np.zeros((n0+n1*2,n0+n1*2), dtype=np.uint8)
+        self.rng = rng if not rng is None else np.random
 
         for i in range(n0):
             self.adj[i,i+1] = 1
@@ -23,6 +27,12 @@ class BiTree():
             self.adj[i,i+2] = 1
         self.adj[n0-1,n0] = 1
         self.adj[n0-1,n0+1] = 1
+        
+        self.gamma = gamma
+        if gamma:
+            for i in range(n0, 2*n1+n0-3):
+                if self.rng.rand()<gamma:
+                    self.adj[i,i+3] = 1
         
     def as_graph(self):
         return nx.DiGraph(self.adj)
