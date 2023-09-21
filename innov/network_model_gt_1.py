@@ -350,7 +350,7 @@ class RKPropagator1D():
                 """
                 for j in self.H.neighbors(i):
                     if j not in In_Inn:
-                        x[j]=0
+                        #x[j]=0
                         In_Inn.append(j)
                         In_H_sub.append(j)
                         Fix_M[i][j]+=r/(self.inverse_sons[i])
