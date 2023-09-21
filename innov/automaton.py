@@ -63,9 +63,9 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
     sites = jnp.arange(N, dtype=jnp.int32)
 
-    inverse_sons = Ady.sum(1)
+    inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
-    inverse_sons = 1 / inverse_sons
+    inverse_sons = 1. / inverse_sons
 
     @jit
     def move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n):
