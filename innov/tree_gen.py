@@ -1,42 +1,94 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_agraph import graphviz_layout
+from scipy import sparse
+from jax import random
+import jax.experimental.sparse as jsparse
+import jax.numpy as jnp
 
 from .utils import *
 
 
 class BiTree():
-    def __init__(self, n0, n1, gamma=0, rng=None):
+    def __init__(self, n0, n1, gamma=0, rng=None, force_sparse=False):
         """
         Parameters
         ----------
-        n0 : int, 5
+        n0 : int
             Length of initial single branch.
-        n1 : int, 10
+        n1 : int
             Length of the two branches to diverge from initial branch.
         gamma : float, 0.
             Probability of connection between parallel branches.
         rng : np.random.RandomState, None
+        force_sparse : bool, False
+            If True, force adj array to be sparse.
         """
-        self.adj = np.zeros((n0+n1*2,n0+n1*2), dtype=np.uint8)
+        if n0+n1 > 1e5:
+            self.adj = sparse.lil_array((n0+n1*2,n0+n1*2), dtype=np.bool_)
+        else:
+            self.adj = np.zeros((n0+n1*2,n0+n1*2), dtype=np.bool_)
         self.rng = rng if not rng is None else np.random
 
-        for i in range(n0):
-            self.adj[i,i+1] = 1
-        for i in range(n0, 2*n1+n0-2):
-            self.adj[i,i+2] = 1
-        self.adj[n0-1,n0] = 1
-        self.adj[n0-1,n0+1] = 1
+        ix = zip(*((i,i+1) for i in range(n0)))
+        self.adj[tuple(ix)] = True
+        ix = zip(*((i,i+2) for i in range(n0, 2*n1+n0-2)))
+        self.adj[tuple(ix)] = True
+
+        self.adj[n0-1,n0] = True
+        self.adj[n0-1,n0+1] = True
         
         self.gamma = gamma
         if gamma:
-            for i in range(n0, 2*n1+n0-3):
-                if self.rng.rand()<gamma:
-                    self.adj[i,i+3] = 1
+            seq = self.rng.rand(2*n1-3)<gamma
+            ix = zip(*((i,i+3) for i in range(n0, 2*n1+n0-3)))
+            self.adj[tuple(ix)] = seq
         
     def as_graph(self):
         return nx.DiGraph(self.adj)
 #end BiTree
+
+
+class JaxBiTree():
+    def __init__(self, n0, n1, gamma=0, seed=0):
+        """
+        Parameters
+        ----------
+        n0 : int
+            Length of initial single branch.
+        n1 : int
+            Length of the two branches to diverge from initial branch.
+        gamma : float, 0.
+            Probability of connection between parallel branches.
+        seed : int, 0
+        """
+        self.key = random.PRNGKey(seed)
+        
+        # create skeleton of tree
+        ix = jnp.vstack([(i,i+1) for i in range(n0)])
+        ix = jnp.vstack((ix, jnp.vstack([(i,i+2) for i in range(n0, 2*n1+n0-2)])))
+        ix = jnp.append(ix, jnp.array([[n0-1,n0+1]]), axis=0)
+        data = jnp.ones(n0 + 2*n1-2 + 1, dtype=jnp.int8)
+        
+        # add interleaving edges
+        self.gamma = gamma
+        if gamma:
+            self.key, subkey = random.split(self.key)
+            newdata = random.uniform(subkey, (2*n1-3,)) < gamma
+            newix = jnp.vstack([(i,i+3) for i in range(n0, 2*n1+n0-3)])
+
+            newix = newix[newdata,:]
+            newdata = newdata[newdata].astype(jnp.int8)
+
+            data = jnp.concatenate((data, newdata))
+            ix = jnp.vstack((ix, newix))
+
+        self.adj = jsparse.BCOO((data, ix), shape=(n0+2*n1,n0+2*n1))
+        
+    def as_graph(self):
+        return nx.DiGraph(np.array(self.adj.todense()))
+#end BiTree
+
 
 
 
