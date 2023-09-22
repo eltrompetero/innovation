@@ -90,6 +90,41 @@ class JaxBiTree():
 #end BiTree
 
 
+class Tree():
+    def __init__(self, r, n):
+        """Create Bethe lattice with n nodes.
+
+        Parameters
+        ----------
+        r : int
+            Branching ratio.
+        n : int
+            Number of nodes.
+        """
+        self.r = r
+        self.n = n
+
+        # Create a full r-ary tree of height 3 and branching ratio 3
+        G = nx.full_rary_tree(r, n)
+
+        self.DG = nx.DiGraph()
+
+        # Add nodes
+        self.DG.add_nodes_from(G.nodes())
+
+        # Manually add directed edges from parent to children
+        for u, v in G.edges():
+            if u<v:
+                self.DG.add_edge(u, v)
+            else:
+                self.DG.add_edge(v, u)
+    
+        self.adj = nx.to_scipy_sparse_array(self.DG, format='coo')
+
+    def as_graph(self):
+        return self.DG
+#end Tree
+
 
 
 def create_directed_tree(N, k, density):
