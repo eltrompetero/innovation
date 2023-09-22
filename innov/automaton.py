@@ -34,6 +34,60 @@ def body_fun(xi, mi):
                 operand=None)
 set_zero = vmap(body_fun)
 
+def compress_density(n):
+    """Compress density into a memory efficient representation.
+
+    Parameters
+    ----------
+    n : jnp.ndarray
+
+    Returns
+    -------
+    jnp.ndarray
+        Density values.
+    jnp.ndarray
+        Corresponding indices.
+    """
+    ix = jnp.where(n)[0]
+    return n[ix], ix
+
+def decompress_density(n, ix, ix0=0, ix1=None):
+    """Decompress density from a memory efficient representation.
+
+    Parameters
+    ----------
+    n : jnp.ndarray
+        Density values.
+    ix : jnp.ndarray
+        Corresponding indices.
+    ix0 : int, 0
+        Starting index. If greater than the smallest value in ix, then the lower
+        value will be chosen as the new 0.
+    ix1 : int, None
+        Last index of array. Total array size shall be ix1-ix0+1.
+
+    Returns
+    -------
+    jnp.ndarray
+        Density array.
+    """
+    filled_n = jnp.zeros(ix.max()-min(ix.min(), ix0), dtype=jnp.int32)
+    filled_n = filled_n.at[ix].set(n)
+
+    if ix1 is None:
+        return filled_n
+
+    if filled_n.size==ix1-ix0+1:
+        return filled_n
+    if filled_n.size<ix1-ix0+1:
+        return jnp.concatenate((filled_n, jnp.zeros(ix1-ix0+1-filled_n.size, dtype=jnp.int32)))
+    return filled_n[:ix1-ix0+1]
+
+
+
+# ======== #
+# Sim code #
+# ======== #
 def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
                    init_fcn):
     """Compile JAX functions necessary to run automaton simulation.
@@ -242,12 +296,14 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             t.append((i+1)*save_dt)
 
             # move previous results into CPU mem
+            n[-2] = [compress_density(n_) for n_ in n[-2]]
             n[-2] = device_put(n[-2], devices('cpu')[0])
             inn_front[-2] = device_put(inn_front[-2], devices('cpu')[0])
             obs_sub[-2] = device_put(obs_sub[-2], devices('cpu')[0])
             in_sub_pop[-2] = device_put(in_sub_pop[-2], devices('cpu')[0])
         
         # move previous results into CPU mem
+        n[-1] = [compress_density(n_) for n_ in n[-1]]
         n[-1] = device_put(n[-1], devices('cpu')[0])
         inn_front[-1] = device_put(inn_front[-1], devices('cpu')[0])
         obs_sub[-1] = device_put(obs_sub[-1], devices('cpu')[0])
@@ -255,4 +311,5 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
 
         return key, t, n, inn_front, obs_sub, in_sub_pop
     return init_vars, one_loop, run_save
+
 
