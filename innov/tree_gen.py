@@ -10,7 +10,7 @@ from .utils import *
 
 
 class BiTree():
-    def __init__(self, n0, n1, gamma=0, rng=None, force_sparse=False):
+    def __init__(self, n0, n1, k, gamma=0, rng=None, force_sparse=False):
         """
         Parameters
         ----------
@@ -25,23 +25,23 @@ class BiTree():
             If True, force adj array to be sparse.
         """
         if n0+n1 > 1e5:
-            self.adj = sparse.lil_array((n0+n1*2,n0+n1*2), dtype=np.bool_)
+            self.adj = sparse.lil_array((n0+n1*k,n0+n1*k), dtype=np.bool_)
         else:
-            self.adj = np.zeros((n0+n1*2,n0+n1*2), dtype=np.bool_)
+            self.adj = np.zeros((n0+n1*k,n0+n1*k), dtype=np.bool_)
         self.rng = rng if not rng is None else np.random
 
         ix = zip(*((i,i+1) for i in range(n0)))
         self.adj[tuple(ix)] = True
-        ix = zip(*((i,i+2) for i in range(n0, 2*n1+n0-2)))
+        ix = zip(*((i,i+k) for i in range(n0, k*n1+n0-k)))
         self.adj[tuple(ix)] = True
 
-        self.adj[n0-1,n0] = True
-        self.adj[n0-1,n0+1] = True
-        
+        for i in range(k):
+            print(n0-1, n0+i)
+            self.adj[n0-1,n0+i] = True        
         self.gamma = gamma
         if gamma:
-            seq = self.rng.rand(2*n1-3)<gamma
-            ix = zip(*((i,i+3) for i in range(n0, 2*n1+n0-3)))
+            seq = self.rng.rand(k*n1-k-1)<gamma
+            ix = zip(*((i,i+k+1) for i in range(n0, k*n1+n0-k-1)))
             self.adj[tuple(ix)] = seq
         
     def as_graph(self):
