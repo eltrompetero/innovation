@@ -108,7 +108,6 @@ class RKPropagator1D():
         """
         
         self.x = {i:0 for i in self.sites}
-        self.x_1 = {i:0 for i in self.sites}
         
         """ Init distance to obsolescence
         """
@@ -149,7 +148,6 @@ class RKPropagator1D():
         In_Obs_Front = self.In_Obs_Front
         In_Inn = self.In_Inn
         x = self.x
-        #print(In_Inn, Ady[In_Inn], np.sum(Ady[In_Inn], axis=0)>0)
         space_possible = self.sites[np.sum(Ady[In_Inn], axis=0)>0]
         """ Creat vector of Growth
         """
@@ -272,15 +270,12 @@ class RKPropagator1D():
                 to_remove = In_Obs_Front.copy()
                 """ Remove nodes from obsolescence front and the populated subgraph if not in Innovation front
                 """
-                #print(len(to_remove), to_remove)
+                #print(type(Ady), Ady[0][0], len(Ady), type(to_remove), len(to_remove), self.sites[to_remove])
                 space_obs = self.sites[np.sum(Ady[to_remove], axis=0)>0]
                 space_obs = list(np.unique(space_obs))
                 to_obs = np.setdiff1d(space_obs, to_remove)
                 In_Obs_Front = to_obs
-                In_H_sub= np.array(In_H_sub)
-                #print(self.sites[to_remove], In_H_sub, In_Obs_Front)
                 In_H_sub = np.setdiff1d(In_H_sub, to_remove)
-                #print(In_H_sub, In_Obs_Front)
         else:
             In_H_sub = [i for i in In_H_sub]
             In_Obs_Front_1 = In_Obs_Front[:]
@@ -329,40 +324,39 @@ class RKPropagator1D():
         In_Obs_Front = self.In_Obs_Front
         In_Inn = self.In_Inn
         x = self.x
-        x_1 = self.x_1
         t = self.t
         
         In_Inn_1 = In_Inn.copy()
-        space_possible = self.sites[np.sum(Ady[In_Inn], axis=0)>0]
-        
         for i in In_Inn_1:
-            x_1[i]+= n[i]*r*I*Δt
-            if x_1[i]>=λ:
-                print(In_Inn, In_H_sub)
+            #print(i, x, In_Inn_1)
+            x[i]+= n[i]*r*I*Δt
+            if x[i]>=λ:
+                """ Remove node from Inn
+                """
+               
                 In_Inn.pop(In_Inn.index(i))
-                space_inn = list(self.sites[Ady[i]])
-                In_Inn = list(In_Inn)
-                In_H_sub = list(In_H_sub)
-                In_Inn = In_Inn + space_inn
-                In_H_sub = In_H_sub + space_inn
-                print(In_Inn, In_H_sub, space_inn)
                 
+                """ Remove all the parents from Innovation front
+                """
+                #for j in self.H.predecessors(i):
+                #    if j in In_Inn_1:
+                #        In_Inn.pop(In_Inn.index(j))
+                #        x.pop(j)
+                
+                """ Add all the offspring to Innovation front if not already in 
+                """
+                space_poss = self.sites[self.sites[Ady[i]>0]]
+                #print(space_poss, In_Inn, In_Inn + list(space_poss))
+                In_Inn += list(space_poss)
+                In_H_sub = list(In_H_sub)+ list(space_poss)
+                In_Inn = list(np.unique(In_Inn))
+                In_H_sub = list(np.unique(In_H_sub))
+                #x.fromkeys(In_Inn, 0)
+                #print(x, In_Inn, type(In_Inn), type(list(space_poss)))
+                    
         """ update vectors and Matrices
         """
         self.In_Inn = In_Inn
         self.In_H_sub = In_H_sub
         self.x = x
 #end RKPropagator1D 
-
-"""
-for i in space_possible:
-            print(i, In_Obs_Front,  In_Inn_1, In_H_sub)
-            x[i]+= r*I*Δt*np.sum((n@Ady)[i])
-            if x[i]>=λ:
-               
-                if i not in In_H_sub:
-                    In_Inn = list(In_Inn)
-                    In_H_sub = list(In_H_sub)
-                    In_Inn.append(i)
-                    In_H_sub.append(i)
-"""
