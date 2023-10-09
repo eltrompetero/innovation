@@ -6,16 +6,22 @@
 from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from cmath import sqrt
+from scipy.special import gammaln, logsumexp
 import warnings
 #import networkx as nx
 
 from workspace.utils import save_pickle
 from .utils import *
 
+def compute_P_O_1(N, τo, t, init):
+        logP_O = np.zeros(N)
+        for i in range(N):
+            logP_O[i] = np.log(τo)*i - τo*t + np.log(t)*i - gammaln(i+1)
 
+        return np.exp(logP_O - logsumexp(logP_O))
 
 class RKPropagator1D():
-    def __init__(self, N, sub_ix = [1], inn = [1], obs = [0], Ady = None, n0=0, τo = 0.3, rd = 0.3, r = 0.4, I = 0.8, G_in= 4., tmax = 100, Δt = 0.1, λ = 1., method='density'):
+    def __init__(self, N, sub_ix = [1], inn = [1], obs = [0], Ady = None, n0=0, τo = 0.3, rd = 0.3, r = 0.4, I = 0.8, G_in= 4., k=2, tmax = 100, Δt = 0.1, λ = 1., method='density'):
         """
         Parameters
         ----------
@@ -73,7 +79,7 @@ class RKPropagator1D():
         self.t = 0
         self.count = 1
         self.switch = 1
-        
+        self.k = k
         """ Creating sites and densities
         """
         self.sites = np.arange(N)
@@ -102,12 +108,17 @@ class RKPropagator1D():
         """Init obsolescence and Innovation fronts
         """
         self.In_Obs_Front = obs
+        self.P_O = np.zeros(N)
+        self.P_O_com = np.zeros(int((N-5)/k+5))
+        self.P_O[obs] = 1
+        self.P_O_com[obs] = 1
         self.In_Inn = inn
                 
         """ Init distance to space of posible
         """
         
         self.x = {i:0 for i in self.sites}
+        self.x_1 = {i:0 for i in self.sites}
         
         """ Init distance to obsolescence
         """
@@ -135,6 +146,7 @@ class RKPropagator1D():
         """
         n = self.n
         Fix_M = self.Fix_M
+        Fix_O = self.Fix_O
         G_in =self.G_in
         In_H_sub = self.In_H_sub
         Δt=self.Δt
@@ -148,43 +160,69 @@ class RKPropagator1D():
         In_Obs_Front = self.In_Obs_Front
         In_Inn = self.In_Inn
         x = self.x
+        P_O = self.P_O
+        k= self.k
+        """ Compute cumulative prob of obsolescence
+        """
+        
+        if self.t!=0:
+            self.P_O_com = compute_P_O_1(len(self.P_O_com), self.τo, self.t, 0)
+        else:
+            self.P_O_com = np.zeros(int((N-5)/k+5))
+            self.P_O_com[0]=1
         space_possible = self.sites[np.sum(Ady[In_Inn], axis=0)>0]
+        
+        
+        for i in range(len(self.P_O_com)):
+            #print(i, 2*i-4)
+            if i<5:
+                P_O[i] = self.P_O_com[i]
+            else:
+                for j in range(k):
+                    P_O[k*i-5+j] = self.P_O_com[i]               
+        P_cum = np.zeros(len(n))
+        P_cum[0:5] = np.cumsum(P_O[0:5])*(self.sites<=np.max(self.In_Inn))[0:5]
+        P_cum[5:] = np.cumsum(P_O[5:])*(self.sites<=np.max(self.In_Inn))[5:]/k
         """ Creat vector of Growth
         """
-        In_H_sp = np.concatenate((In_H_sub, space_possible))
-        #print(In_H_sp, space_possible, In_H_sub)
+
         n_in = np.zeros(self.N)
-        n_in[In_H_sub] = self.n[In_H_sub] 
-        self.Fix_V = (n_in>0) * self.G_in/(len(In_H_sub))
+        n_in[In_H_sub] = self.n[In_H_sub]
+        self.Fix_V = self.G_in*P_cum/np.sum(P_cum)
+        self.Fix_V_1 = (n_in>0) * self.G_in/(len(In_H_sub))
         
         """ Runge kutta order 4 update equations
         """
         
         k1 = self.Δt*(-self.rd*n + (n_in*self.inverse_sons) @ self.Fix_R + self.Fix_V)
+        k1_1 = self.Δt*(-self.rd*n + (n*P_cum*self.inverse_sons) @ self.Fix_R + self.Fix_V)
         
         k11 = np.zeros(self.N)
         k11[In_H_sub] = k1[In_H_sub] 
         
         k2 = self.Δt*(-self.rd*(n+k1/2) + ((n_in +k11/2)*self.inverse_sons)@ self.Fix_R + self.Fix_V)
+        k2_1 = self.Δt*(-self.rd*(n+k1/2) + ((n+k1/2)*P_cum*self.inverse_sons)@ self.Fix_R + self.Fix_V)
         
         
         k22 = np.zeros(self.N)
         k22[In_H_sub] = k1[In_H_sub]
         
         k3 = self.Δt*(-self.rd*(n+k2/2) + ((n_in +k22/2)*self.inverse_sons)@ self.Fix_R + self.Fix_V)
+        k3_1 = self.Δt*(-self.rd*(n+k2/2) + ((n +k2/2)*P_cum*self.inverse_sons)@ self.Fix_R + self.Fix_V)
         
         k33 = np.zeros(self.N)
         k33[In_H_sub] = k1[In_H_sub] 
         
         k4 = self.Δt*(-self.rd*(n+k3) + ((n_in +k33)*self.inverse_sons)@ self.Fix_R + self.Fix_V)
+        k4_1 = self.Δt*(-self.rd*(n+k3) + ((n +k3)*P_cum*self.inverse_sons)@ self.Fix_R + self.Fix_V)
         
-        k = (k1 + 2*k2 + 2*k3 + k4)/6
-        
+        #k = (k1 + 2*k2 + 2*k3 + k4)/6
+        k = (k1_1 + 2*k2_1 + 2*k3_1 + k4_1)/6
         """ Update densities and time
         """
         self.n = n + k
         self.t += Δt
-        
+        self.P_O = P_O
         """ Update Obsolescence front
         """
         self.update_H_sub_and_Obs(*args, **kwargs)
@@ -270,10 +308,15 @@ class RKPropagator1D():
                 to_remove = In_Obs_Front.copy()
                 """ Remove nodes from obsolescence front and the populated subgraph if not in Innovation front
                 """
-                #print(type(Ady), Ady[0][0], len(Ady), type(to_remove), len(to_remove), self.sites[to_remove])
+                
+                # select children of obs front
                 space_obs = self.sites[np.sum(Ady[to_remove], axis=0)>0]
                 space_obs = list(np.unique(space_obs))
+                
+                # check space obs not in to remove
                 to_obs = np.setdiff1d(space_obs, to_remove)
+                
+                # set new obsolescence front
                 In_Obs_Front = to_obs
                 In_H_sub = np.setdiff1d(In_H_sub, to_remove)
         else:
@@ -324,27 +367,59 @@ class RKPropagator1D():
         In_Obs_Front = self.In_Obs_Front
         In_Inn = self.In_Inn
         x = self.x
+        x_1 = self.x_1
         t = self.t
         
         In_Inn_1 = In_Inn.copy()
+        space_possible = self.sites[np.sum(Ady[In_Inn], axis=0)>0]
+        #print(space_possible, n[space_possible], (n*self.inverse_sons)[space_possible])
+        for i in space_possible:
+            #print("sum",i, x[i], n[i], In_Inn, In_H_sub)
+            x[i]+= r*I*Δt*(n @ Ady)[i]
+            if x[i]>=λ:
+                
+                if i not in In_H_sub:
+                    In_Inn = list(In_Inn)
+                    In_H_sub = list(In_H_sub)
+                    In_Inn.append(i)
+                    In_H_sub.append(i)
         for i in In_Inn_1:
+            #print(i, x_1[i], n[i], In_Inn, In_H_sub)
+            x_1[i]+= n[i]*r*I*Δt
+            if x_1[i]>=λ:
+                
+                In_Inn.pop(In_Inn.index(i))
+            
+                space_poss = self.sites[self.sites[Ady[i]>0]]
+                #print(space_poss, In_Inn, In_Inn + list(space_poss))
+                In_Inn += list(space_poss)
+                In_H_sub = list(In_H_sub)+ list(space_poss)
+                In_Inn = list(np.unique(In_Inn))
+                In_H_sub = list(np.unique(In_H_sub))
+                
+        """ update vectors and Matrices
+        """
+        self.In_Inn = In_Inn
+        self.In_H_sub = In_H_sub
+        self.x = x
+#end RKPropagator1D 
+                                    
+"""
+for i in In_Inn_1:
             #print(i, x, In_Inn_1)
             x[i]+= n[i]*r*I*Δt
             if x[i]>=λ:
-                """ Remove node from Inn
-                """
+                
                
                 In_Inn.pop(In_Inn.index(i))
                 
-                """ Remove all the parents from Innovation front
-                """
+                
                 #for j in self.H.predecessors(i):
                 #    if j in In_Inn_1:
                 #        In_Inn.pop(In_Inn.index(j))
                 #        x.pop(j)
                 
-                """ Add all the offspring to Innovation front if not already in 
-                """
+                
                 space_poss = self.sites[self.sites[Ady[i]>0]]
                 #print(space_poss, In_Inn, In_Inn + list(space_poss))
                 In_Inn += list(space_poss)
@@ -353,10 +428,4 @@ class RKPropagator1D():
                 In_H_sub = list(np.unique(In_H_sub))
                 #x.fromkeys(In_Inn, 0)
                 #print(x, In_Inn, type(In_Inn), type(list(space_poss)))
-                    
-        """ update vectors and Matrices
-        """
-        self.In_Inn = In_Inn
-        self.In_H_sub = In_H_sub
-        self.x = x
-#end RKPropagator1D 
+"""

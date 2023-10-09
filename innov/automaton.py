@@ -141,17 +141,19 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # randomly choose innovation fronts to move
         key, subkey = random.split(key)
         front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
-        # randomly choose amongst children to move innovation to
+        
+        # select new sites for innovation front if not present in obsolescence or subpopulated graph 
         key, subkey = random.split(key)
         new_front_ix = front_moved @ Ady * jnp.invert(jnp.logical_xor(obs_sub, in_sub_pop))
         old_front_ix = front_moved
-        #print("new", sites[new_front_ix], "old", sites[old_front_ix]," fm", sites* front_moved, "in xor obs", sites * jnp.invert(jnp.logical_xor(obs_sub, in_sub_pop)))
-        # remove parent innovation fronts
+        
+        # add new nodes to the innovation front, remove oll nodes from the innovation front
         inn_front = jnp.logical_or(inn_front, new_front_ix)
         inn_front = jnp.logical_xor(inn_front, old_front_ix)
-        # set children innovation fronts
+        
+        # add new nodes to sub populated graph
         in_sub_pop = jnp.logical_or(in_sub_pop, new_front_ix)
-        print("algo", in_sub_pop.size * in_sub_pop.itemsize/1e6 + front_moved.size * front_moved.itemsize/1e6 +new_front_ix.size * new_front_ix.itemsize/1e6+old_front_ix.size * old_front_ix.itemsize/1e6+inn_front.size * inn_front.itemsize/1e6)
+        
         return key, inn_front, in_sub_pop
 
     @jit
@@ -170,6 +172,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         -------
         key
         inn_front
+        in_sub_pop
         """
         inverse_sons = Ady.sum(1)
         to_set_to_1 = sites * (inverse_sons==0)
@@ -209,24 +212,27 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         -------
         key
         obs_sub
+        in_sub_pop
+        inn_front
         """
         # randomly choose obsolesence sites to move
         key, subkey = random.split(key)
-        front_moved = obs_sub * (random.uniform(subkey, (samples, N)) < ro*dt)
+        front_moved = obs_sub * (random.uniform(subkey, (samples, 1)) < ro*dt)
         
-        # move into all children vertices
+        # move into all children vertices if not in the innovation front
         key, subkey = random.split(key)
         new_front_ix = front_moved @ Ady
         new_front_ix = new_front_ix * jnp.invert(inn_front)
-        # set children obsolescence sites
+        
+        # add new sites to obsolescence front
         obs_sub = jnp.logical_or(obs_sub, new_front_ix)
         
-        #inn_front = inn_front.at[new_front_ix].set(False)
+        # remove new sites from sub populated graph
         in_sub_pop = in_sub_pop * jnp.invert(obs_sub)
         
         return key, obs_sub, in_sub_pop, inn_front
 
-    #@jit
+    @jit
     def one_loop(i, val):
         # read in values
         key = val[0]
@@ -241,8 +247,8 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         
         # replicate
         key, subkey = random.split(key)
-        to_replicate = random.poisson(subkey, (r * inverse_sons * n * dt) @ Ady)
-        n = n + to_replicate
+        to_replicate = random.poisson(subkey, ((r * inverse_sons * n * dt) @ Ady))
+        n = n + to_replicate*in_sub_pop
     #     debug.print("DREP {x}", x=(Ady.T @ (r * inverse_sons * n * dt))[:10])
     #     debug.print("REP {x}", x=n[:10])
         

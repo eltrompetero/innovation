@@ -16,7 +16,7 @@ from .utils import *
 
 
 
-def L_linear(G, ro, rd, I, alpha=1., Q=2):
+def L_linear(G, ro, rd, I, k=1, alpha=1., Q=2):
     """Lattice length given linear pseudogap approximation.
 
     Parameters
@@ -2172,3 +2172,332 @@ class GridSearchFitter():
 
         return fit_results
 #end GridSearchFitter
+
+
+class ODE2_network():
+    def __init__(self, G, ro, rd, I, gamma, k, L=None, alpha=1., Q=2):
+        """Class for second-order analytic solution to MFT.
+
+        Parameters
+        ----------
+        G : float
+            Rescaled growth rate.
+        ro : float
+            Rescaled obsolescence rate.
+        rd : float
+            Rescaled death rate.
+        I : float
+            Innovation rate.
+        L : float, None
+        gamma: float
+            network rewiring fraction between consecutive generations
+        k: int
+            number of trains (branching ratio)
+        alpha : float, 1.
+            Cooperativity.
+        Q : int, 2
+            Bethe lattice branching ratio.
+        """
+        self.G = float(G/k)
+        self.ro = float(ro)
+        self.rd = float(rd)
+        self.I = float(I*(1+gamma*(k-1)))
+        self.k = k
+        self.gamma = float(gamma)
+        self.alpha = alpha
+        self.Q = Q
+        self.n0 = (ro/(I*(1+gamma*(k-1))))**(1/alpha)  # stationary density
+        
+        self.L = self.solve_L(L)
+    
+    def n(self, x, L=None, return_im=False, method=2, zero_bound=True):
+        """Interpolated occupancy function.
+
+        Parameters
+        ----------
+        x : ndarray
+            Lattice values for which to compute density.
+        return_im : bool, False
+        method : int, 2
+            Either 1 or 2.
+        zero_bound : bool, True
+            If True, bound all function values outside of the range [0, L] to 0.
+
+        Returns
+        -------
+        ndarray
+        """
+        L = L if not L is None else self.L
+        if not hasattr(x, '__len__'):
+            x = np.array([x])
+
+        if method==1:
+            # cleaned up output from mathematica
+            assert self.alpha==1
+
+            ro = self.ro
+            G = self.G
+            rd = self.rd
+            I = self.I
+            re = 1
+            gamma = self.gamma
+            k=self.k
+            
+            z = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+            sol = (G / ((np.exp(2*sqrt(z)/(re+ro))-1) * L * (re-rd)) *
+                   (1 - np.exp(2*sqrt(z)/(re+ro)) + np.exp(-(sqrt(z)*(x-1)+re*x-ro*(1+x)+re)/(re+ro)) -
+                    np.exp((-re*x+ro*(1+x)+sqrt(z)*(1+x)-re)/(re+ro)) +
+                    (L*(re-rd)*ro/(G*re*I)+1) * (np.exp((-re*x+ro*x+sqrt(z)*(2+x))/(re+ro)) -
+                                                 np.exp((-re*x+(ro-sqrt(z))*x)/(re+ro)))))
+            y = sol.real
+            if hasattr(y, '__len__'):
+                y[(x<0)|(x>L)] = 0
+            else:
+                if x<0 or x>L:
+                    y = 0
+            return y
+        
+        elif method==2:
+            # hand-written soln
+            # rescale params in units of re
+            ro = self.ro
+            G = self.G
+            rd = self.rd
+            I = self.I
+            Q = self.Q
+            
+            # compute eigenvalues of characteristic soln
+            z = (1/(Q-1)-ro)**2 - 2 * (1/(Q-1)-rd) * (1/(Q-1)+ro)
+            lp = (ro-1/(Q-1) + sqrt(z)) / (1/(Q-1)+ro)
+            lm = (ro-1/(Q-1) - sqrt(z)) / (1/(Q-1)+ro)
+             
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                # constants for homogenous terms
+                # divergences occur at special values of ro and rd
+                try:
+                    A = ((G * np.exp((-sqrt(z)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                         (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - z)) + (ro/I)**(1./self.alpha))) / 
+                        (np.exp(-2*sqrt(z) / (1/(Q-1)+ro)) - 1))
+                except ZeroDivisionError:
+                    if np.exp((ro - 1 - sqrt(z)) / (1 + ro)) > 1:
+                        A = np.inf
+                    elif np.exp((ro - 1 - sqrt(z)) / (1 + ro)) < 1:
+                        A = -np.inf
+                    else:
+                        A = 0
+                try:
+                    B = ((G * np.exp(( sqrt(z)+ro-1/(Q-1)) / (1/(Q-1)+ro)) / (L * (1/(Q-1)-rd)) -
+                         (2*G*(1/(Q-1)+ro) / (L*((1/(Q-1)-ro)**2 - z)) + (ro/I)**(1./self.alpha))) / 
+                        (np.exp( 2*sqrt(z) / (1/(Q-1)+ro)) - 1))
+                except ZeroDivisionError:
+                    if np.exp((ro - 1 + sqrt(z)) / (1 + ro)) > 1:
+                        B = np.inf
+                    elif np.exp((ro - 1 + sqrt(z)) / (1 + ro)) < 1:
+                        B = -np.inf
+                    else:
+                        B = 0
+ 
+                # particular soln using numerical precision tricks with logsumexp
+                #y = A * np.exp(lp * x) + B * np.exp(lm * x) - G/L/(1/(Q-1)-rd)
+                logexp1 = np.log(A * np.exp(lp * x))
+                logexp2 = np.log(B * np.exp(lm * x))
+                logexp3 = np.zeros_like(x) + np.log(G) - np.log(L)  # constant over all x
+                if (1/(Q-1)-rd)==0:
+                    s3 = -np.inf
+                else:
+                    s3 = -1/(1/(Q-1)-rd)
+                y = logsumexp(np.vstack([logexp1, logexp2, logexp3]),
+                              axis=0,
+                              b=np.array([1, 1, s3])[:,None],
+                              return_sign=True)
+                y = np.exp(y[0]) * y[1]
+            
+            if hasattr(y, '__len__'):
+                y[(x<0)|(x>L)] = 0
+            else:
+                if x<0 or x>L:
+                    y = 0 + 0j
+            
+            if return_im:
+                return y.real, y.imag
+            return y.real
+        else: raise NotImplementedError
+
+    def solve_L(self, L0=None, full_output=False, method=3):
+        """Solve for stationary value of L that matches self-consistency condition,
+        i.e. analytic solution for L should be equal to the posited value of L.
+
+        Parameters
+        ----------
+        L0 : float, None
+            Initial guess.
+        full_output : bool, False
+        method : int, 3
+            1: 'mathematica'
+            2: 'hand'
+            3: 'hand' but w/ boundary condition at x=L
+            Use formulation returned by mathematica or hand written solution. Hand
+            written solution is more numerically stable.
+
+        Returns
+        -------
+        float
+        dict (optional)
+        """
+        G = self.G
+        ro = self.ro
+        rd = self.rd
+        I = self.I
+        Q = self.Q
+        re = 1
+
+        # if not provided, use the iterative method to initialize the search
+        L0 = L0 or L_linear(G, ro, rd, I, alpha=self.alpha, Q=Q)
+        # this is infinite limit, don't expect a good solution
+        if L0 < 0: L0 = 2e5
+        if np.isinf(L0): L0 = 2e5
+
+        if method==1:
+            assert self.alpha==1
+            assert self.Q==2
+
+            # analytic eq for L solved from continuum formulation in Mathematica
+            # this formulation has much bigger numerical errors (sometimes)
+            a = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
+            num = lambda x:(np.exp(-(re-ro)/(re+ro)) * (np.exp(-sqrt(a)*(x-1)/(re+ro)) -
+                                                        np.exp(sqrt(a)*(x+1)/(re+ro))) + 
+                            np.exp((re-ro)*x/(re+ro)) * (1-np.exp(2*sqrt(a)/(re+ro))) -
+                            np.exp(-sqrt(a)*x/(re+ro)) +
+                            np.exp(sqrt(a)*(2+x)/(re+ro)))
+            den = lambda x:(np.exp(-sqrt(a)*x/(re+ro)) -
+                            np.exp(sqrt(a)*(2+x)/(re+ro))) * (re-rd)*ro / (G*re*I)
+
+            statL = lambda x:num(x) / den(x)
+            soln = minimize(lambda x:(statL(x).real - x)**2, L0, tol=1e-10, bounds=[(0,np.inf)])
+            if full_output:
+                return soln['x'][0], soln
+            return soln['x'][0]
+
+        elif method==2: 
+            def cost(args):
+                L = args[0]
+                return self.n(-1, L, method=2)**2
+            
+            soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
+
+            if full_output:
+                return soln['x'][0], soln
+            return soln['x'][0]
+
+        elif method==3: 
+            def cost(args):
+                L = args[0]
+                return self.n(L, L, method=2)**2
+            
+            soln = minimize(cost, L0, tol=1e-10, bounds=[(0,np.inf)])
+
+            if full_output:
+                return soln['x'][0], soln
+            return soln['x'][0]
+
+        else: raise NotImplementedError
+    
+    def check_stat(self, x=1):
+        """Violation of stationarity condition by checking accuracy of iterative
+        solution.
+
+        Returns
+        -------
+        float
+            n(x) - [n(x) calculated with n(x-1)]
+        """
+        
+        assert x>=1
+
+        G = self.G
+        ro = self.ro
+        rd = self.rd
+        I = self.I
+        L = self.L
+        
+        n0 = self.n(0) 
+        if x==1:
+            return self.n(x) - I * n0**2 - rd*n0 + G/L
+        return self.n(x) - (I * n0 * (self.n(x-1) - self.n(x-2)) + rd*self.n(x-1) - G/L)
+    
+    def slope(self):
+        """Slope at x=0."""
+
+        ro = self.ro
+        G = self.G
+        rd = self.rd
+        I = self.I
+        L = self.L
+ 
+        return ro**2 / I + (rd-1) * ro / I - G / L
+
+    def d_complex(self, x):
+        """Complex derivative.
+        
+        Parameters
+        ----------
+        x : ndarray
+
+        Returns
+        -------
+        ndarray
+        """
+        
+        # transform into normal parameters
+        rd = self.rd
+        ro = self.ro
+        G = self.G
+        I = self.I
+        L = self.L
+        a = -1 + (ro - 4) * ro + 2 * rd * (1 + ro) 
+        sqrta = sqrt(a)
+
+        return ((G/L/(rd-1) * ((-1 + ro + sqrta)/(1+ro) *
+                                      np.exp((-1 + sqrta + x*(sqrta-1) + ro*(1+x)) / (1+ro)) -
+                               (-1 + ro - sqrta)/(1+ro) *
+                                      np.exp((-1 + sqrta - x*(1+sqrta) + ro*(1+x)) / (1+ro))) + 
+                        np.exp((-1 + ro - sqrta) * x / (1+ro)) * (G/L/(rd-1) - ro/I) * (-1+ro-sqrta)/(1+ro)+ 
+                        np.exp((2 * sqrta + (ro-1+sqrta)*x) / (1+ro)) * (-G/L/(rd-1) + ro/I) * (-1+ro+sqrta) /
+                                (1+ro)) / 
+                      (-1 + np.exp(2 * sqrta/(1+ro))))
+
+    def peak(self, initial_guess=None, full_output=False):
+        """Solve for peak by finding root in derivative.
+        
+        Parameters
+        ----------
+        full_output : bool, False
+
+        Returns
+        -------
+        float
+        dict (optional)
+        """
+       
+        if initial_guess is None:
+            initial_guess = 2/3 * self.L
+
+        # transform into normal parameters
+        rd = self.rd
+        ro = self.ro
+        G = self.G
+        I = self.I
+        L = self.L
+        a = -1 + (ro - 4) * ro + 2 * rd * (1 + ro) 
+        sqrta = sqrt(a)
+
+        # need a clever transformation of coordinates to allow the minimizer to find the soln
+        soln = minimize(lambda y:np.abs(self.d_complex(L-np.exp(y)).real), np.log(L-initial_guess),
+                        bounds=[(-np.inf,np.log(L/2))],
+                        method='powell')
+
+        if full_output:
+            return L - np.exp(soln['x'][0]), soln
+        return L - np.exp(soln['x'][0])
+#end ODE2
