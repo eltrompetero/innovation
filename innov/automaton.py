@@ -95,6 +95,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     Parameters
     ----------
     N : int
+        Length of graph.
     r : float
     rd : float
     I : float
@@ -132,6 +133,10 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             Indicates sites that are innovation fronts using True.
         in_sub_pop : boolean array
             Indicates which sites are in the populated subgraph.
+        obs_sub : boolean array
+            Indicates sites that are obsolescence fronts using True.
+        n : jnp.ndarray
+            Density values.
         
         Returns
         -------
@@ -167,6 +172,8 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             Indicates sites that are innovation fronts using True.
         in_sub_pop : boolean array
             Indicates which sites are in the populated subgraph.
+        n : jnp.ndarray
+            Density values.
         
         Returns
         -------
@@ -174,10 +181,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         inn_front
         in_sub_pop
         """
-        inverse_sons = Ady.sum(1)
-        to_set_to_1 = sites * (inverse_sons==0)
-        inverse_sons = inverse_sons.at[to_set_to_1].set(1)
-        inverse_sons = 1 / inverse_sons
         # randomly choose innovation fronts to move
         key, subkey = random.split(key)
         front_moved = in_sub_pop * (random.uniform(subkey, (N,)) > (1 - r*I*dt*n))
@@ -276,9 +279,12 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         """
         Parameters
         ----------
-        val : list
+        init_vars : list
+            Initial state in which to start simulations.
         save_dt : float
+            dt between saves.
         tmax : float
+            Simulation runtime.
         """
         inn_front_1, obs_sub_1, in_sub_pop_1, n_1 = init_vars[1:]
         
@@ -317,5 +323,3 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
 
         return key, t, n, inn_front, obs_sub, in_sub_pop
     return init_vars, one_loop, run_save
-
-
