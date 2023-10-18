@@ -10,7 +10,7 @@ from .utils import *
 
 
 class BiTree():
-    def __init__(self, n0, n1, k, gamma=0, rng=None, force_sparse=False):
+    def __init__(self, n0, n1, k, gamma=0, rng=None, sparse_adj=True):
         """
         Parameters
         ----------
@@ -23,33 +23,36 @@ class BiTree():
         gamma : float, 0.
             Probability of connection between parallel branches.
         rng : np.random.RandomState, None
-        force_sparse : bool, False
-            If True, force adj array to be sparse.
+        sparse_adj : bool, True
+            If False, adj array will not be sparse_adj.
         """
-        if n0+n1 > 1e5:
-            self.adj = sparse.lil_array((n0+n1*k,n0+n1*k), dtype=np.bool_)
+        self.gamma = gamma
+        if sparse_adj:
+            self.adj = sparse.lil_array((n0+n1*k, n0+n1*k), dtype=np.bool_)
         else:
-            self.adj = np.zeros((n0+n1*k,n0+n1*k), dtype=np.bool_)
+            self.adj = np.zeros((n0+n1*k, n0+n1*k), dtype=np.bool_)
         self.rng = rng if not rng is None else np.random
 
+        # create first, shared root branch
         ix = zip(*((i,i+1) for i in range(n0)))
         self.adj[tuple(ix)] = True
+        # create interleaved representation of k branches
         ix = zip(*((i,i+k) for i in range(n0, k*n1+n0-k)))
         self.adj[tuple(ix)] = True
 
+        # create connections between branches
         for i in range(k):
-            #print(n0-1, n0+i)
             self.adj[n0-1,n0+i] = True        
-        self.gamma = gamma
+        # random connections
         if gamma:
             #seq = self.rng.rand(k*k*n1-1)<gamma
             #seq = self.rng.rand(2*n1-1)<gamma
             for j in range(k-1):
-                #print(j, 2%k>j-1)
-                seq = self.rng.rand(k*n1-k-j-1)<gamma
-                ix = zip(*((i,i+k+j+1) if (i%k!=0 and i%k<=(k-j-1)) else (i, i+j+1) for i in range(n0, k*n1+n0-k-j-1)))
-                #print(list(ix))
-                self.adj[tuple(ix)] = seq    
+                seq = self.rng.rand(k*n1-k-j-1) < gamma
+                ix = zip(*((i,i+k+j+1) if (i%k!=0 and i%k<=(k-j-1)) else (i, i+j+1)
+                           for i in range(n0, k*n1+n0-k-j-1)))
+                self.adj[tuple(ix)] = seq
+
     def as_graph(self):
         return nx.DiGraph(self.adj)
 #end BiTree

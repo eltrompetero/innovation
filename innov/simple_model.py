@@ -16,7 +16,7 @@ from .utils import *
 
 
 
-def L_linear(G, ro, rd, I, k=1, alpha=1., Q=2):
+def L_linear(G, ro, rd, I, alpha=1., Q=2):
     """Lattice length given linear pseudogap approximation.
 
     Parameters
@@ -2174,9 +2174,12 @@ class GridSearchFitter():
 #end GridSearchFitter
 
 
-class ODE2_network():
+class ODE2Trees():
     def __init__(self, G, ro, rd, I, gamma, k, L=None, alpha=1., Q=2):
-        """Class for second-order analytic solution to MFT.
+        """Class for second-order analytic solution to MFT on tree-truss
+        parameterization.
+
+        TODO: naming of parameters in class are unintuitive
 
         Parameters
         ----------
@@ -2188,11 +2191,11 @@ class ODE2_network():
             Rescaled death rate.
         I : float
             Innovation rate.
-        L : float, None
         gamma: float
             network rewiring fraction between consecutive generations
         k: int
-            number of trains (branching ratio)
+            number of trains (usual branching ratio minus one)
+        L : float, None
         alpha : float, 1.
             Cooperativity.
         Q : int, 2
@@ -2201,8 +2204,8 @@ class ODE2_network():
         self.G = float(G/k)
         self.ro = float(ro)
         self.rd = float(rd)
-        self.I = float(I*(1+gamma*(k-1)))
         self.k = k
+        self.I = float(I*(1+gamma*(k-1)))  # rescaled innovation rate
         self.gamma = float(gamma)
         self.alpha = alpha
         self.Q = Q
@@ -2240,8 +2243,6 @@ class ODE2_network():
             rd = self.rd
             I = self.I
             re = 1
-            gamma = self.gamma
-            k=self.k
             
             z = -re**2 - 4*re*ro + ro**2 + 2*rd*(re+ro)
             sol = (G / ((np.exp(2*sqrt(z)/(re+ro))-1) * L * (re-rd)) *
