@@ -2174,7 +2174,7 @@ class GridSearchFitter():
 #end GridSearchFitter
 
 
-class ODE2Trees():
+class ODE2Tree():
     def __init__(self, G, ro, rd, I, gamma, k, L=None, alpha=1., Q=2):
         """Class for second-order analytic solution to MFT on tree-truss
         parameterization.
