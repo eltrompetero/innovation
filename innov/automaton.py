@@ -156,13 +156,13 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
             
             # select new sites for innovation front if not present in obsolescence or subpopulated graph 
-            new_front_ix = front_moved @ Ady * jnp.invert(jnp.logical_xor(obs_sub, in_sub_pop))
+            new_front_ix = front_moved @ Ady * ~jnp.logical_xor(obs_sub, in_sub_pop)
             
             # add new nodes to the innovation front
             inn_front = jnp.logical_or(inn_front, new_front_ix)
             # no parents of the innovation front should also be in the innovation front b/c their
             # children are
-            inn_front = jnp.logical_and(inn_front, jnp.invert(jnp.logical_and(front_moved @ Ady.T, in_sub_pop)))
+            inn_front = jnp.logical_and(inn_front, ~jnp.logical_and(front_moved @ Ady.T, in_sub_pop))
             
             # now, add nodes in new innovation front to populated subgraph (must come after removing parent nodes)
             in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
@@ -289,13 +289,13 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # move into all children vertices if not in the innovation front
         key, subkey = random.split(key)
         new_front_ix = front_moved @ Ady
-        new_front_ix = new_front_ix * jnp.invert(inn_front)
+        new_front_ix = new_front_ix * ~inn_front
         
         # add new sites to obsolescence front
         obs_sub = jnp.logical_or(obs_sub, new_front_ix)
         
         # remove new sites from sub populated graph
-        in_sub_pop = in_sub_pop * jnp.invert(obs_sub)
+        in_sub_pop = in_sub_pop * ~obs_sub
         
         return key, obs_sub, in_sub_pop, inn_front
 
@@ -333,7 +333,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         key, obs_sub, in_sub_pop, inn_front = move_obs_front(key, obs_sub, in_sub_pop, inn_front)
     #     debug.print("OBS {x}", x=n[:10])
  
-       
         return [key, inn_front, obs_sub, in_sub_pop, n]
 
     init_vars = init_fcn(Ady.shape[0],
@@ -348,7 +347,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         save_dt : float
             dt between saves.
         tmax : float
-            Simulation runtime.
+            Simulation runtime is tmax * dt.
         """
         inn_front_1, obs_sub_1, in_sub_pop_1, n_1 = init_vars[1:]
         
