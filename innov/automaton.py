@@ -124,11 +124,12 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
 
     @jit
     def move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n):
-        """Move all innovation fronts stochastically.
+        """Move innovation fronts stochastically. When progressing, move to
+        occupy all children nodes.
         
         Parameters
         ----------
-        key
+        key : jax.random.PRNGKey
         inn_front : boolean array
             Indicates sites that are innovation fronts using True.
         in_sub_pop : boolean array
@@ -142,28 +143,27 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         -------
         key
         inn_front
+        in_sub_pop
         """
         # randomly choose innovation fronts to move
         key, subkey = random.split(key)
         front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
         
         # select new sites for innovation front if not present in obsolescence or subpopulated graph 
-        key, subkey = random.split(key)
         new_front_ix = front_moved @ Ady * jnp.invert(jnp.logical_xor(obs_sub, in_sub_pop))
-        old_front_ix = front_moved
         
-        # add new nodes to the innovation front, remove oll nodes from the innovation front
+        # add new nodes to the innovation front, remove parent nodes from the innovation front
         inn_front = jnp.logical_or(inn_front, new_front_ix)
-        inn_front = jnp.logical_xor(inn_front, old_front_ix)
+        inn_front = jnp.logical_xor(inn_front, front_moved)
         
-        # add new nodes to sub populated graph
-        in_sub_pop = jnp.logical_or(in_sub_pop, new_front_ix)
+        # add nodes in new innovation front to populated subgraph
+        in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
         
         return key, inn_front, in_sub_pop
 
     @jit
     def move_innov_front(key, inn_front, in_sub_pop, n):
-        """Move all innovation fronts stochastically.
+        """Move innovation fronts stochastically to one child node.
         
         Parameters
         ----------
@@ -192,9 +192,9 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # remove parent innovation fronts
         inn_front = jnp.logical_xor(inn_front, front_moved)
         # set children innovation fronts
-        inn_front = inn_front.at[new_front_ix].set(True)
+        inn_front = jnp.logical_or(inn_front, new_front_ix)
         inn_front = inn_front.at[:,0].set(False)  # bookkeeping
-        in_sub_pop = in_sub_pop.at[new_front_ix].set(True)
+        in_sub_pop = jnp.logical_or(in_sub_pop, new_front_ix)
         
         return key, inn_front, in_sub_pop
 
@@ -257,8 +257,8 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         
         # death
         key, subkey = random.split(key)
-        to_died = random.poisson(subkey, rd * n * dt)
-        n = n - jnp.minimum(n, to_died)
+        to_die = random.poisson(subkey, rd * n * dt)
+        n = n - jnp.minimum(n, to_die)
 
         # growth
         key, subkey = random.split(subkey)
