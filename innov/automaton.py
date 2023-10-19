@@ -4,6 +4,7 @@
 from jax import jit, vmap, config, random, device_put, devices
 from jax.lax import fori_loop, cond
 import jax.numpy as jnp
+from jax.experimental.sparse import todense
 #import torch
 
 
@@ -71,7 +72,7 @@ def decompress_density(n, ix, ix0=0, ix1=None):
     jnp.ndarray
         Density array.
     """
-    filled_n = jnp.zeros(ix.max()-min(ix.min(), ix0), dtype=jnp.int32)
+    filled_n = jnp.zeros(ix.max()-min(ix.min(), ix0)+1, dtype=jnp.int32)
     filled_n = filled_n.at[ix].set(n)
 
     if ix1 is None:
@@ -89,7 +90,8 @@ def decompress_density(n, ix, ix0=0, ix1=None):
 # Sim code #
 # ======== #
 def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
-                   init_fcn):
+                   init_fcn,
+                   innov_front_mode='explorer'):
     """Compile JAX functions necessary to run automaton simulation.
 
     Parameters
@@ -107,6 +109,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     Ady : jax.numpy.ndarray
     init_fcn : function
         To set up the initial parameter values for running.
+    innov_front_mode : str, 'explorer'
     """
     # initialize graph properties
     n = jnp.zeros((samples, N), dtype=jnp.int32)
@@ -117,86 +120,147 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
     sites = jnp.arange(N, dtype=jnp.int32)
+    new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
+    sons = Ady.sum(1)
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
 
-    @jit
-    def move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n):
-        """Move innovation fronts stochastically. When progressing, move to
-        occupy all children nodes.
-        
-        Parameters
-        ----------
-        key : jax.random.PRNGKey
-        inn_front : boolean array
-            Indicates sites that are innovation fronts using True.
-        in_sub_pop : boolean array
-            Indicates which sites are in the populated subgraph.
-        obs_sub : boolean array
-            Indicates sites that are obsolescence fronts using True.
-        n : jnp.ndarray
-            Density values.
-        
-        Returns
-        -------
-        key
-        inn_front
-        in_sub_pop
-        """
-        # randomly choose innovation fronts to move
-        key, subkey = random.split(key)
-        front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
-        
-        # select new sites for innovation front if not present in obsolescence or subpopulated graph 
-        new_front_ix = front_moved @ Ady * jnp.invert(jnp.logical_xor(obs_sub, in_sub_pop))
-        
-        # add new nodes to the innovation front, remove parent nodes from the innovation front
-        inn_front = jnp.logical_or(inn_front, new_front_ix)
-        inn_front = jnp.logical_xor(inn_front, front_moved)
-        
-        # add nodes in new innovation front to populated subgraph
-        in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
-        
-        return key, inn_front, in_sub_pop
+    if innov_front_mode=='explorer':
+        @jit
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
+            """Move innovation fronts stochastically. When progressing, move to
+            occupy all children nodes.
+            
+            Parameters
+            ----------
+            key : jax.random.PRNGKey
+            inn_front : boolean array
+                Indicates sites that are innovation fronts using True.
+            in_sub_pop : boolean array
+                Indicates which sites are in the populated subgraph.
+            obs_sub : boolean array
+                Indicates sites that are obsolescence fronts using True.
+            n : jnp.ndarray
+                Density values.
+            
+            Returns
+            -------
+            key
+            inn_front
+            in_sub_pop
+            """
+            # randomly choose innovation fronts to move
+            key, subkey = random.split(key)
+            front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
+            
+            # select new sites for innovation front if not present in obsolescence or subpopulated graph 
+            new_front_ix = front_moved @ Ady * jnp.invert(jnp.logical_xor(obs_sub, in_sub_pop))
+            
+            # add new nodes to the innovation front
+            inn_front = jnp.logical_or(inn_front, new_front_ix)
+            # no parents of the innovation front should also be in the innovation front b/c their
+            # children are
+            inn_front = jnp.logical_and(inn_front, jnp.invert(jnp.logical_and(front_moved @ Ady.T, in_sub_pop)))
+            
+            # now, add nodes in new innovation front to populated subgraph (must come after removing parent nodes)
+            in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
+            
+            return key, inn_front, in_sub_pop
 
-    @jit
-    def move_innov_front(key, inn_front, in_sub_pop, n):
-        """Move innovation fronts stochastically to one child node.
-        
-        Parameters
-        ----------
-        key
-        inn_front : boolean array
-            Indicates sites that are innovation fronts using True.
-        in_sub_pop : boolean array
-            Indicates which sites are in the populated subgraph.
-        n : jnp.ndarray
-            Density values.
-        
-        Returns
-        -------
-        key
-        inn_front
-        in_sub_pop
-        """
-        # randomly choose innovation fronts to move
-        key, subkey = random.split(key)
-        front_moved = in_sub_pop * (random.uniform(subkey, (N,)) > (1 - r*I*dt*n))
-        
-        # randomly choose amongst children to move innovation to
-        key, subkey = random.split(key)
-        new_front_ix = jnp.argmax(Ady * random.uniform(subkey, (N,N)), axis=1) * front_moved
-        
-        # remove parent innovation fronts
-        inn_front = jnp.logical_xor(inn_front, front_moved)
-        # set children innovation fronts
-        inn_front = jnp.logical_or(inn_front, new_front_ix)
-        inn_front = inn_front.at[:,0].set(False)  # bookkeeping
-        in_sub_pop = jnp.logical_or(in_sub_pop, new_front_ix)
-        
-        return key, inn_front, in_sub_pop
+    elif innov_front_mode=='single_explorer':
+        @jit
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
+            """Move innovation fronts stochastically to one child node. Parent node
+            remains part of the front as long as at least one child is not occupied
+            and leave as soon as all children nodes are occupied.
+            
+            Parameters
+            ----------
+            key : jax.random.PRNGKey
+            inn_front : boolean array
+                Indicates sites that are innovation fronts using True.
+            in_sub_pop : boolean array
+                Indicates which sites are in the populated subgraph.
+            n : jnp.ndarray
+                Density values.
+            
+            Returns
+            -------
+            key
+            inn_front
+            in_sub_pop
+            """
+            # randomly choose innovation fronts to move
+            key, subkey = random.split(key)
+            front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
+
+            # randomly choose amongst children to move innovation front to
+            key, subkey = random.split(key)
+            new_front_ix = (Ady * random.uniform(subkey, (N,N))).todense().argmax(1)
+            new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
+            # make sure the parent was one of the moving innov fronts
+            new_front = new_front.at[(jnp.arange(N), new_front_ix)].set(True) & (front_moved @ Ady)
+
+            # set children innovation fronts
+            inn_front = jnp.logical_or(inn_front, new_front)
+            inn_front = inn_front.at[:,0].set(False)  # bookkeeping
+
+            # advance populated subgraph to innovation front
+            in_sub_pop = jnp.logical_or(in_sub_pop, new_front)
+
+            # remove parent innovation fronts only if all children are in populated subgraph
+            inn_front = jnp.logical_and(inn_front, ~((in_sub_pop.astype(jnp.int16) @ Ady.T)==sons.todense()))
+
+            return key, inn_front, in_sub_pop
+
+    elif innov_front_mode=='ant':
+        @jit
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
+            """Move innovation fronts stochastically to one child node. Parent node
+            is no longer part of the front afterwards.
+            
+            Parameters
+            ----------
+            key : jax.random.PRNGKey
+            inn_front : boolean array
+                Indicates sites that are innovation fronts using True.
+            in_sub_pop : boolean array
+                Indicates which sites are in the populated subgraph.
+            n : jnp.ndarray
+                Density values.
+            
+            Returns
+            -------
+            key
+            inn_front
+            in_sub_pop
+            """
+            # randomly choose innovation fronts to move
+            key, subkey = random.split(key)
+            front_moved = in_sub_pop * (random.uniform(subkey, (samples,N)) > (1 - r*I*dt*n))
+            
+            # randomly choose amongst children to move innovation to
+            key, subkey = random.split(key)
+            new_front_ix = (Ady * random.uniform(subkey, (N,N))).todense().argmax(1)
+            new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
+            # make sure the parent was one of the moving innov fronts
+            new_front = new_front.at[(jnp.arange(N), new_front_ix)].set(True) & (front_moved @ Ady)
+
+            # remove parent innovation fronts
+            inn_front = jnp.logical_xor(inn_front, front_moved)
+
+            # set children innovation fronts
+            inn_front = jnp.logical_or(inn_front, new_front)
+            inn_front = inn_front.at[:,0].set(False)  # bookkeeping
+
+            # move populated subgraph
+            in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
+            
+            return key, inn_front, in_sub_pop
+    else:
+        raise NotImplementedError("innov_front_mode not recognized.")
 
     @jit
     def move_obs_front(key, obs_sub, in_sub_pop, inn_front):
@@ -245,7 +309,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         n = val[4]
         
         # move innovation front
-        key, inn_front, in_sub_pop = move_innov_front_explorer(key, inn_front, in_sub_pop, obs_sub, n)
+        key, inn_front, in_sub_pop = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n)
     #     debug.print("{x}", x=inn_front)
         
         # replicate
