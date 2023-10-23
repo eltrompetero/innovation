@@ -9,16 +9,16 @@ import jax.numpy as jnp
 from .utils import *
 
 
-class BiTree():
-    def __init__(self, n0, n1, k, gamma=0, rng=None, sparse_adj=True):
+class KTree():
+    def __init__(self, n0, n1, K, gamma=0, rng=None, sparse_adj=True):
         """
         Parameters
         ----------
         n0 : int
             Length of initial single branch.
         n1 : int
-            Length of the two branches to diverge from initial branch.
-        k: int
+            Length of the branches diverging from initial branch.
+        K: int
             number of chains in the network
         gamma : float, 0.
             Probability of connection between parallel branches.
@@ -28,35 +28,48 @@ class BiTree():
         """
         self.gamma = gamma
         if sparse_adj:
-            self.adj = sparse.lil_array((n0+n1*k, n0+n1*k), dtype=np.bool_)
+            self.adj = sparse.lil_array((n0+n1*K, n0+n1*K), dtype=np.bool_)
         else:
-            self.adj = np.zeros((n0+n1*k, n0+n1*k), dtype=np.bool_)
+            self.adj = np.zeros((n0+n1*K, n0+n1*K), dtype=np.bool_)
         self.rng = rng if not rng is None else np.random
 
         # create first, shared root branch
-        ix = zip(*((i,i+1) for i in range(n0)))
+        ix = zip(*((i,i+1) for i in range(n0-1)))
         self.adj[tuple(ix)] = True
-        # create interleaved representation of k branches
-        ix = zip(*((i,i+k) for i in range(n0, k*n1+n0-k)))
+        # create interleaved representation of K branches
+        ix = zip(*((i,i+K) for i in range(n0, n0+K*n1-K)))
         self.adj[tuple(ix)] = True
 
         # create connections between branches
-        for i in range(k):
+        for i in range(K):
             self.adj[n0-1,n0+i] = True        
-        # random connections
-        if gamma:
-            #seq = self.rng.rand(k*k*n1-1)<gamma
-            #seq = self.rng.rand(2*n1-1)<gamma
-            for j in range(k-1):
-                seq = self.rng.rand(k*n1-k-j-1) < gamma
-                ix = zip(*((i,i+k+j+1) if (i%k!=0 and i%k<=(k-j-1)) else (i, i+j+1)
-                           for i in range(n0, k*n1+n0-k-j-1)))
+        if gamma==1:
+            # take every branch pair and randomly connect sequential generations with probability gamma
+            # must consider both ordered directions of connections
+            for i, j in combinations(range(K), 2):
+                # from i->j
+                ix = zip(*((n0+i+K*el,n0+j+K*(el+1)) for el in range(n1-1)))
+                self.adj[tuple(ix)] = True
+
+                # from j->i
+                ix = zip(*((n0+j+K*el,n0+i+K*(el+1)) for el in range(n1-1)))
+                self.adj[tuple(ix)] = True
+        elif gamma:
+            # random connections
+            for i, j in combinations(range(K), 2):
+                # from i->j
+                seq = self.rng.rand(n1-1) < gamma
+                ix = zip(*((n0+i+K*el,n0+j+K*(el+1)) for el in range(n1-1)))
+                self.adj[tuple(ix)] = seq
+
+                # from j->i
+                seq = self.rng.rand(n1-1) < gamma
+                ix = zip(*((n0+j+K*el,n0+i+K*(el+1)) for el in range(n1-1)))
                 self.adj[tuple(ix)] = seq
 
     def as_graph(self):
         return nx.DiGraph(self.adj)
-#end BiTree
-
+#end KTree
 
 class JaxBiTree():
     def __init__(self, n0, n1, gamma=0, seed=0):
@@ -165,14 +178,32 @@ def create_directed_tree(N, k, density):
 
     return G
 
-def draw_directed_tree(network, pos):
-    if pos == 0:
-        pos = graphviz_layout(network, prog='dot')
-        nx.draw(network, pos, with_labels=True, node_size=20, node_color='skyblue', font_size=10, font_weight='bold', arrows=True)
-        plt.show()
-    else:
-        nx.draw(network, pos, with_labels=True, node_size=20, node_color='skyblue', font_size=10, font_weight='bold', arrows=True)
-        plt.show()
+def draw_directed_tree(G, pos=None, ax=None,
+                       node=True, edge=True, label=False):
+    if ax is None:
+        fig, ax = plt.subplots()
+    if not pos is None:
+        pos = graphviz_layout(G, prog='dot')
+
+    if edge:
+        nx.draw_networkx_edges(G, pos,
+                            ax=ax,
+                            arrows=True, alpha=.5)
+    if node:
+        nx.draw_networkx_nodes(G, pos,
+                            ax=ax,
+                            node_size=20,
+                            node_color='skyblue')
+    if label:
+        nx.draw_networkx_labels(G, pos,
+                                ax=ax,
+                                labels=dict(zip(list(G.nodes), list(G.nodes))),
+                                font_size=10,
+                                font_weight='bold');
+    
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
     return pos
 
 def select_largest_component(adj):

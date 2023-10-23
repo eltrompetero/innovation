@@ -349,7 +349,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         tmax : float
             Simulation runtime is tmax * dt.
         """
-        inn_front_1, obs_sub_1, in_sub_pop_1, n_1 = init_vars[1:]
+        key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1 = init_vars
         
         n = [n_1]
         inn_front = [inn_front_1]
