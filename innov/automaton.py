@@ -122,7 +122,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     sites = jnp.arange(N, dtype=jnp.int32)
     new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
-    sons = Ady.sum(1)
+    sons = Ady.sum(1).todense()
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
@@ -155,17 +155,19 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             key, subkey = random.split(key)
             front_moved = jnp.logical_and(inn_front, (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n)))
             
-            # select new sites for innovation front if not present in obsolescence or subpopulated graph 
+            # select new sites for innovation front, if not present in obsolescence or subpopulated graph 
             new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
             
             # add new nodes to the innovation front
             inn_front = jnp.logical_or(inn_front, new_front_ix)
-            # no parents of the innovation front should also be in the innovation front b/c their
-            # children are
-            inn_front = jnp.logical_and(inn_front, ~jnp.logical_and(inn_front @ Ady.T, in_sub_pop))
-            
+           
             # now, add nodes in new innovation front to populated subgraph (must come after removing parent nodes)
             in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
+
+            # remove parent innovation fronts only if all children are in populated subgraph
+            # must do this way (instead of removing parents who have children in innovation front)
+            # because of colliding fronts
+            inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
             
             return key, inn_front, in_sub_pop
 
@@ -211,7 +213,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             in_sub_pop = jnp.logical_or(in_sub_pop, new_front)
 
             # remove parent innovation fronts only if all children are in populated subgraph
-            inn_front = jnp.logical_and(inn_front, ~((in_sub_pop.astype(jnp.int16) @ Ady.T)==sons.todense()))
+            inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
             return key, inn_front, in_sub_pop
 
