@@ -153,16 +153,16 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             """
             # randomly choose innovation fronts to move
             key, subkey = random.split(key)
-            front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
+            front_moved = jnp.logical_and(inn_front, (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n)))
             
             # select new sites for innovation front if not present in obsolescence or subpopulated graph 
-            new_front_ix = front_moved @ Ady * ~jnp.logical_xor(obs_sub, in_sub_pop)
+            new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
             
             # add new nodes to the innovation front
             inn_front = jnp.logical_or(inn_front, new_front_ix)
             # no parents of the innovation front should also be in the innovation front b/c their
             # children are
-            inn_front = jnp.logical_and(inn_front, ~jnp.logical_and(front_moved @ Ady.T, in_sub_pop))
+            inn_front = jnp.logical_and(inn_front, ~jnp.logical_and(inn_front @ Ady.T, in_sub_pop))
             
             # now, add nodes in new innovation front to populated subgraph (must come after removing parent nodes)
             in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
