@@ -178,17 +178,26 @@ def create_directed_tree(N, k, density):
 
     return G
 
-def draw_directed_tree(G, pos=None, ax=None,
-                       node=True, edge=True, label=False):
+def draw_KTree(G, el, K, pos=None, ax=None,
+               node=True, edge=True, label=False,
+               dx=50, dy=50):
     if ax is None:
         fig, ax = plt.subplots()
-    if not pos is None:
-        pos = graphviz_layout(G, prog='dot')
+    if pos is None:
+        pos = []
+        for i in range(el[0]):
+            pos.append((0, -i*dy))
+        for i in range(el[1]):
+            for j in range(K):
+                pos.append((j*dx-(K-1)*dx/2, -dy*el[0] -i*dy))
+        pos = dict(zip(G.nodes, pos))
 
     if edge:
         nx.draw_networkx_edges(G, pos,
-                            ax=ax,
-                            arrows=True, alpha=.5)
+                               ax=ax,
+                               arrows=True,
+                               arrowstyle='->',
+                               alpha=.5)
     if node:
         nx.draw_networkx_nodes(G, pos,
                             ax=ax,
