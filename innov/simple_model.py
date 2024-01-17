@@ -1134,7 +1134,7 @@ def jit_while_loop(n, G, ro, rd, I, alpha, Q, dt, tol, T):
 
 
 class ODE2():
-    def __init__(self, G, ro, rd, I, L=None, alpha=1., Q=2):
+    def __init__(self, G, ro, rd, I, L=None, alpha=1., Q=2, **kwargs):
         """Class for second-order analytic solution to MFT.
 
         Parameters
@@ -1927,7 +1927,7 @@ class GridSearchFitter():
         self.x = x if not x is None else np.arange(y.size)
     
     def fit_length_scales(self, G, ro, rd, I,
-                          primary='flow', log=False, L_scale=.5, T=5e4,
+                          primary='flow', log=False, L_scale=.5, T=1e4,
                           **model_kw):
         """Find optimal length scales for one set of model parameter values.
 
@@ -1964,7 +1964,7 @@ class GridSearchFitter():
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
         # flow model
-        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+        model2 = FlowMFT(G, ro, rd, I, **model_kw)
         model2.solve_stationary(T=T, tol=1e-3)
         if primary=='flow':
             temp = model1
@@ -2013,7 +2013,7 @@ class GridSearchFitter():
                               log=False,
                               offset=0,
                               L_scale=.5,
-                              T=5e4,
+                              T=1e4,
                               ignore_nan=False,
                               **model_kw):
         """Find optimal length scales for one set of model parameter values but rescaling
@@ -2037,7 +2037,7 @@ class GridSearchFitter():
             Fraction of model width that corresponds to data width, i.e. when
             L_scale=1/2, it means that the model length will be twice as long as the
             data width as is counted by the discrete lattice.
-        T : float, 5e4
+        T : float, 1e4
         ignore_nan : bool, False
         **model_kw
 
@@ -2063,7 +2063,7 @@ class GridSearchFitter():
         # setup ODE and flow models
         model1 = ODE2(G, ro, rd, I, **model_kw)
         assert model1.L > 5 and model1.L < 10_000, model1.L
-        model2 = FlowMFT(G, ro, rd, I, dt=.1, **model_kw)
+        model2 = FlowMFT(G, ro, rd, I, **model_kw)
         model2.solve_stationary(T=T, tol=1e-3)
         
         if primary=='flow':

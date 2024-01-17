@@ -219,7 +219,7 @@ def fit_iwai():
     I_range = np.logspace(-2, -.5, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
-                              L_scale=2)
+                              L_scale=2, dt=.1)
     del_poor_fits(fit_results)
 
     save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
@@ -257,7 +257,7 @@ def fit_jangili(fit_ix):
         I_range = np.logspace(-3, 0, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
-                              L_scale=2)
+                              L_scale=2, dt=.1)
     del_poor_fits(fit_results)
 
     save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
@@ -281,7 +281,7 @@ def fit_covid(fit_ix):
     I_range = np.linspace(3, 5, 20)
 
     fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
-                              L_scale=.5, log=True, ignore_nan=True, rev=True, Q=br[fit_ix]+1)
+                              L_scale=.5, log=True, ignore_nan=True, rev=True, Q=br[fit_ix]+1, dt=.1)
     del_poor_fits(fit_results)
 
     if fit_ix==0:
@@ -304,12 +304,20 @@ def fit_prb(fit_range=None):
 
         # pre-selected fitting range from previous manual fits
         G_range = np.arange(60, 205, 5)
-        ro_range = np.linspace(1., 2., 20)
+        if i==0:
+            ro_range = np.logspace(.3, .7, 20)
+        else:
+            ro_range = np.linspace(1., 2.5, 20)
         rd_range = np.linspace(.75, 1.5, 20)
         I_range = np.logspace(.5, 1.5, 30)
+        
+        if i==4:
+            fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                                      rev=True, log=True, L_scale=.25, offset=1, dt=.01)
+        else:
+            fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
+                                      rev=True, log=True, L_scale=.25, offset=1, dt=.1)
 
-        fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
-                                  rev=True, log=True, L_scale=.25, offset=1)
         del_poor_fits(fit_results)
         
         save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],
@@ -346,7 +354,7 @@ def fit_patents(fit_range=None):
             I_range = np.logspace(-1.2, .3, 20)
 
             fit_results = fitter.scan(G_range, ro_range, rd_range, I_range,
-                                      rev=True, log=True, L_scale=6/51, offset=1)
+                                      rev=True, log=True, L_scale=6/51, offset=1, dt=.1)
             del_poor_fits(fit_results)
 
             save_pickle(['fit_results','y','fitter','G_range','ro_range','rd_range','I_range'],

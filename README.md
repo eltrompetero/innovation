@@ -1,6 +1,6 @@
 # Idea engines
 Code to accompany simple innovation/obsolescence model by Edward D. Lee, Chris
-P. Kempes, and Geoffrey B.  West. Preprint to be made available on arXiv.
+P. Kempes, and Geoffrey B. West. Accompanying manuscript published in PNAS.
 
 See "plotting.ipynb" for figures included in the manuscript.
 
