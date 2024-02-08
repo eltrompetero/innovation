@@ -22,8 +22,8 @@ def compute_P_O_1(N, τo, t, init):
     Compute the probability of observing a value of 1 in a network model.
 
     Parameters:
-    - N (int): The number of observations.
-    - τo (float): The time constant.
+    - N (int): The number of nodes.
+    - τo (float): obsolescence rate.
     - t (float): The time value.
     - init (float): The initial value.
 
