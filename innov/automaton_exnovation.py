@@ -5,7 +5,7 @@ from jax import jit, vmap, config, random, device_put, devices
 from jax.lax import fori_loop, cond
 import jax.numpy as jnp
 from jax.experimental.sparse import todense
-#import torch
+
 
 
 # ================ #
@@ -91,7 +91,7 @@ def decompress_density(n, ix, ix0=0, ix1=None):
 # ======== #
 def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
                    init_fcn,
-                   innov_front_mode='explorer', obs_mode = 'random'):
+                   innov_front_mode='all', obs_mode = 'all'):
     """Compile JAX functions necessary to run automaton simulation.
 
     Parameters
@@ -109,7 +109,10 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     Ady : jax.numpy.ndarray
     init_fcn : function
         To set up the initial parameter values for running.
-    innov_front_mode : str, 'explorer'
+    innov_front_mode : str, 'all'
+        Permitted to be 'all', 'single'.
+    obs_mode : str, 'random'
+        Permitted to be 'all', 'single'.
     """
     # initialize graph properties
     n = jnp.zeros((samples, N), dtype=jnp.int32)
@@ -127,10 +130,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
-    #print(inverse_sons)
     
-    x_obs = jnp.zeros((samples, N), dtype=jnp.float32)
-    x_inn = jnp.zeros((samples, N), dtype=jnp.float32)
     if innov_front_mode=='explorer_average':
         @jit
         def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
@@ -172,9 +172,10 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
             return key, inn_front, in_sub_pop, x_inn
-    elif innov_front_mode=='explorer':
+
+    elif innov_front_mode=='all':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
             
@@ -214,9 +215,9 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             # because of colliding fronts
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
             
-            return key, inn_front, in_sub_pop, x_inn
+            return key, inn_front, in_sub_pop
 
-    elif innov_front_mode=='single_explorer':
+    elif innov_front_mode=='single':
         @jit
         def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
             """Move innovation fronts stochastically to one child node. Parent node
@@ -312,7 +313,6 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     if obs_mode == 'average':
         @jit
         def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
-                #print("entree_average")
                 front_moved = adj_obs * (x_obs>1)
                 x_obs = x_obs*(x_obs<1)
                 x_obs+= ro*jnp.ones((samples, N), dtype=jnp.float32)*dt
@@ -329,17 +329,15 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
                 adj_obs = adj_obs * ~obs_sub
                 
                 return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
-    elif obs_mode =='random':
-        @jit
-        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
-            """Grow obsolescence subgraph stochastically.
 
-            TODO: allow obs subgraph to expand to all children instead of choosing one
-                  at a time
+    elif obs_mode =='all':
+        @jit
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs):
+            """Grow obsolescence subgraph stochastically. When it moves, move it to all children nodes.
 
             Parameters
             ----------
-            key
+            key : PRNG.key
             obs_sub : boolean array
                 Indicates sites that are obsolescence graph using True.
 
@@ -350,15 +348,13 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             in_sub_pop
             inn_front
             """
-            #print("entree")
             # randomly choose obsolesence sites to move
             key, subkey = random.split(key)
             front_moved = adj_obs * (random.uniform(subkey, (samples, N)) < (ro*dt))
-            parents_in_obs = (obs_sub@Ady)
-            x_obs+= ro*jnp.ones((samples, N), dtype=jnp.float32)*dt
+            parents_in_obs = obs_sub @ Ady
+            
             # move into all children vertices if not in the innovation front
             new_front_ix = front_moved @ Ady
-            #print(new_front_ix)
             #new_front_ix = new_front_ix * ~inn_front
 
             # add new sites to obsolescence front
@@ -368,11 +364,11 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             in_sub_pop = in_sub_pop * ~obs_sub
             inn_front = inn_front * ~obs_sub
             adj_obs = adj_obs * ~obs_sub
-            #print("obs_sub", obs_sub, "in_sub_pop", in_sub_pop, "inn_front", inn_front, "adj_obs", adj_obs, "x_obs", x_obs)
-            return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+            return key, obs_sub, in_sub_pop, inn_front, adj_obs
+
     elif obs_mode =='exnovation':
         @jit
-        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs):
             """Grow obsolescence subgraph stochastically.
 
             TODO: allow obs subgraph to expand to all children instead of choosing one
@@ -407,11 +403,14 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             in_sub_pop = in_sub_pop * ~obs_sub
             inn_front = inn_front * ~obs_sub
 
-            return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+            return key, obs_sub, in_sub_pop, inn_front, adj_obs
     else:
         raise NotImplementedError("obs_front_mode not recognized.")
+
     @jit
-    def one_loop(i, val):
+    def propagate(i, val):
+        """One iteration of the time dynamics.
+        """
         # read in values
         key = val[0]
         inn_front = val[1]
@@ -419,11 +418,9 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         in_sub_pop = val[3]
         n = val[4]
         adj_obs = val[5]
-        x_inn = val[6]
-        x_obs = val[7]
         
         # move innovation front
-        key, inn_front, in_sub_pop, x_inn = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn)
+        key, inn_front, in_sub_pop = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n)
     #     debug.print("{x}", x=inn_front)
         
         # replicate
@@ -433,6 +430,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     #     debug.print("DREP {x}", x=(Ady.T @ (r * inverse_sons * n * dt))[:10])
     #     debug.print("REP {x}", x=n[:10])
         
+        # death
         key, subkey = random.split(key)
         to_die = random.poisson(subkey, rd * n * dt)
         n = n - to_die
@@ -441,15 +439,13 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         # growth
         key, subkey = random.split(subkey)
         G_dt = random.poisson(subkey, G_in*dt/in_sub_pop.sum(axis=1), (N, samples))
-        #print((G_dt.T*in_sub_pop), jnp.sum((G_dt.T*in_sub_pop), axis=1), 40*dt/in_sub_pop.sum(axis=1), in_sub_pop.sum(axis=1))
         n = (n + G_dt.T) * in_sub_pop
-        # death
 
         # obsolescence front 
-        key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs ,x_obs)
+        key, obs_sub, in_sub_pop, inn_front, adj_obs = move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs)
     #     debug.print("OBS {x}", x=n[:10])
  
-        return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, x_inn, x_obs]
+        return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs]
 
     init_vars = init_fcn(Ady.shape[0],
                          samples)
@@ -465,8 +461,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         tmax : float
             Simulation runtime is tmax * dt.
         """
-        #print("entreee")
-        key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1,adj_obs, x_inn_1, x_obs_1 = init_vars
+        key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1,adj_obs = init_vars
         
         n = [n_1]
         inn_front = [inn_front_1]
@@ -477,11 +472,11 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         for i in range(int(tmax/save_dt)):
             print(i, tmax/save_dt)
             if i==0:
-                out_vars = fori_loop(0, save_dt, one_loop, init_vars)
+                out_vars = fori_loop(0, save_dt, propagate, init_vars)
             else:
-                out_vars = fori_loop(0, save_dt, one_loop, out_vars)
+                out_vars = fori_loop(0, save_dt, propagate, out_vars)
             
-            key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1, adj_obs, x_inn_1, x_obs_1 = out_vars
+            key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1, adj_obs = out_vars
             n.append(n_1)
             inn_front.append(inn_front_1)
             obs_sub.append(obs_sub_1)
@@ -502,4 +497,4 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         in_sub_pop[-1] = device_put(in_sub_pop[-1], devices('cpu')[0])
 
         return key, t, n, inn_front, obs_sub, in_sub_pop
-    return init_vars, one_loop, run_save
+    return init_vars, propagate, run_save
