@@ -10,7 +10,12 @@ from warnings import warn
 from multiprocess import Pool, cpu_count
 from threadpoolctl import threadpool_limits
 import dill as pickle
-import duckdb as db
 from itertools import combinations
 from scipy.optimize import minimize
+from scipy import sparse
 
+# JAX modules
+import jax.numpy as jnp
+from jax import jit, vmap, config, random, device_put, devices
+from jax.lax import fori_loop, cond
+import jax.experimental.sparse as jsparse

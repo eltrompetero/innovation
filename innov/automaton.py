@@ -1,11 +1,12 @@
-# JAX automaton implemenation of innov/obs model on network.
+# JAX automaton implementation of innov/obs model on networks.
 # Authors: Eddie Lee, edlee@csh.ac.at
 #          Ernesto Ortega, ortega@csh.ac.at
+import time
 from jax import jit, vmap, config, random, device_put, devices
 from jax.lax import fori_loop, cond
 import jax.numpy as jnp
 from jax.experimental.sparse import todense
-#import torch
+import numpy as np
 
 
 # ================ #
@@ -86,12 +87,13 @@ def decompress_density(n, ix, ix0=0, ix1=None):
 
 
 
-# ======== #
-# Sim code #
-# ======== #
-def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
+# ============== #
+# Automaton code #
+# ============== #
+def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
                    init_fcn,
-                   innov_front_mode='explorer'):
+                   innov_front_mode='explorer',
+                   obs_mode = 'random'):
     """Compile JAX functions necessary to run automaton simulation.
 
     Parameters
@@ -101,9 +103,9 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     r : float
     rd : float
     I : float
-    G_in : float
+    r0 : float
     dt : float
-    ro : float
+    vo : float
     key : int
     samples : int
     Ady : jax.numpy.ndarray
@@ -116,6 +118,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
 
     # obsolescence sites must always have a presence on the initial graph condition
     obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)
+    adj_obs = jnp.zeros((samples, N), dtype=jnp.bool_)
     inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
@@ -126,10 +129,53 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
-
-    if innov_front_mode=='explorer':
+    
+    x_obs = jnp.zeros((samples, N), dtype=jnp.float32)
+    x_inn = jnp.zeros((samples, N), dtype=jnp.float32)
+    if innov_front_mode=='explorer_average':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
+            """Move innovation fronts stochastically. When progressing, move to
+            occupy all children nodes.
+
+            Parameters
+            ----------
+            key : jax.random.PRNGKey
+            inn_front : boolean array
+                Indicates sites that are innovation fronts using True.
+            in_sub_pop : boolean array
+                Indicates which sites are in the populated subgraph.
+            obs_sub : boolean array
+                Indicates sites that are obsolescence fronts using True.
+            n : jnp.ndarray
+                Density values.
+
+            Returns
+            -------
+            key
+            inn_front
+            in_sub_pop
+            """
+            # randomly choose innovation fronts to move
+            front_moved = jnp.logical_and(inn_front, (x_inn>=1.))
+            x_inn += r*I*n*dt*inn_front
+            # select new sites for innovation front, if not present in obsolescence or subpopulated graph 
+            new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
+            # add new nodes to the innovation front
+            inn_front = jnp.logical_or(inn_front, new_front_ix)
+
+            # now, add nodes in new innovation front to populated subgraph (must come after removing parent nodes)
+            in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
+
+            # remove parent innovation fronts only if all children are in populated subgraph
+            # must do this way (instead of removing parents who have children in innovation front)
+            # because of colliding fronts
+            inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
+
+            return key, inn_front, in_sub_pop, x_inn
+    elif innov_front_mode=='explorer':
+        @jit
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
             
@@ -153,7 +199,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             """
             # randomly choose innovation fronts to move
             key, subkey = random.split(key)
-            front_moved = jnp.logical_and(inn_front, (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n)))
+            front_moved = jnp.logical_and(inn_front, (random.uniform(subkey, (samples, N))> (1 - r*I*dt*n)))
             
             # select new sites for innovation front, if not present in obsolescence or subpopulated graph 
             new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
@@ -169,7 +215,7 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
             # because of colliding fronts
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
             
-            return key, inn_front, in_sub_pop
+            return key, inn_front, in_sub_pop, x_inn
 
     elif innov_front_mode=='single_explorer':
         @jit
@@ -264,42 +310,105 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
     else:
         raise NotImplementedError("innov_front_mode not recognized.")
 
-    @jit
-    def move_obs_front(key, obs_sub, in_sub_pop, inn_front):
-        """Grow obsolescence subgraph stochastically.
-        
-        TODO: allow obs subgraph to expand to all children instead of choosing one
-              at a time
-        
-        Parameters
-        ----------
-        key
-        obs_sub : boolean array
-            Indicates sites that are obsolescence graph using True.
-        
-        Returns
-        -------
-        key
-        obs_sub
-        in_sub_pop
-        inn_front
-        """
-        # randomly choose obsolesence sites to move
-        key, subkey = random.split(key)
-        front_moved = obs_sub * (random.uniform(subkey, (samples, 1)) < ro*dt)
-        
-        # move into all children vertices if not in the innovation front
-        key, subkey = random.split(key)
-        new_front_ix = front_moved @ Ady
-        new_front_ix = new_front_ix * ~inn_front
-        
-        # add new sites to obsolescence front
-        obs_sub = jnp.logical_or(obs_sub, new_front_ix)
-        
-        # remove new sites from sub populated graph
-        in_sub_pop = in_sub_pop * ~obs_sub
-        
-        return key, obs_sub, in_sub_pop, inn_front
+    if obs_mode == 'average':
+        @jit
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+                #print("entree_average")
+                front_moved = adj_obs * (x_obs>1)
+                x_obs = x_obs*(x_obs<1)
+                x_obs+= vo*adj_obs+jnp.ones((samples, N), dtype=jnp.float32)*dt
+                # move into all children vertices if not in the innovation front
+                new_front_ix = front_moved @ Ady
+                #new_front_ix = new_front_ix * ~inn_front
+
+                # add new sites to obsolescence front
+                obs_sub = jnp.logical_or(obs_sub, front_moved)
+                adj_obs = jnp.logical_or(adj_obs, new_front_ix)
+                # remove new sites from sub populated graph
+                in_sub_pop = in_sub_pop * ~obs_sub
+                inn_front = inn_front * ~obs_sub
+                adj_obs = adj_obs * ~obs_sub
+                
+                return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+    elif obs_mode =='random':
+        @jit
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+            """Grow obsolescence subgraph stochastically.
+
+            TODO: allow obs subgraph to expand to all children instead of choosing one
+                  at a time (isn't this already done bleow?)
+
+            Parameters
+            ----------
+            key
+            obs_sub : boolean array
+                Indicates sites that are obsolescence graph using True.
+
+            Returns
+            -------
+            key
+            obs_sub
+            in_sub_pop
+            inn_front
+            """
+            # randomly choose obsolesence sites to move
+            key, subkey = random.split(key)
+            front_moved = adj_obs * (random.uniform(subkey, (samples, N)) < (vo*dt))
+            x_obs+= vo*adj_obs*jnp.ones((samples, N), dtype=jnp.float32)*dt
+            # move into all children vertices if not in the innovation front
+            new_front_ix = front_moved @ Ady
+            #print(new_front_ix)
+            #new_front_ix = new_front_ix * ~inn_front
+
+            # add new sites to obsolescence front
+            obs_sub = jnp.logical_or(obs_sub, front_moved)
+            adj_obs = jnp.logical_or(adj_obs, new_front_ix)
+            # remove new sites from sub populated graph
+            in_sub_pop = in_sub_pop * ~obs_sub
+            inn_front = inn_front * ~obs_sub
+            adj_obs = adj_obs * ~obs_sub
+            #print("obs_sub", obs_sub, "in_sub_pop", in_sub_pop, "inn_front", inn_front, "adj_obs", adj_obs, "x_obs", x_obs)
+            return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+    elif obs_mode =='exnovation':
+        @jit
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+            """Grow obsolescence subgraph stochastically.
+
+            TODO: allow obs subgraph to expand to all children instead of choosing one
+                  at a time
+
+            Parameters
+            ----------
+            key
+            obs_sub : boolean array
+                Indicates sites that are obsolescence graph using True.
+
+            Returns
+            -------
+            key
+            obs_sub
+            in_sub_pop
+            inn_front
+            """
+            # randomly choose obsolesence sites to move
+            key, subkey = random.split(key)
+            front_moved = obs_sub * (random.uniform(subkey, (samples, N)) > (1 - vo*dt*n))
+
+            # move into all children vertices if not in the innovation front
+            key, subkey = random.split(key)
+            new_front_ix = front_moved @ Ady
+            #new_front_ix = new_front_ix * ~inn_front
+
+            # add new sites to obsolescence front
+            obs_sub = jnp.logical_or(obs_sub, new_front_ix)
+
+            # remove new sites from sub populated graph
+            in_sub_pop = in_sub_pop * ~obs_sub
+            inn_front = inn_front * ~obs_sub
+
+            return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+    else:
+        raise NotImplementedError("obs_front_mode not recognized.")
 
     @jit
     def one_loop(i, val):
@@ -309,82 +418,103 @@ def setup_auto_sim(N, r, rd, I, G_in, dt, ro, key, samples, Ady,
         obs_sub = val[2]
         in_sub_pop = val[3]
         n = val[4]
-        
-        # move innovation front
-        key, inn_front, in_sub_pop = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n)
-    #     debug.print("{x}", x=inn_front)
+        adj_obs = val[5]
+        x_inn = val[6]
+        x_obs = val[7]
         
         # replicate
         key, subkey = random.split(key)
-        to_replicate = random.poisson(subkey, ((r * inverse_sons * n * dt) @ Ady))
-        n = n + to_replicate*in_sub_pop
+        to_replicate = random.poisson(subkey, ((r * inverse_sons * n * in_sub_pop * dt) @ Ady))
+        #n = n + to_replicate*in_sub_pop
     #     debug.print("DREP {x}", x=(Ady.T @ (r * inverse_sons * n * dt))[:10])
     #     debug.print("REP {x}", x=n[:10])
         
-        # death
         key, subkey = random.split(key)
         to_die = random.poisson(subkey, rd * n * dt)
-        n = n - jnp.minimum(n, to_die)
-
+        #n = n - to_die
+        
         # growth
         key, subkey = random.split(subkey)
-        G_dt = random.poisson(subkey, G_in*dt/in_sub_pop.sum(axis=1), (N, samples))
-        n = (n + G_dt.T) * in_sub_pop
+        G_dt = random.poisson(subkey, r0*dt/in_sub_pop.sum(axis=1), (N, samples))
+        n = (n + G_dt.T* in_sub_pop + to_replicate*in_sub_pop - to_die)*in_sub_pop
+        n = n*(n>0)
+        # death
 
         # obsolescence front 
-        key, obs_sub, in_sub_pop, inn_front = move_obs_front(key, obs_sub, in_sub_pop, inn_front)
+        key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs ,x_obs)
     #     debug.print("OBS {x}", x=n[:10])
+        # move innovation front
+        key, inn_front, in_sub_pop, x_inn = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn)
+    #     debug.print("{x}", x=inn_front)
  
-        return [key, inn_front, obs_sub, in_sub_pop, n]
+        return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, x_inn, x_obs]
 
     init_vars = init_fcn(Ady.shape[0],
                          samples)
 
-    def run_save(init_vars, save_dt, tmax):
+    def run_save(key, out_vars, save_steps, max_steps, iprint=True):
         """
         Parameters
         ----------
-        init_vars : list
-            Initial state in which to start simulations.
-        save_dt : float
+        out_vars : list
+            Initial state with which to start simulation.
+        save_steps : float
             dt between saves.
-        tmax : float
-            Simulation runtime is tmax * dt.
+        max_steps : float
+            Simulation runtime is max_steps * dt.
+
+        Returns
+        -------
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
         """
-        key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1 = init_vars
-        
-        n = [n_1]
-        inn_front = [inn_front_1]
-        obs_sub = [obs_sub_1]
-        in_sub_pop = [in_sub_pop_1]
-        t = [0]
-        
-        for i in range(int(tmax/save_dt)):
-            if i==0:
-                out_vars = fori_loop(0, save_dt, one_loop, init_vars)
-            else:
-                out_vars = fori_loop(0, save_dt, one_loop, out_vars)
-            
-            key, inn_front_1, obs_sub_1, in_sub_pop_1, n_1 = out_vars
-            n.append(n_1)
-            inn_front.append(inn_front_1)
-            obs_sub.append(obs_sub_1)
-            in_sub_pop.append(in_sub_pop_1)
-            t.append((i+1)*save_dt)
+        assert save_steps<=max_steps
 
-            # move previous results into CPU mem
-            n[-2] = [compress_density(n_) for n_ in n[-2]]
-            n[-2] = device_put(n[-2], devices('cpu')[0])
-            inn_front[-2] = device_put(inn_front[-2], devices('cpu')[0])
-            obs_sub[-2] = device_put(obs_sub[-2], devices('cpu')[0])
-            in_sub_pop[-2] = device_put(in_sub_pop[-2], devices('cpu')[0])
-        
-        # move previous results into CPU mem
-        n[-1] = [compress_density(n_) for n_ in n[-1]]
-        n[-1] = device_put(n[-1], devices('cpu')[0])
-        inn_front[-1] = device_put(inn_front[-1], devices('cpu')[0])
-        obs_sub[-1] = device_put(obs_sub[-1], devices('cpu')[0])
-        in_sub_pop[-1] = device_put(in_sub_pop[-1], devices('cpu')[0])
+        # initialize variables
+        xinn = jnp.zeros((samples, Ady.shape[0]), dtype=jnp.float32)
+        xobs = jnp.zeros((samples, Ady.shape[0]), dtype=jnp.float32)
+        out_vars = fori_loop(0, save_steps, one_loop, [key]+list(out_vars)+[xinn, xobs])
 
-        return key, t, n, inn_front, obs_sub, in_sub_pop
+        # output vars to move to RAM
+        key = np.zeros((max_steps, 2), dtype=np.uint32)
+        inn_front = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
+        obs_front = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
+        in_sub_pop = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
+        adj_obs = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
+        n = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.float32)
+        x_inn = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.float32)
+        x_obs = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.float32)
+
+        total_t = 0
+        total_reading_t = 0
+        t0 = time.time()
+        for i in range(max_steps//save_steps):
+            if iprint: print(i, i*save_steps, '/', max_steps)
+            if i>0:
+                out_vars = fori_loop(0, save_steps, one_loop, out_vars)
+        
+            t0r = time.time()
+            key[i] = out_vars[0]
+            inn_front[i,:,:] = out_vars[1]
+            obs_front[i,:,:] = out_vars[2]
+            in_sub_pop[i,:,:] = out_vars[3]
+            n[i,:,:] = out_vars[4]
+            adj_obs[i,:,:] = out_vars[5]
+            x_inn[i,:,:] = out_vars[6]
+            x_obs[i,:,:] = out_vars[7]
+            total_reading_t += time.time()-t0r
+        total_t = time.time()-t0
+
+        if iprint:
+            print("Total time reading out vars", total_reading_t)
+            print("Total time", total_t)
+            print("Fraction reading", total_reading_t/total_t)
+
+        return key, inn_front, obs_front, in_sub_pop, n, adj_obs, x_inn, x_obs
     return init_vars, one_loop, run_save

@@ -7,49 +7,18 @@ from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from cmath import sqrt
 from scipy.special import gammaln, logsumexp
-import warnings
-from jax import jit, vmap, config, random, device_put, devices
-from jax.lax import fori_loop, cond
-import jax.numpy as jnp
-from jax.experimental.sparse import todense
 
-from workspace.utils import save_pickle
 from .utils import *
 
-
-
 def compute_P_O_1(N, τo, t, init):
-    """Compute the probability of observing a value of 1 in a network model.
+        logP_O = np.zeros(N)
+        for i in range(N):
+            logP_O[i] = np.log(τo)*i - τo*t + np.log(t)*i - gammaln(i+1)
 
-    Parameters
-    ----------
-    - N (int): The number of nodes.
-    - τo (float): obsolescence rate.
-    - t (float): The time value.
-    - init (float): The initial value.
+        return np.exp(logP_O - logsumexp(logP_O))
 
-    Returns
-    -------
-    - numpy.ndarray: The computed probability of observing a value of 1.
-    """
-    logP_O = np.zeros(N)
-    for i in range(N):
-        logP_O[i] = np.log(τo)*i - τo*t + np.log(t)*i - gammaln(i+1)
-
-    return np.exp(logP_O - logsumexp(logP_O))
-
-def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
-                       innov_front_mode='explorer_random',
-                       propagate_mode='SDE',
-                       obs_mode = 'random'):
+def setup_auto_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn, innov_front_mode='explorer_random', propagate_mode='SDE', obs_mode = 'random'):
         """Compile JAX functions necessary to run automaton simulation.
-        
-        Note that we will use the convention that random keys are to be split before
-        every call to the RNG.
-
-        TODO: Looks like some of these move front functions do not do any stochastic
-        calculation.
-
         Parameters
         ----------
         N : int
@@ -67,6 +36,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
             To set up the initial parameter values for running.
         innov_front_mode : str, 'explorer'
         """
+        print(Δt)
         key, subkey = random.split(key)
         # initialize graph properties
         n = jnp.zeros((samples, N), dtype=jnp.int32)
@@ -116,7 +86,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
             growth rate
         tmax: float
             max computing time
-        dt: float
+        Δt: float
             time step for update
         λ: float
             density threshold
@@ -127,34 +97,6 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
         """    
         @jit
         def one_loop(i, val):
-            """
-            Perform one iteration of the network model simulation.
-
-            Args:
-                i (int): The iteration index.
-                val (list): The list of values containing the following elements:
-                    - key (str): The key value.
-                    - inn_front (float): The innovation front value.
-                    - obs_sub (float): The observation sub value.
-                    - in_sub_pop (float): The innovation sub population value.
-                    - n (float): The density value.
-                    - adj_obs (float): The adjusted observation value.
-                    - x_inn (float): The innovation front x value.
-                    - x_inn_1 (float): The previous innovation front x value.
-                    - x_obs (float): The observation front x value.
-
-            Returns:
-                list: The updated list of values after one iteration, containing the following elements:
-                    - key (str): The updated key value.
-                    - inn_front (float): The updated innovation front value.
-                    - obs_sub (float): The updated observation sub value.
-                    - in_sub_pop (float): The updated innovation sub population value.
-                    - n (float): The updated density value.
-                    - adj_obs (float): The updated adjusted observation value.
-                    - x_inn (float): The updated innovation front x value.
-                    - x_inn_1 (float): The updated previous innovation front x value.
-                    - x_obs (float): The updated observation front x value.
-            """
             # read in values
             key = val[0]
             inn_front = val[1]
@@ -179,68 +121,51 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
 
         if propagate_mode == 'ODE':
             @jit
-            def propagate(key, obs_sub, in_sub_pop, inn_front, n):
-                """
-                Propagate density function by some amount of time.
+            def propagate(key, obs_sub, in_sub_pop, inn_front, n):          # propagate density function by some amount of time
 
-                Args:
-                    key: The key parameter.
-                    obs_sub: The obs_sub parameter.
-                    in_sub_pop: The in_sub_pop parameter.
-                    inn_front: The inn_front parameter.
-                    n: The n parameter.
-
-                Returns:
-                    Tuple: The key and updated density function.
-
-                """
                 """ Runge kutta order 4 update equations
                 """
-                k1 = (-rd*n  + (r*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T)#+ np.random.choice([1, -1], len(n))* np.random.poisson(self.dt*n, len(n))
+                k1 = (-rd*n  + (r*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop  + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*(n*inverse_sons*inn_front) @ Ady)# - (r*I*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
 
-                k2 = (-rd*(n+k1/2)  + (r*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T)#+ np.random.choice([1, -1], len(n))* np.random.poisson(self.dt*n, len(n))
+                k2 = (-rd*(n+Δt*k1/2)  + (r*((n+Δt*k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+ (r*I*((n+Δt*k1/2)*inverse_sons*inn_front) @ Ady)# - (r*I*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
 
-                k3 = (-rd*(n+k2/2) + (r*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T)#+ np.random.choice([1, -1], len(n))* np.random.poisson(self.dt*n, len(n))
+                k3 = (-rd*(n+Δt*k2/2) + (r*((n+Δt*k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*((n+Δt*k2/2)*inverse_sons*inn_front) @ Ady)# -(r*I*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
 
-                k4= (-rd*(n+k3) + (r*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +(in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T)#+ np.random.choice([1, -1], len(n))* np.random.poisson(self.dt*n, len(n))
-
-                k = dt*(k1 + 2*k2 + 2*k3 + k4)/6
+                k4= (-rd*(n+Δt*k3) + (r*((n+Δt*k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +(in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*((n+Δt*k3)*inverse_sons*inn_front) @ Ady)# -(r*I*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
+                
+                k = Δt*(k1 + 2*k2 + 2*k3 + k4)/6
                 #k = (k1_1 + 2*k2_1 + 2*k3_1 + k4_1)/6
                 """ Update densities and time
                 """
                 n = n + k
-                return key, a
-
+                n = n*in_sub_pop 
+                n = n
+                return key, n
         elif propagate_mode == 'SDE':
             @jit
-            def propagate(key, obs_sub, in_sub_pop, inn_front, n):
-                """Propagate density function by some amount of time using Runge-Kutta order 4 update equations.
+            def propagate(key, obs_sub, in_sub_pop, inn_front, n):          # propagate density function by some amount of time
 
-                Args:
-                    key: The random key for generating random numbers.
-                    obs_sub: The observed subpopulation.
-                    in_sub_pop: The input subpopulation.
-                    inn_front: The innovation front.
-                    n: The density function.
-
-                Returns:
-                    The updated random key and the propagated density function.
+                """ Runge kutta order 4 update equations
                 """
+                
                 beta = 1
+                
+                
+                
+                k1 = (-rd*n  + (r*(1-I)*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +(r*I*(n*inverse_sons*in_sub_pop) @ Ady) + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
 
-                k1 = dt * (-rd * n + (r * (n * inverse_sons * in_sub_pop) @ Ady) * in_sub_pop + (in_sub_pop.T * (G_in / in_sub_pop.sum(axis=1))).T)
-                k2 = dt * (-rd * (n + dt * k1 / 2) + (r * ((n + dt * k1 / 2) * inverse_sons * in_sub_pop) @ Ady) * in_sub_pop + (in_sub_pop.T * (G_in / in_sub_pop.sum(axis=1))).T)
-                k3 = dt * (-rd * (n + dt * k2 / 2) + (r * ((n + dt * k2 / 2) * inverse_sons * in_sub_pop) @ Ady) * in_sub_pop + (in_sub_pop.T * (G_in / in_sub_pop.sum(axis=1))).T)
-                k4 = dt * (-rd * (n + dt * k3) + (r * ((n + dt * k3) * inverse_sons * in_sub_pop) @ Ady) * in_sub_pop + (in_sub_pop.T * (G_in / in_sub_pop.sum(axis=1))).T)
+                k2 = (-rd*(n+k1/2)  + (r*(1-I)*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop+(r*I*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady) + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
 
-                k = (k1 + 2 * k2 + 2 * k3 + k4) / 6
+                k3 = (-rd*(n+k2/2) + (r*(1-I)*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop+(r*I*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady) + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
 
-                """ Update densities and time """
-                key, subkey = random.split(key)
-                n = n + k + beta * (jnp.sqrt(n * dt)) * random.normal(subkey, (samples, N))
-                n = n * (n >= 0)
-                n = n * in_sub_pop
-
+                k4= (-rd*(n+k3) + (r*(1-I)*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop+(r*I*((n+k3)*inverse_sons*in_sub_pop) @ Ady) +(in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
+                
+                k = Δt*(k1 + 2*k2 + 2*k3 + k4)/6
+                #k = (k1_1 + 2*k2_1 + 2*k3_1 + k4_1)/6
+                """ Update densities and time
+                """
+                n = n + k + beta*(jnp.sqrt(n*Δt)) * random.normal(subkey, (samples, N))
+                n = n *(n>=0)
                 return key, n
         else:
             raise NotImplementedError("propagate_mode not recognized.")
@@ -248,66 +173,34 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
         if obs_mode=='average':
             @jit    
             def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
-                """
-                Move the observation front by updating the relevant variables.
-
-                Parameters:
-                key (Any): The key parameter.
-                obs_sub (Any): The obs_sub parameter.
-                in_sub_pop (Any): The in_sub_pop parameter.
-                inn_front (Any): The inn_front parameter.
-                adj_obs (Any): The adj_obs parameter.
-                x_obs (Any): The x_obs parameter.
-
-                Returns:
-                Tuple: A tuple containing the updated values of key, obs_sub, in_sub_pop, inn_front, adj_obs, and x_obs.
-                """
+                
                 front_moved = adj_obs * (x_obs>1)
-                x_obs = x_obs*(x_obs<1)
+                
+                to_add = (adj_obs * (x_obs-1)* (x_obs>1))@ Ady
+                #to_add = to_add @ Ady
                 new_front_ix = front_moved @ Ady
+                
                 obs_sub = jnp.logical_or(obs_sub, front_moved)
+                
                 adj_obs = jnp.logical_or(adj_obs, new_front_ix)
                 
                 # remove new sites from sub populated graph
                 in_sub_pop = in_sub_pop * ~obs_sub
                 inn_front = inn_front * ~obs_sub
                 adj_obs = adj_obs * ~obs_sub
-                parents_in_obs = (obs_sub@Ady)
-                parents_in_obs = parents_in_obs.at[:,0].set(1)
-                x_obs+= ro*adj_obs*dt
+                #parents_in_obs = (obs_sub@Ady)
+                #parents_in_obs = parents_in_obs.at[:,0].set(1)
+                #print(ro, Δt, sons)
+                x_obs+= ro*adj_obs*Δt*sons #+ to_add
                 
                 return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
-
         elif obs_mode=='random':
             @jit    
             def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
-                """Move the obsolescence front in the network model.
-
-                Parameters
-                ----------
-                key : ndarray
-                    The random key for generating random numbers.
-                obs_sub : ndarray
-                    Boolean array indicating the sites in the obsolescence front.
-                in_sub_pop : ndarray
-                    Boolean array indicating the sites in the sub populated graph.
-                inn_front : ndarray
-                    Boolean array indicating the sites in the innovation front.
-                adj_obs : ndarray
-                    Boolean array indicating the adjacency of sites in the
-                    obsolescence front.
-                x_obs : ndarray
-                    Array representing the state of the obsolescence front.
-
-                Returns
-                -------
-                tuple
-                    A tuple containing the updated values of key, obs_sub,
-                    in_sub_pop, inn_front, adj_obs, and x_obs.
-                """
                 beta_1 = 1
+                key, subkey = random.split(key)
                 front_moved = adj_obs * (x_obs>1)
-                x_obs = x_obs * (x_obs<1)
+                #x_obs = x_obs*(x_obs<1)
                 
                 # move into all children vertices if not in the innovation front
                 new_front_ix = front_moved @ Ady
@@ -321,13 +214,10 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
                 in_sub_pop = in_sub_pop * ~obs_sub
                 inn_front = inn_front * ~obs_sub
                 adj_obs = adj_obs * ~obs_sub
-                parents_in_obs = (obs_sub @ Ady)
-                parents_in_obs = parents_in_obs.at[:,0].set(1)
-
-                key, subkey = random.split(key)
-                x_obs += (ro*adj_obs*dt*parents_in_obs +
-                          adj_obs * beta_1 * jnp.sqrt((ro*dt)*(1-(ro*dt))) * random.normal(subkey, (samples, 1)))
-
+                #parents_in_obs = (obs_sub @ Ady)
+                #parents_in_obs = parents_in_obs.at[:,0].set(1)
+                x_obs+= ro*adj_obs*Δt + adj_obs*beta_1*jnp.sqrt((ro*Δt)*(1-(ro*Δt)))* random.normal(subkey, (samples, 1))
+                
                 return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
         else:
             raise NotImplementedError("obs_mode not recognized.")
@@ -356,6 +246,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
                 inn_front
                 in_sub_pop
                 """
+                
                 key, subkey = random.split(key)
                 # randomly choose innovation fronts to move
                 front_moved = jnp.logical_and(inn_front, (x_inn>=1.))
@@ -373,10 +264,11 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
                 inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
                 parents_in_inn = (inn_front@Ady)
                 parents_in_inn = parents_in_inn.at[:,0].set(1)
-                x_inn += r*I*n*dt*inn_front
-                x_inn_1 += ((r*I*n*dt*inn_front) @ Ady) * parents_in_inn
+                
+                x_inn += r*I*n*Δt*inn_front*sons
+                
+                x_inn_1 += ((r*I*n*Δt*inn_front) @ Ady)*parents_in_inn
                 return key, inn_front, in_sub_pop, x_inn, x_inn_1
-
         elif innov_front_mode=='explorer_random':
             @jit
             def move_inn_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn, x_inn_1):
@@ -422,8 +314,8 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
                 inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
                 parents_in_inn = (inn_front@Ady) 
                 parents_in_inn = parents_in_inn.at[:,0].set(1)
-                #x_inn += r*I*n*dt*inn_front + beta_2*inn_front*jnp.sqrt((r*I*n*dt)*(1-(r*I*n*dt)))* random.normal(subkey, (samples, N))
-                x_inn_1 += ((r*I*n*dt*inn_front) @ Ady)
+                x_inn += r*I*n*Δt*inn_front + beta_2*inn_front*jnp.sqrt((r*I*n*Δt)*(1-(r*I*n*Δt)))* random.normal(subkey, (samples, N))
+                x_inn_1 += ((r*I*n*Δt*inn_front) @ Ady)
                 return key, inn_front, in_sub_pop, x_inn, x_inn_1
         elif innov_front_mode=='single_explorer':
             @jit
@@ -450,7 +342,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
                 """
                 # randomly choose innovation fronts to move
                 key, subkey = random.split(key)
-                front_moved = inn_front * (random.uniform(subkey, (1, N)) > (1 - r*I*dt*n))
+                front_moved = inn_front * (random.uniform(subkey, (1, N)) > (1 - r*I*Δt*n))
 
                 # randomly choose amongst children to move innovation front to
                 key, subkey = random.split(key)
@@ -495,7 +387,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, dt, ro, key, samples, Ady, init_fcn,
                 """
                 # randomly choose innovation fronts to move
                 key, subkey = random.split(key)
-                front_moved = in_sub_pop * (random.uniform(key, (1,N)) > (1 - r*I*dt*n))
+                front_moved = in_sub_pop * (random.uniform(key, (1,N)) > (1 - r*I*Δt*n))
 
                 # randomly choose amongst children to move innovation to
                 key, subkey = random.split(key)
