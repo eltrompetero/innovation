@@ -34,15 +34,18 @@ class KTree():
         self.rng = rng if not rng is None else np.random
 
         # create first, shared root branch
-        ix = zip(*((i,i+1) for i in range(n0-1)))
-        self.adj[tuple(ix)] = True
+        if n0>1:
+            ix = zip(*((i,i+1) for i in range(n0-1)))
+            self.adj[tuple(ix)] = True
         # create interleaved representation of K branches
         ix = zip(*((i,i+K) for i in range(n0, n0+K*n1-K)))
         self.adj[tuple(ix)] = True
 
         # create connections between branches
-        for i in range(K):
-            self.adj[n0-1,n0+i] = True        
+        # between root and first branching generation, to skip if no root
+        if n0>0:
+            for i in range(K):
+                self.adj[n0-1,n0+i] = True        
         if gamma==1:
             # take every branch pair and randomly connect sequential generations with probability gamma
             # must consider both ordered directions of connections
@@ -181,6 +184,27 @@ def create_directed_tree(N, k, density):
 def draw_KTree(G, el, K, pos=None, ax=None,
                node=True, edge=True, label=False,
                dx=50, dy=50):
+    """
+    Parameters
+    ----------
+    G : nx.Graph
+    el : int
+        Tuple for the number of generations to consider as root and branches in
+        tree.
+    K : int
+        Number of branches.
+    pos : dict, None
+    ax : plt.Axes, None
+    node : bool, True
+    edge : bool, True
+    label : bool, False
+    dx : int, 50
+    dy : int, 50
+    
+    Returns
+    -------
+    dict 
+    """
     if ax is None:
         fig, ax = plt.subplots()
     if pos is None:
