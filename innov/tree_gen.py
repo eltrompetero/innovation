@@ -1,3 +1,4 @@
+# Module for making trees and tree-like graphs.
 import networkx as nx
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_agraph import graphviz_layout
