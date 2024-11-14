@@ -2,6 +2,7 @@
 # Minimal innovation model implementations and solutions.
 # 
 # Author : Eddie Lee, edlee@csh.ac.at
+#          Ernesto Ortega, ernesto.ortega.dias.25@gmail.com
 # ====================================================================================== #
 from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
@@ -12,8 +13,8 @@ from scipy.integrate import odeint
 from .utils import *
 
 
-def Dynamic_pseudogap(y0, t, G_in, I, r, rd, ro, gamma, K):
-    """Lattice length given linear pseudogap approximation.
+def pde_pseudogap(y0, t, G_in, I, r, rd, ro, gamma, K):
+    """Lattice length given compartment approximation.
     
     Input
     -----
@@ -23,7 +24,6 @@ def Dynamic_pseudogap(y0, t, G_in, I, r, rd, ro, gamma, K):
          n(0)   : float
          L      : float]
     t : float
-    
     
     Parameters
     ----------
@@ -41,7 +41,6 @@ def Dynamic_pseudogap(y0, t, G_in, I, r, rd, ro, gamma, K):
     """
     N, nel, n0, l = y0
     if l<=2 or N<=0:
-        #print('aqui')
         dN = - N
         dnel = - nel
         dn0 = - n0
@@ -62,7 +61,6 @@ def Dynamic_pseudogap(y0, t, G_in, I, r, rd, ro, gamma, K):
         dn0 = (G_in/l + r*(N- n0 - nel)/(l-2.000001) -rd*n0 - r*I*(1+gamma*(K-1))*n0**2)
         dl = 0
     else:
-        #print("aqui tambien")
         dN = (G_in + (r-rd)*N -r*n0 - ro*(1+gamma*(K-1))*nel)
         dnel = (G_in/l -rd *nel -ro *(1+gamma*(K-1)) * nel + r*I * n0*(1+gamma*(K-1)) * ((N- n0 - nel)/(l-2.000001)))
         dn0 = (G_in/l +r*(N- n0 - nel)/(l-2.000001) -rd*n0 - r*I*(1+gamma*(K-1))*n0**2)
@@ -70,8 +68,8 @@ def Dynamic_pseudogap(y0, t, G_in, I, r, rd, ro, gamma, K):
 
     return np.array([dN, dnel, dn0, dl])
 
-def Dynamic_pseudogap_large_L(y0, t, G_in, I, r, rd, ro, gamma, K):
-    """Lattice length given linear pseudogap approximation.
+def pde_pseudogap_large_L(y0, t, G_in, I, r, rd, ro, gamma, K):
+    """Lattice length given compartment approximation and large L.
     
     Input
     -----

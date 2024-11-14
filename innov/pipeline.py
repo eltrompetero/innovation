@@ -80,10 +80,9 @@ def figure1():
             key_save, inn_front, obs_front, in_sub_pop, n, adj_obs, x_inn, x_obs = output
 
             with open(fname, 'wb') as f:
-                pickle.dump({'el':el, 'K':K, 'save_steps':save_steps, 'max_steps':max_steps, 'samples':samples,
-                             'key':key_save, 'inn_front':inn_front, 'obs_front':obs_front,
-                             'in_sub_pop':in_sub_pop, 'n':n, 'adj_obs':adj_obs, 'x_inn':x_inn,
-                             'x_obs':x_obs},
+                pickle.dump({'el':el, 'K':K, 'save_steps':save_steps, 'max_steps':max_steps,
+                             'samples':samples, 'key':key_save, 'inn_front':inn_front, 'obs_front':obs_front,
+                             'in_sub_pop':in_sub_pop, 'n':n, 'adj_obs':adj_obs, 'x_inn':x_inn, 'x_obs':x_obs},
                             f)
             print(f"Done with {fname}.")
 

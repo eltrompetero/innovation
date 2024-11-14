@@ -106,7 +106,6 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
     r0 : float
     dt : float
     vo : float
-    key : int
     samples : int
     Ady : jax.numpy.ndarray
     init_fcn : function
@@ -173,6 +172,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
             return key, inn_front, in_sub_pop, x_inn
+
     elif innov_front_mode=='explorer':
         @jit
         def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
@@ -330,6 +330,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
                 adj_obs = adj_obs * ~obs_sub
                 
                 return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+
     elif obs_mode =='random':
         @jit
         def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
@@ -355,7 +356,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
             key, subkey = random.split(key)
             front_moved = adj_obs * (random.uniform(subkey, (samples, N)) < (vo*dt))
             x_obs+= vo*adj_obs*jnp.ones((samples, N), dtype=jnp.float32)*dt
-            # move into all children vertices if not in the innovation front
+            # move into all children vertices if not in the front
             new_front_ix = front_moved @ Ady
             #print(new_front_ix)
             #new_front_ix = new_front_ix * ~inn_front
@@ -369,6 +370,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
             adj_obs = adj_obs * ~obs_sub
             #print("obs_sub", obs_sub, "in_sub_pop", in_sub_pop, "inn_front", inn_front, "adj_obs", adj_obs, "x_obs", x_obs)
             return key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs
+        
     elif obs_mode =='exnovation':
         @jit
         def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
@@ -441,12 +443,16 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
         # death
 
         # obsolescence front 
-        key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs ,x_obs)
+        key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key,
+                                                                             obs_sub,
+                                                                             in_sub_pop,
+                                                                             inn_front,
+                                                                             adj_obs,
+                                                                             x_obs)
     #     debug.print("OBS {x}", x=n[:10])
         # move innovation front
         key, inn_front, in_sub_pop, x_inn = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn)
     #     debug.print("{x}", x=inn_front)
- 
         return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, x_inn, x_obs]
 
     init_vars = init_fcn(Ady.shape[0],

@@ -17,7 +17,10 @@ def compute_P_O_1(N, τo, t, init):
 
         return np.exp(logP_O - logsumexp(logP_O))
 
-def setup_auto_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn, innov_front_mode='explorer_random', propagate_mode='SDE', obs_mode = 'random'):
+def setup_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn,
+                  innov_front_mode='explorer_random',
+                  propagate_mode='SDE',
+                  obs_mode = 'random'):
         """Compile JAX functions necessary to run automaton simulation.
         Parameters
         ----------
@@ -112,63 +115,77 @@ def setup_auto_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn, 
             key, n = propagate(key, obs_sub, in_sub_pop, inn_front, n)
             
             # move innov front
-            key, inn_front, in_sub_pop, x_inn, x_inn_1 = move_inn_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn, x_inn_1)
+            key, inn_front, in_sub_pop, x_inn, x_inn_1 = move_inn_front(key,
+                                                                        inn_front,
+                                                                        in_sub_pop,
+                                                                        obs_sub,
+                                                                        n,
+                                                                        x_inn,
+                                                                        x_inn_1)
 
             # move obs front
-            key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs)
+            key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key,
+                                                                                 obs_sub,
+                                                                                 in_sub_pop,
+                                                                                 inn_front,
+                                                                                 adj_obs,
+                                                                                 x_obs)
 
             return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, x_inn, x_inn_1, x_obs]
 
         if propagate_mode == 'ODE':
             @jit
-            def propagate(key, obs_sub, in_sub_pop, inn_front, n):          # propagate density function by some amount of time
-
-                """ Runge kutta order 4 update equations
+            def propagate(key, obs_sub, in_sub_pop, inn_front, n):          
+                """Propagate density function by some amount of time using Runge
+                kutta order 4 update equations.
                 """
-                k1 = (-rd*n  + (r*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop  + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*(n*inverse_sons*inn_front) @ Ady)# - (r*I*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
-
-                k2 = (-rd*(n+Δt*k1/2)  + (r*((n+Δt*k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+ (r*I*((n+Δt*k1/2)*inverse_sons*inn_front) @ Ady)# - (r*I*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
-
-                k3 = (-rd*(n+Δt*k2/2) + (r*((n+Δt*k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*((n+Δt*k2/2)*inverse_sons*inn_front) @ Ady)# -(r*I*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
-
-                k4= (-rd*(n+Δt*k3) + (r*((n+Δt*k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +(in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*((n+Δt*k3)*inverse_sons*inn_front) @ Ady)# -(r*I*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
-                
+                k1 = (-rd*n  + (r*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop  +
+                      (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*(n*inverse_sons*inn_front) @ Ady)# - (r*I*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
+                k2 = (-rd*(n+Δt*k1/2)  + (r*((n+Δt*k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                      (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+ (r*I*((n+Δt*k1/2)*inverse_sons*inn_front) @ Ady)# - (r*I*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
+                k3 = (-rd*(n+Δt*k2/2) + (r*((n+Δt*k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                      (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*((n+Δt*k2/2)*inverse_sons*inn_front) @ Ady)# -(r*I*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
+                k4= (-rd*(n+Δt*k3) + (r*((n+Δt*k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                     (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop) #+(r*I*((n+Δt*k3)*inverse_sons*inn_front) @ Ady)# -(r*I*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop
                 k = Δt*(k1 + 2*k2 + 2*k3 + k4)/6
                 #k = (k1_1 + 2*k2_1 + 2*k3_1 + k4_1)/6
-                """ Update densities and time
-                """
+
+                # update densities and time
                 n = n + k
                 n = n*in_sub_pop 
                 n = n
                 return key, n
+
         elif propagate_mode == 'SDE':
             @jit
-            def propagate(key, obs_sub, in_sub_pop, inn_front, n):          # propagate density function by some amount of time
-
-                """ Runge kutta order 4 update equations
+            def propagate(key, obs_sub, in_sub_pop, inn_front, n):
+                """Propagate density function by some amount of time using Runge
+                kutta order 4 update equations.
                 """
-                
                 beta = 1
                 
-                
-                
-                k1 = (-rd*n  + (r*(1-I)*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +(r*I*(n*inverse_sons*in_sub_pop) @ Ady) + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
-
-                k2 = (-rd*(n+k1/2)  + (r*(1-I)*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop+(r*I*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady) + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
-
-                k3 = (-rd*(n+k2/2) + (r*(1-I)*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop+(r*I*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady) + (in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
-
-                k4= (-rd*(n+k3) + (r*(1-I)*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop+(r*I*((n+k3)*inverse_sons*in_sub_pop) @ Ady) +(in_sub_pop.T* (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
-                
+                k1 = (-rd*n + (r*(1-I)*(n*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                      (r*I*(n*inverse_sons*in_sub_pop) @ Ady) +
+                      (in_sub_pop.T * (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
+                k2 = (-rd*(n+k1/2) + (r*(1-I)*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                      (r*I*((n+k1/2)*inverse_sons*in_sub_pop) @ Ady) +
+                      (in_sub_pop.T * (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
+                k3 = (-rd*(n+k2/2) + (r*(1-I)*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                      (r*I*((n+k2/2)*inverse_sons*in_sub_pop) @ Ady) +
+                      (in_sub_pop.T * (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
+                k4 = (-rd*(n+k3) + (r*(1-I)*((n+k3)*inverse_sons*in_sub_pop) @ Ady)*in_sub_pop +
+                      (r*I*((n+k3)*inverse_sons*in_sub_pop) @ Ady) +
+                      (in_sub_pop.T * (G_in/in_sub_pop.sum(axis=1))).T*in_sub_pop)
                 k = Δt*(k1 + 2*k2 + 2*k3 + k4)/6
                 #k = (k1_1 + 2*k2_1 + 2*k3_1 + k4_1)/6
-                """ Update densities and time
-                """
+
+                # update densities and time with noise
+                key, subkey = random.split(key)
                 n = n + k + beta*(jnp.sqrt(n*Δt)) * random.normal(subkey, (samples, N))
                 n = n *(n>=0)
                 return key, n
         else:
-            raise NotImplementedError("propagate_mode not recognized.")
+            raise NotImplementedError(f"propagate_mode {propagate_mode} not recognized.")
         
         if obs_mode=='average':
             @jit    
@@ -269,6 +286,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn, 
                 
                 x_inn_1 += ((r*I*n*Δt*inn_front) @ Ady)*parents_in_inn
                 return key, inn_front, in_sub_pop, x_inn, x_inn_1
+
         elif innov_front_mode=='explorer_random':
             @jit
             def move_inn_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn, x_inn_1):
@@ -293,7 +311,7 @@ def setup_auto_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn, 
                 inn_front
                 in_sub_pop
                 """
-                beta_2 = 1
+                beta_2 = 1  # noise strength
                 key, subkey = random.split(key)
                 # randomly choose innovation fronts to move
                 front_moved = jnp.logical_and(inn_front, (x_inn>=1.))
@@ -314,9 +332,13 @@ def setup_auto_num_int(N, r, rd, I, G_in, Δt, ro, key, samples, Ady, init_fcn, 
                 inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
                 parents_in_inn = (inn_front@Ady) 
                 parents_in_inn = parents_in_inn.at[:,0].set(1)
-                x_inn += r*I*n*Δt*inn_front + beta_2*inn_front*jnp.sqrt((r*I*n*Δt)*(1-(r*I*n*Δt)))* random.normal(subkey, (samples, N))
+
+                # account for randomnness in motion of front
+                x_inn += (r*I*n*Δt*inn_front + beta_2*inn_front*jnp.sqrt((r*I*n*Δt)*(1-(r*I*n*Δt))) *
+                          random.normal(subkey, (samples, N)))
                 x_inn_1 += ((r*I*n*Δt*inn_front) @ Ady)
                 return key, inn_front, in_sub_pop, x_inn, x_inn_1
+
         elif innov_front_mode=='single_explorer':
             @jit
             def move_inn_front(key, inn_front, in_sub_pop, obs_sub, n):
