@@ -482,39 +482,49 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
         """
         assert save_steps<=max_steps
 
-        # initialize variables
+        # initialize variables for for loop
         xinn = jnp.zeros((samples, Ady.shape[0]), dtype=jnp.float32)
         xobs = jnp.zeros((samples, Ady.shape[0]), dtype=jnp.float32)
-        out_vars = fori_loop(0, save_steps, one_loop, [key]+list(out_vars)+[xinn, xobs])
+        out_vars = [key]+list(out_vars)+[xinn, xobs]
 
-        # output vars to move to RAM
+        # define output vars to copy GPU variables to CPU RAM
         key = np.zeros((max_steps, 2), dtype=np.uint32)
-        inn_front = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
-        obs_front = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
-        in_sub_pop = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
-        adj_obs = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.bool_)
-        n = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.float32)
-        x_inn = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.float32)
-        x_obs = np.zeros((max_steps//save_steps,samples,Ady.shape[0]), dtype=np.float32)
+        inn_front = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        obs_front = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        in_sub_pop = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        adj_obs = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        n = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
+        x_inn = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
+        x_obs = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
+
+        # save initial variable values
+        key[0] = out_vars[0]
+        inn_front[0,:,:] = out_vars[1]
+        obs_front[0,:,:] = out_vars[2]
+        in_sub_pop[0,:,:] = out_vars[3]
+        n[0,:,:] = out_vars[4]
+        adj_obs[0,:,:] = out_vars[5]
+        x_inn[0,:,:] = out_vars[6]
+        x_obs[0,:,:] = out_vars[7]
 
         total_t = 0
         total_reading_t = 0
         t0 = time.time()
         for i in range(max_steps//save_steps):
-            if iprint: print(i, i*save_steps, '/', max_steps)
-            if i>0:
-                out_vars = fori_loop(0, save_steps, one_loop, out_vars)
+            if iprint: print(i, i*save_steps, '/', max_steps, '...', end=' ', flush=True)
+            out_vars = fori_loop(0, save_steps, one_loop, out_vars)
         
             t0r = time.time()
-            key[i] = out_vars[0]
-            inn_front[i,:,:] = out_vars[1]
-            obs_front[i,:,:] = out_vars[2]
-            in_sub_pop[i,:,:] = out_vars[3]
-            n[i,:,:] = out_vars[4]
-            adj_obs[i,:,:] = out_vars[5]
-            x_inn[i,:,:] = out_vars[6]
-            x_obs[i,:,:] = out_vars[7]
+            key[i+1] = out_vars[0]
+            inn_front[i+1,:,:] = out_vars[1]
+            obs_front[i+1,:,:] = out_vars[2]
+            in_sub_pop[i+1,:,:] = out_vars[3]
+            n[i+1,:,:] = out_vars[4]
+            adj_obs[i+1,:,:] = out_vars[5]
+            x_inn[i+1,:,:] = out_vars[6]
+            x_obs[i+1,:,:] = out_vars[7]
             total_reading_t += time.time()-t0r
+            if iprint: print("Done!", flush=True)
         total_t = time.time()-t0
 
         if iprint:
