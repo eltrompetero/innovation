@@ -142,13 +142,14 @@ def figure2(memfraction=.3, device=0):
             adj_obs = jnp.zeros((samples,N), dtype=jnp.bool_)
             sub = jnp.zeros((samples,N), dtype=jnp.bool_)
             n = jnp.zeros((samples,N), dtype=jnp.float32)
+            dt = jnp.zeros(samples, dtype=jnp.float32)
         
             x_inn = el[0] + K*20
             inn = inn.at[:,[x_inn, x_inn+1]].set(True)
             adj_obs = adj_obs.at[:,el[0]-1].set(True)
             n = n.at[:,el[0]-1:x_inn+2].set(10)
             sub = sub.at[:,el[0]-1:x_inn+2].set(True)
-            return inn, obs, sub, n, adj_obs
+            return inn, obs, sub, n, adj_obs, dt
         
         # setup automaton simulations
         init_vars, one_loop, run_save = setup_auto_sim(N = Ady.shape[0],

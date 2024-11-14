@@ -90,7 +90,7 @@ def decompress_density(n, ix, ix0=0, ix1=None):
 # ============== #
 # Automaton code #
 # ============== #
-def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
+def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                    init_fcn,
                    innov_front_mode='explorer',
                    obs_mode = 'random'):
@@ -104,7 +104,6 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
     rd : float
     I : float
     r0 : float
-    dt : float
     vo : float
     samples : int
     Ady : jax.numpy.ndarray
@@ -131,9 +130,11 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
     
     x_obs = jnp.zeros((samples, N), dtype=jnp.float32)
     x_inn = jnp.zeros((samples, N), dtype=jnp.float32)
+
+    # define innovation front subroutine
     if innov_front_mode=='explorer_average':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn, dt):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
 
@@ -175,7 +176,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
 
     elif innov_front_mode=='explorer':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn):
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn, dt):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
             
@@ -219,7 +220,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
 
     elif innov_front_mode=='single_explorer':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, dt):
             """Move innovation fronts stochastically to one child node. Parent node
             remains part of the front as long as at least one child is not occupied
             and leave as soon as all children nodes are occupied.
@@ -265,7 +266,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
 
     elif innov_front_mode=='ant':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n):
+        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, dt):
             """Move innovation fronts stochastically to one child node. Parent node
             is no longer part of the front afterwards.
             
@@ -310,9 +311,10 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
     else:
         raise NotImplementedError("innov_front_mode not recognized.")
 
+    # define obsolescence front subroutine
     if obs_mode == 'average':
         @jit
-        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs, dt):
                 #print("entree_average")
                 front_moved = adj_obs * (x_obs>1)
                 x_obs = x_obs*(x_obs<1)
@@ -333,7 +335,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
 
     elif obs_mode =='random':
         @jit
-        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs, dt):
             """Grow obsolescence subgraph stochastically.
 
             TODO: allow obs subgraph to expand to all children instead of choosing one
@@ -373,7 +375,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
         
     elif obs_mode =='exnovation':
         @jit
-        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs):
+        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs, dt):
             """Grow obsolescence subgraph stochastically.
 
             TODO: allow obs subgraph to expand to all children instead of choosing one
@@ -414,6 +416,7 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
 
     @jit
     def one_loop(i, val):
+        """JAX routine to loop over a fixed number of time steps."""
         # read in values
         key = val[0]
         inn_front = val[1]
@@ -421,26 +424,29 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
         in_sub_pop = val[3]
         n = val[4]
         adj_obs = val[5]
-        x_inn = val[6]
-        x_obs = val[7]
+        t = val[6]
+        x_inn = val[7]
+        x_obs = val[8]
         
         # replicate
         key, subkey = random.split(key)
-        to_replicate = random.poisson(subkey, ((r * inverse_sons * n * in_sub_pop * dt) @ Ady))
-        #n = n + to_replicate*in_sub_pop
+        to_replicate = random.poisson(subkey, ((r * inverse_sons * n * in_sub_pop) @ Ady))
     #     debug.print("DREP {x}", x=(Ady.T @ (r * inverse_sons * n * dt))[:10])
     #     debug.print("REP {x}", x=n[:10])
         
+        # death
         key, subkey = random.split(key)
-        to_die = random.poisson(subkey, rd * n * dt)
-        #n = n - to_die
+        to_die = random.poisson(subkey, rd * n)
         
         # growth
         key, subkey = random.split(subkey)
-        G_dt = random.poisson(subkey, r0*dt/in_sub_pop.sum(axis=1), (N, samples))
-        n = (n + G_dt.T* in_sub_pop + to_replicate*in_sub_pop - to_die)*in_sub_pop
-        n = n*(n>0)
-        # death
+        G = random.poisson(subkey, r0/in_sub_pop.sum(axis=1), (N, samples))
+
+        # update density with adaptive time step
+        dn = G.T + to_replicate - to_die
+        thisdt = 1/dn.max() / 10
+        n = n + dn * in_sub_pop * thisdt
+        t += thisdt
 
         # obsolescence front 
         key, obs_sub, in_sub_pop, inn_front, adj_obs, x_obs = move_obs_front(key,
@@ -448,12 +454,20 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
                                                                              in_sub_pop,
                                                                              inn_front,
                                                                              adj_obs,
-                                                                             x_obs)
+                                                                             x_obs,
+                                                                             thisdt)
     #     debug.print("OBS {x}", x=n[:10])
-        # move innovation front
-        key, inn_front, in_sub_pop, x_inn = move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, x_inn)
+
+        # innovation front
+        key, inn_front, in_sub_pop, x_inn = move_innov_front(key,
+                                                             inn_front,
+                                                             in_sub_pop,
+                                                             obs_sub,
+                                                             n,
+                                                             x_inn,
+                                                             thisdt)
     #     debug.print("{x}", x=inn_front)
-        return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, x_inn, x_obs]
+        return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, t, x_inn, x_obs]
 
     init_vars = init_fcn(Ady.shape[0],
                          samples)
@@ -492,8 +506,9 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
         inn_front = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         obs_front = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         in_sub_pop = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
-        adj_obs = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         n = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
+        adj_obs = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        t = np.zeros(max_steps//save_steps+1, dtype=np.float32)
         x_inn = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
         x_obs = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
 
@@ -504,15 +519,18 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
         in_sub_pop[0,:,:] = out_vars[3]
         n[0,:,:] = out_vars[4]
         adj_obs[0,:,:] = out_vars[5]
-        x_inn[0,:,:] = out_vars[6]
-        x_obs[0,:,:] = out_vars[7]
+        t[0] = out_vars[6][0]
+        x_inn[0,:,:] = out_vars[7]
+        x_obs[0,:,:] = out_vars[8]
 
         total_t = 0
         total_reading_t = 0
         t0 = time.time()
         for i in range(max_steps//save_steps):
             if iprint: print(i, i*save_steps, '/', max_steps, '...', end=' ', flush=True)
+            loopt0 = time.time()
             out_vars = fori_loop(0, save_steps, one_loop, out_vars)
+            if iprint: print(f'{time.time()-loopt0:.2f}', 's', '...', end=' ', flush=True)
         
             t0r = time.time()
             key[i+1] = out_vars[0]
@@ -521,8 +539,9 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
             in_sub_pop[i+1,:,:] = out_vars[3]
             n[i+1,:,:] = out_vars[4]
             adj_obs[i+1,:,:] = out_vars[5]
-            x_inn[i+1,:,:] = out_vars[6]
-            x_obs[i+1,:,:] = out_vars[7]
+            t[i+1] = out_vars[6][0]
+            x_inn[i+1,:,:] = out_vars[7]
+            x_obs[i+1,:,:] = out_vars[8]
             total_reading_t += time.time()-t0r
             if iprint: print("Done!", flush=True)
         total_t = time.time()-t0
@@ -532,5 +551,5 @@ def setup_auto_sim(N, r, rd, I, r0, dt, vo, samples, Ady,
             print("Total time", total_t)
             print("Fraction reading", total_reading_t/total_t)
 
-        return key, inn_front, obs_front, in_sub_pop, n, adj_obs, x_inn, x_obs
+        return key, inn_front, obs_front, in_sub_pop, n, adj_obs, t, x_inn, x_obs
     return init_vars, one_loop, run_save
