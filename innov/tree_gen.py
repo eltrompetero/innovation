@@ -1,4 +1,5 @@
 # Module for making trees and tree-like graphs.
+# Author: Eddie Lee, edlee@csh.ac.at
 import networkx as nx
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_agraph import graphviz_layout
@@ -48,7 +49,8 @@ class KTree():
             for i in range(K):
                 self.adj[n0-1,n0+i] = True        
         if gamma==1:
-            # take every branch pair and randomly connect sequential generations with probability gamma
+            # take every branch pair and randomly connect sequential generations
+            # with probability gamma
             # must consider both ordered directions of connections
             for i, j in combinations(range(K), 2):
                 # from i->j

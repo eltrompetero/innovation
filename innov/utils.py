@@ -27,3 +27,23 @@ def pretty_load(fname):
         sim = pickle.load(f)
     print("Done!")
     return sim
+
+def check_init_conditions(el, samples, K, *args): 
+    """Check if initial conditions are consistent.
+    """
+    inn_front = args[0]
+    obs_sub = args[1]
+    sub = args[2]
+    n = args[3]
+    obs_front = args[4]
+
+    assert inn_front.shape==(samples, el[1]*K)
+    # check that the innovation front is one-dimensional and cover all branches
+    assert inn_front[:,el[1]*K:(el[1]+1)*K].all() and (inn_front.sum(1)==K).all()
+
+    # check that populated boundary coincides with innovation front
+    assert jnp.where(n[0,:])[0][-1]==jnp.where(inn_front[0,:])[0][-1]
+
+    # check that obs front does not overlap with populated subgraph
+    assert (n[obs_front]==0).all()
+    assert (n[obs_sub]==0).all()

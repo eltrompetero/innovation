@@ -86,6 +86,50 @@ def decompress_density(n, ix, ix0=0, ix1=None):
         return jnp.concatenate((filled_n, jnp.zeros(ix1-ix0+1-filled_n.size, dtype=jnp.int32)))
     return filled_n[:ix1-ix0+1]
 
+def create_init_variables(el, K, n0):
+    """Create a function to initialize variables for running the automaton.
+
+    Parameters
+    ----------
+    el : tuple
+        (length of initial seeded branch, total length branches)
+    K : int
+        Number of branches.
+    n0 : float
+        Seed density.
+    """
+    def init_variables(N, samples):
+        """Define an initial condition. This assumes that the graph consists of
+        a set of parallel branches and initializes the values on the beginning
+        of each branch equally.
+
+        Parameters
+        ----------
+        N : int
+            Size of graph.
+        samples : int
+            Number of parallel jobs to run.
+
+        Returns
+        -------
+        input variables for one_loop
+        """
+        inn = jnp.zeros((samples, N), dtype=jnp.bool_)
+        obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)  # must start with False
+        adj_obs = jnp.zeros((samples, N), dtype=jnp.bool_)
+        sub = jnp.zeros((samples, N), dtype=jnp.bool_)
+        n = jnp.zeros((samples, N), dtype=jnp.float32)
+        t = jnp.zeros(1, dtype=jnp.float32)
+
+        # innovation front is a uniform line of sites
+        inn = inn.at[:,el[0]*K:(el[0]+1)*K].set(True)
+        # obs front is the first site in joint chain
+        adj_obs = adj_obs.at[:,:K].set(True)
+        # initial density is everything beyond the obs front up to and including innov front
+        n = n.at[:,K:K+K*el[0]].set(n0)
+        sub = sub.at[:,K:K+K*el[0]].set(True)
+        return inn, obs_sub, sub, n, adj_obs, t
+    return init_variables
 
 
 # ============== #
@@ -373,11 +417,9 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         dn = random.poisson(subkey, total_rate * thisdt)
         n += dn
         
-    #     debug.print("REP {x}", x=n[:10])
         return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, t]
 
-    init_vars = init_fcn(Ady.shape[0],
-                         samples)
+    init_vars = init_fcn(Ady.shape[0], samples)
 
     def run_save(key, out_vars, save_steps, max_steps, iprint=True):
         """
