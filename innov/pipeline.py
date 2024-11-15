@@ -13,8 +13,8 @@ def figure1(memfraction=.3, device=0):
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = f'{memfraction}'
     os.environ["CUDA_VISIBLE_DEVICES"] = f'{device}'
 
-    if not os.path.isdir(f'cache/L_comparison'):
-        os.makedirs(f'cache/L_comparison')
+    if not os.path.isdir(f'cache'):
+        os.makedirs(f'cache')
 
     key = random.PRNGKey(10)
     el = 20, 10_000  # size of binary trees: initial chain number of nodes, number of generations of K chains  
@@ -31,7 +31,7 @@ def figure1(memfraction=.3, device=0):
     max_steps = 40_000  # total run steps
 
     for r0, rd, vo, gamma in [(40, .4, .5, 0.), (160, .4, .5, .5), (640, .4, .5, 1.)]:
-        fname = f'cache/L_comparison/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
+        fname = f'cache/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
         # define graph structure
         tree = KTree(*el, K, gamma)
         # transform Ady into a sparse matrix for JAX
@@ -178,7 +178,7 @@ def figure2(memfraction=.4, device=0):
         key_out, inn_front, obs_sub, in_sub_pop, n, adj_obs, t = run_save(key, init_vars, save_steps, max_steps)
         key = key_out[-1]
         
-        fname = f'cache/L_comparison/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
+        fname = f'cache/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
         with open(fname, 'wb') as f:
             pickle.dump({'r0':r0, 'r':r, 'rd':rd, 'vo':vo, 'I':I, 'gamma':gamma,
                          'el':el, 'K':K, 'save_steps':save_steps, 'max_steps':max_steps,

@@ -19,3 +19,11 @@ import jax.numpy as jnp
 from jax import jit, vmap, config, random, device_put, devices
 from jax.lax import fori_loop, cond
 import jax.experimental.sparse as jsparse
+
+
+def pretty_load(fname):
+    print(f"Loading {fname}...", end=' ')
+    with open(fname, 'rb') as f:
+        sim = pickle.load(f)
+    print("Done!")
+    return sim
