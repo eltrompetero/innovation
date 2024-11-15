@@ -132,13 +132,14 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define innovation front subroutine
     if innov_front_mode=='explorer':
         @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, dt):
+        def move_innov_front(urand_matrix, inn_front, in_sub_pop, obs_sub, n, dt):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
             
             Parameters
             ----------
-            key : jax.random.PRNGKey
+            urand_matrix : jnp.ndarray
+                Matrix of random numbers from [0,1] interval.
             inn_front : boolean array
                 Indicates sites that are innovation fronts using True.
             in_sub_pop : boolean array
@@ -150,13 +151,11 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             
             Returns
             -------
-            key
             inn_front
             in_sub_pop
             """
             # randomly choose innovation fronts to move
-            key, subkey = random.split(key)
-            front_moved = jnp.logical_and(inn_front, (random.uniform(subkey, (samples, N))> (1 - r*I*dt*n)))
+            front_moved = jnp.logical_and(inn_front, urand_matrix > (1 - r*I*dt*n))
             
             # select new sites for innovation front, if not present in obsolescence or subpopulated graph 
             new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
@@ -164,7 +163,8 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # add new nodes to the innovation front
             inn_front = jnp.logical_or(inn_front, new_front_ix)
            
-            # now, add nodes in new innovation front to populated subgraph (must come after removing parent nodes)
+            # now, add nodes in new innovation front to populated subgraph (must
+            # come after removing parent nodes)
             in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
 
             # remove parent innovation fronts only if all children are in populated subgraph
@@ -172,7 +172,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # because of colliding fronts
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
             
-            return key, inn_front, in_sub_pop
+            return inn_front, in_sub_pop
 
     elif innov_front_mode=='single_explorer':
         # ================ requires debugging ================ #
@@ -274,7 +274,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define obsolescence front subroutine
     if obs_mode =='random':
         @jit
-        def move_obs_front(key, obs_sub, in_sub_pop, inn_front, adj_obs, n, dt):
+        def move_obs_front(urand_matrix, obs_sub, in_sub_pop, inn_front, adj_obs, n, dt):
             """Grow obsolescence subgraph stochastically.
 
             TODO: allow obs subgraph to expand to all children instead of choosing one
@@ -282,20 +282,19 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
 
             Parameters
             ----------
-            key
+            urand_matrix : jnp.ndarray
+                Matrix of random numbers from [0,1] interval.
             obs_sub : boolean array
                 Indicates sites that are obsolescence graph using True.
 
             Returns
             -------
-            key
             obs_sub
             in_sub_pop
             inn_front
             """
             # randomly choose obsolesence front sites to move
-            key, subkey = random.split(key)
-            front_moved = adj_obs * (random.uniform(subkey, (samples, N)) < (vo*dt))
+            front_moved = adj_obs * (urand_matrix < (vo*dt))
 
             # move into all children vertices if not in the front
             new_front_ix = front_moved @ Ady
@@ -310,7 +309,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             inn_front = inn_front * ~obs_sub
             adj_obs = adj_obs * ~obs_sub
             n *= in_sub_pop
-            return key, obs_sub, in_sub_pop, inn_front, adj_obs, n
+            return obs_sub, in_sub_pop, inn_front, adj_obs, n
         
     else:
         raise NotImplementedError("obs_front_mode not recognized.")
@@ -341,23 +340,29 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 10, 1/vo/10)
         thisdt = jnp.minimum(thisdt, 10)
         t += thisdt
+        
+        # roll matrix of shared random numbers
+        key, subkey = random.split(key)
+        urand_matrix = random.uniform(subkey, (samples, N))
 
         # move obsolescence front 
-        key, obs_sub, in_sub_pop, inn_front, adj_obs, n = move_obs_front(key,
-                                                                        obs_sub,
-                                                                        in_sub_pop,
-                                                                        inn_front,
-                                                                        adj_obs,
-                                                                        n,
-                                                                        thisdt)
+        obs_sub, in_sub_pop, inn_front, adj_obs, n = move_obs_front(urand_matrix,
+                                                                    obs_sub,
+                                                                    in_sub_pop,
+                                                                    inn_front,
+                                                                    adj_obs,
+                                                                    n,
+                                                                    thisdt)
 
         # move innovation front
-        key, inn_front, in_sub_pop = move_innov_front(key,
-                                                    inn_front,
-                                                    in_sub_pop,
-                                                    obs_sub,
-                                                    n,
-                                                    thisdt)
+        # roll random matrix
+        urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
+        inn_front, in_sub_pop = move_innov_front(urand_matrix,
+                                                 inn_front,
+                                                 in_sub_pop,
+                                                 obs_sub,
+                                                 n,
+                                                 thisdt)
 
         # total rate includes replication, growth, and death
         total_rate = jnp.maximum((r * inverse_sons * n) @ Ady +
@@ -437,13 +442,14 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             adj_obs[i+1,:,:] = out_vars[5]
             t[i+1] = out_vars[6][0]
             total_reading_t += time.time()-t0r
+
             if iprint: print("Done!", flush=True)
         total_t = time.time()-t0
 
         if iprint:
-            print("Total time reading out vars", total_reading_t)
-            print("Total time", total_t)
-            print("Fraction reading", total_reading_t/total_t)
+            print("Total time reading out vars", f'{total_reading_t:.2f}')
+            print("Total time", f'{total_t:.2f}')
+            print("Fraction reading", f'{total_reading_t/total_t:.2f}')
 
         return key, inn_front, obs_sub, in_sub_pop, n, adj_obs, t
     return init_vars, one_loop, run_save

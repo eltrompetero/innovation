@@ -4,7 +4,8 @@ import numpy as np
 
 
 def density_snapshot(n, el, K, t, mean=False, **kwargs):
-    """Plot density snapshots from automaton simulation.
+    """Plot density snapshots from automaton simulation. Show the first two
+    branches separately.
 
     Parameters
     ----------
