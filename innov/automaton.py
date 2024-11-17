@@ -3,7 +3,7 @@
 #          Ernesto Ortega, ortega@csh.ac.at
 import time
 from jax import jit, vmap, config, random, device_put, devices
-from jax.lax import fori_loop, cond
+from jax.lax import fori_loop, cond, while_loop
 import jax.numpy as jnp
 from jax import debug
 from jax.experimental.sparse import todense
@@ -494,4 +494,44 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             print("Fraction reading", f'{total_reading_t/total_t:.2f}')
 
         return key, inn_front, obs_sub, in_sub_pop, n, adj_obs, t
-    return init_vars, one_loop, run_save
+    
+    def run(key, out_vars, t, iprint=True, loop_steps=100):
+        """Run simulation until a certain duration (stop as soon as that
+        duration is crossed). Only return output.
+
+        Parameters
+        ----------
+        out_vars : list
+            Initial state with which to start simulation.
+        t : float
+            (approximate) duration of simulation.
+        iprint : bool, True
+            Print progress.
+
+        Returns
+        -------
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        """
+        cond_fun = lambda out_vars: out_vars[-1][0]<t
+        body_fun = lambda out_vars: one_loop(0, out_vars)
+
+        # initialize variables for for loop
+        out_vars = [key]+list(out_vars)
+
+        # run while loop
+        t0 = time.time()
+        out_vars = while_loop(cond_fun, body_fun, out_vars)
+        if iprint: print(f'Simulation t={out_vars[-1][0]:.2f}', flush=True)
+        total_t = time.time()-t0
+        if iprint: print("Runtime", f'{total_t:.2f} s', flush=True)
+
+        return out_vars
+
+    return init_vars, one_loop, run_save, run

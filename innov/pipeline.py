@@ -31,7 +31,9 @@ def figure1(memfraction=.3, device=0):
     save_steps = 5_000       # steps between saving
     max_steps = 40_000  # total run steps
 
-    for r0, rd, vo, gamma in [(10, .4, .5, 0.)]:#, (320, .4, .5, .5), (1280, .4, .5, 1.)]:
+    for r0, rd, vo, gamma in [(10, .4, .5, 0.),
+                              (320, .4, .5, .5),
+                              (1280, .4, .5, 1.)]:
         fname = f'cache/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
         # define graph structure
         tree = KTree(0, el[1], K, gamma)

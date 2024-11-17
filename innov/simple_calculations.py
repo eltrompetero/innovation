@@ -133,7 +133,7 @@ def rd_critic(G , I, vo, r, rd, gamma, k):
 
 def rd_crit_quadratic(r0 , I, vo, r, gamma, k, initial_guess=-1):
     """Critical death rate rd as a function of other parameters by solving
-    the discriminant.
+    the discriminant. (Given compartment model?)
 
     Parameters
     ----------
