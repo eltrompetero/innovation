@@ -316,7 +316,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define obsolescence front subroutine
     if obs_mode =='random':
         @jit
-        def move_obs_front(urand_matrix, obs_sub, in_sub_pop, inn_front, n, dt):
+        def move_obs_front(urand_matrix, in_sub_pop, inn_front, obs_sub, n, dt):
             """Grow obsolescence subgraph stochastically.
 
             Parameters
@@ -381,11 +381,11 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
 
         # move obsolescence front 
         obs_sub, in_sub_pop, inn_front, n = move_obs_front(urand_matrix,
-                                                            obs_sub,
-                                                            in_sub_pop,
-                                                            inn_front,
-                                                            n,
-                                                            thisdt)
+                                                           in_sub_pop,
+                                                           inn_front,
+                                                           obs_sub,
+                                                           n,
+                                                           thisdt)
 
         # move innovation front
         # roll random matrix
