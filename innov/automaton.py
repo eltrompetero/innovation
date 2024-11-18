@@ -115,20 +115,18 @@ def create_init_variables(el, K, n0):
         input variables for one_loop
         """
         inn = jnp.zeros((samples, N), dtype=jnp.bool_)
-        obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)  # must start with False
-        adj_obs = jnp.zeros((samples, N), dtype=jnp.bool_)
+        obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_) 
         sub = jnp.zeros((samples, N), dtype=jnp.bool_)
         n = jnp.zeros((samples, N), dtype=jnp.float32)
         t = jnp.zeros(1, dtype=jnp.float32)
 
         # innovation front is a uniform line of sites
         inn = inn.at[:,el[0]*K:(el[0]+1)*K].set(True)
-        # obs front is the first site in joint chain
-        adj_obs = adj_obs.at[:,:K].set(True)
+        obs_sub = obs_sub.at[:,:K].set(True)
         # initial density is everything beyond the obs front up to and including innov front
         n = n.at[:,K:K+K*el[0]].set(n0)
         sub = sub.at[:,K:K+K*el[0]].set(True)
-        return inn, obs_sub, sub, n, adj_obs, t
+        return inn, obs_sub, sub, n, t
     return init_variables
 
 
@@ -161,7 +159,6 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
 
     # obsolescence sites must always appear the initial graph
     obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)
-    adj_obs = jnp.zeros((samples, N), dtype=jnp.bool_)
     inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
@@ -201,7 +198,8 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # randomly choose innovation fronts to move
             front_moved = jnp.logical_and(inn_front, urand_matrix > (1 - r*I*dt*n))
             
-            # select new sites for innovation front, if not present in obsolescence or subpopulated graph 
+            # select new sites for innovation front, if not present in
+            # obsolescence or subpopulated graph 
             new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
             
             # add new nodes to the innovation front
@@ -318,18 +316,15 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define obsolescence front subroutine
     if obs_mode =='random':
         @jit
-        def move_obs_front(urand_matrix, obs_sub, in_sub_pop, inn_front, adj_obs, n, dt):
+        def move_obs_front(urand_matrix, obs_sub, in_sub_pop, inn_front, n, dt):
             """Grow obsolescence subgraph stochastically.
-
-            TODO: allow obs subgraph to expand to all children instead of choosing one
-                  at a time (isn't this already done bleow?)
 
             Parameters
             ----------
             urand_matrix : jnp.ndarray
                 Matrix of random numbers from [0,1] interval.
             obs_sub : boolean array
-                Indicates sites that are obsolescence graph using True.
+                Indicates sites that are in obsolescence subgraph.
 
             Returns
             -------
@@ -337,24 +332,20 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             in_sub_pop
             inn_front
             """
-            # randomly choose obsolesence front sites to move
-            front_moved = adj_obs * (urand_matrix < (vo*dt))
+            # sample from obsolesence front sites to move
+            front_moved = obs_sub * (urand_matrix <= (vo*dt))
 
             # move into all children vertices if not in the front
             new_front_ix = front_moved @ Ady
-            #new_front_ix = new_front_ix * ~inn_front
 
             # add new sites to obsolescence subgraph
-            obs_sub = jnp.logical_or(obs_sub, front_moved)
-            adj_obs = jnp.logical_or(adj_obs, new_front_ix)
+            obs_sub = jnp.logical_or(obs_sub, new_front_ix)
 
             # remove new obsolescent sites from populated subgraph and zero the density
             in_sub_pop = in_sub_pop * ~obs_sub
             inn_front = inn_front * ~obs_sub
-            adj_obs = adj_obs * ~obs_sub
             n *= in_sub_pop
-            return obs_sub, in_sub_pop, inn_front, adj_obs, n
-        
+            return obs_sub, in_sub_pop, inn_front, n
     else:
         raise NotImplementedError("obs_front_mode not recognized.")
 
@@ -375,12 +366,11 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         obs_sub = val[2]
         in_sub_pop = val[3]
         n = val[4]
-        adj_obs = val[5]
-        t = val[6]
+        t = val[5]
 
         # compute adaptive time step using density at innovation front
         # in principle, the cap can be a large value, but it won't matter for the parameter
-        # values we are using
+        # values we are using (i.e. large densities)
         thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 10, 1/vo/10)
         thisdt = jnp.minimum(thisdt, 10)
         t += thisdt
@@ -390,13 +380,12 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         urand_matrix = random.uniform(subkey, (samples, N))
 
         # move obsolescence front 
-        obs_sub, in_sub_pop, inn_front, adj_obs, n = move_obs_front(urand_matrix,
-                                                                    obs_sub,
-                                                                    in_sub_pop,
-                                                                    inn_front,
-                                                                    adj_obs,
-                                                                    n,
-                                                                    thisdt)
+        obs_sub, in_sub_pop, inn_front, n = move_obs_front(urand_matrix,
+                                                            obs_sub,
+                                                            in_sub_pop,
+                                                            inn_front,
+                                                            n,
+                                                            thisdt)
 
         # move innovation front
         # roll random matrix
@@ -417,7 +406,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         dn = random.poisson(subkey, total_rate * thisdt)
         n += dn
         
-        return [key, inn_front, obs_sub, in_sub_pop, n, adj_obs, t]
+        return [key, inn_front, obs_sub, in_sub_pop, n, t]
 
     init_vars = init_fcn(Ady.shape[0], samples)
 
@@ -454,7 +443,6 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         obs_sub = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         in_sub_pop = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         n = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
-        adj_obs = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         t = np.zeros(max_steps//save_steps+1, dtype=np.float32)
 
         # save initial variable values
@@ -463,8 +451,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         obs_sub[0,:,:] = out_vars[2]
         in_sub_pop[0,:,:] = out_vars[3]
         n[0,:,:] = out_vars[4]
-        adj_obs[0,:,:] = out_vars[5]
-        t[0] = out_vars[6][0]
+        t[0] = out_vars[5][0]
 
         total_t = 0
         total_reading_t = 0
@@ -481,8 +468,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             obs_sub[i+1,:,:] = out_vars[2]
             in_sub_pop[i+1,:,:] = out_vars[3]
             n[i+1,:,:] = out_vars[4]
-            adj_obs[i+1,:,:] = out_vars[5]
-            t[i+1] = out_vars[6][0]
+            t[i+1] = out_vars[5][0]
             total_reading_t += time.time()-t0r
 
             if iprint: print("Done!", flush=True)
@@ -493,7 +479,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             print("Total time", f'{total_t:.2f}')
             print("Fraction reading", f'{total_reading_t/total_t:.2f}')
 
-        return key, inn_front, obs_sub, in_sub_pop, n, adj_obs, t
+        return key, inn_front, obs_sub, in_sub_pop, n, t
     
     def run(key, out_vars, t, iprint=True, loop_steps=100):
         """Run simulation until a certain duration (stop as soon as that

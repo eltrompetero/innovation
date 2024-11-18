@@ -56,12 +56,12 @@ def figure1(memfraction=.3, device=0):
                                                        obs_mode = 'random',
                                                        innov_front_mode = 'explorer')
         output = run_save(key, init_vars, save_steps, max_steps)
-        key_save, inn_front, obs_front, in_sub_pop, n, adj_obs, t = output
+        key_save, inn_front, obs_front, in_sub_pop, n, t = output
 
         with open(fname, 'wb') as f:
             pickle.dump({'el':el, 'K':K, 'save_steps':save_steps, 'max_steps':max_steps,
                          'samples':samples, 'key':key_save, 'inn_front':inn_front, 'obs_front':obs_front,
-                         'in_sub_pop':in_sub_pop, 'n':n, 'adj_obs':adj_obs, 't':t},
+                         'in_sub_pop':in_sub_pop, 'n':n, 't':t},
                         f)
         print(f"Done with {fname}.")
 
@@ -128,7 +128,7 @@ def figure2(memfraction=.4, device=0):
                                                        init_fcn = init_variables,
                                                        obs_mode = 'random',
                                                        innov_front_mode = 'explorer')
-        key_out, inn_front, obs_sub, in_sub_pop, n, adj_obs, t = run_save(key, init_vars, save_steps, max_steps)
+        key_out, inn_front, obs_sub, in_sub_pop, n, t = run_save(key, init_vars, save_steps, max_steps)
         key = key_out[-1]
         
         fname = f'cache/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
@@ -136,7 +136,7 @@ def figure2(memfraction=.4, device=0):
             pickle.dump({'r0':r0, 'r':r, 'rd':rd, 'vo':vo, 'I':I, 'gamma':gamma,
                          'el':el, 'K':K, 'save_steps':save_steps, 'max_steps':max_steps,
                          'samples':samples, 'key':key_out, 'inn_front':inn_front, 'obs_sub':obs_sub,
-                         'in_sub_pop':in_sub_pop, 'n':n, 'adj_obs':adj_obs, 't':t},
+                         'in_sub_pop':in_sub_pop, 'n':n, 't':t},
                         f)
 
 if __name__=='__main__':
