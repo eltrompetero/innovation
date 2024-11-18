@@ -162,7 +162,7 @@ def rd_crit_quadratic(r0 , I, vo, r, gamma, k, initial_guess=-1):
         return np.nan
     return np.exp(sol['x'][0])
 
-def K_critical_quadratic(r0 , I, vo, r, rd, gamma, initial_guess=300):
+def _K_critical_quadratic(r0, I, vo, r, rd, gamma, initial_guess=300, full_output=False):
     """Critical branching number K as a function of other parameters by solving 
     the discriminant.
 
@@ -181,13 +181,56 @@ def K_critical_quadratic(r0 , I, vo, r, rd, gamma, initial_guess=300):
     float
         Critical gamma. Return np.nan if no solution is found.
     """
-    def cost(k):
-        a = (rd/r -1)*I
-        b = (rd/r -1)*I*r0/r +vo**3*(1+gamma*(k-1))**2/r**3 -(r0/r - vo/r/I)*I
-        c = (vo/r/I - r0/r)*I*r0/r + vo**2*(1+gamma*(k-1))/r**2*r0/r 
-        return  (b**2-4*a*c)**2
+    if r < rd: return np.nan
+
+    def cost(K):
+        k = 1 + gamma*(K-1)
+        a = (rd/r - 1)*I
+        b = (rd/r - 1)*I*r0/r + (vo / r)**3 * k**2 - (r0/r * I - vo/r)
+        c = (vo/r - r0/r * I) * r0/r + (vo / r)**2 * k * r0/r 
+        return  (b**2 - 4*a*c)**2
     sol = minimize(cost, initial_guess, tol=1e-10, bounds=[(1, np.inf)])
 
-    if sol['success']==False or sol['x'][0]==initial_guess:
+    if full_output:
+        return sol
+    elif sol['x'][0]==initial_guess or sol['fun']>1e-6:
+        return np.nan
+    return sol['x'][0]
+
+def K_critical_quadratic(r0, I, vo, r, rd, gamma, initial_guess=300, full_output=False):
+    """Critical branching number K as a function of other parameters by solving 
+    the discriminant.
+
+    Parameters
+    ----------
+    r0 : float
+    vo : float
+    rd : float
+    I : float
+    gamma : float
+    initial_guess : float, 300
+        Starting guess for K.
+    
+    Returns
+    -------
+    float
+        Critical gamma. Return np.nan if no solution is found.
+    """
+    if r < rd: return np.nan
+    r0 /= r
+    vo /= r
+    rd /= r
+
+    def cost(K):
+        k = 1 + gamma*(K-1)
+        a = (rd - 1)*I
+        b = r0*rd*I - 2*r0*I + vo + vo**4*k**2
+        c = r0*rd*I - r0*I - r0**2*I + r0*vo + r0*vo**3*k
+        return  (b**2 - 4*a*c)**2
+    sol = minimize(cost, initial_guess, tol=1e-10, bounds=[(1, np.inf)])
+
+    if full_output:
+        return sol
+    elif sol['x'][0]==initial_guess or sol['fun']>1e-6:
         return np.nan
     return sol['x'][0]

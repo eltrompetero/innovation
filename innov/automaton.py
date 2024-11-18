@@ -371,7 +371,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # compute adaptive time step using density at innovation front
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
-        thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 10, 1/vo/10)
+        thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 100, 1/vo/100)
         thisdt = jnp.minimum(thisdt, 10)
         t += thisdt
         
@@ -397,7 +397,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                                                  n,
                                                  thisdt)
 
-        # total rate includes replication, growth, and death
+        # total rate includes replication (from all parents), influx, and death
         total_rate = jnp.maximum((r * inverse_sons * n) @ Ady +
                                  r0/in_sub_pop.sum(axis=1)[:,None] -
                                  rd * n, 0) * in_sub_pop
