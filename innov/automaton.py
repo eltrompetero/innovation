@@ -371,11 +371,11 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # compute adaptive time step using density at innovation front
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
+        # these choices set precision of the simulation
         thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 100, 1/vo/100)
-        thisdt = jnp.minimum(thisdt, 10)
+        thisdt = jnp.maximum(jnp.minimum(thisdt, 1_000), 1e-7)
         t += thisdt
         
-        # roll matrix of shared random numbers
         key, subkey = random.split(key)
         urand_matrix = random.uniform(subkey, (samples, N))
 
@@ -387,9 +387,10 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                                                            n,
                                                            thisdt)
 
-        # move innovation front
-        # roll random matrix
+        # roll matrix of shared random numbers as a cheap way to get new random numbers
         urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
+
+        # move innovation front
         inn_front, in_sub_pop = move_innov_front(urand_matrix,
                                                  inn_front,
                                                  in_sub_pop,
