@@ -22,10 +22,11 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
           n(0)   : float
           n(L-1) : float]
     t : float
-    G : float
-    vo : float
-    rd : float
+    r0 : float
     I : float
+    r : float
+    rd : float
+    vo : float
     gamma : float
     K : int
         Branching number.
@@ -39,69 +40,21 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
     k = 1 + gamma * (K - 1)
 
     if L<=2 or N<=0:
-        dN = -N
-        dL = -L
-        dn0 = -n0
-        dnl = -nl
-    elif L>1e10 and N>1e15:
-        dN = 0
-        dL = 0
-        dn0 = 0
-        dnl = 0
-    elif N>1e15:
-        dN = 0
-        dnl = 0
-        dn0 = 0
-        dL = r*I * n0*k - vo*k
-    elif L>1e10:
-        dN = r0 + (r-rd)*N -r*n0 - vo*k*nl
-        dnl = r0/L - rd*nl - vo*k*nl + r*I*n0*k*((N - n0 - nl)/(L-2))
-        dn0 = r0/L + r*(N - n0 - nl)/(L-2) - rd*n0 - r*I*k*n0**2
-        dL = 0
+        dN = np.nan
+        dL = np.nan
+        dn0 = np.nan
+        dnl = np.nan
     else:
-        dN = r0 + (r-rd)*N -r*n0 - vo*k*nl
-        dnl = r0/L - rd*nl - vo*k*nl + r*I*n0*k * ((N - n0 - nl)/(L-2))
-        dn0 = r0/L + r*(N - n0 - nl)/(L-2) -rd*n0 - r*I*k*n0**2
+        dN = r0 + - rd*N - r*(N-n0) - vo*k*nl
         dL = r*I*k*n0 - vo*k
+        dn0 = r0/L - rd*n0 + r*(N - n0 - nl)/(L-2) - r*I*k*n0*(n0 - (N - n0 - nl)/(L-2))
+        dnl = r0/L - rd*nl - r*vo*k*(nl - (N - n0 - nl)/(L-2))
 
     return np.array([dN, dL, dn0, dnl])
 
-def pde_pseudogap_large_L(y0, t, r0, I, r, rd, vo, gamma, K):
-    """Lattice length given compartment approximation and large L.
-    
-    Parameters
-    ----------
-    Initial values of: 
-    y0 = [N      : float
-         n(L-1) : float
-         n(0)   : float
-         L      : float]
-    t : float
-    r0 : float
-    vo : float
-    rd : float
-    I : float
-    gamma : float
-    k : int
-    
-    Returns
-    -------
-    Derivatives of variables
-    dydt : floats
-    """
-    N, nel, n0, L = y0
-    k  = 1+gamma*(K-1)
-    dN = (r0 + (r-rd)*N -r*K*n0 - vo*k*K*nel)
-    dnl = (r0/L -rd *nel -vo *k* nel + r*I * n0*k * (N/L))
-    dn0 = (r0/L +r*N/L -rd*n0 - r*I*k*n0**2)
-    dL = K*r*I*k*n0 - vo*K*k
-
-    return np.array([dN, dnl, dn0, dL])
-
 def Equilibrium_compartment_model_equations(y, G, I, r, rd, vo, gamma, k):
-            N, nel, n0, l = y
-            return ((G + (r-rd)*N -r*n0 - vo*(1+gamma*(k-1))*nel), (G/l -rd *nel -vo *(1+gamma*(k-1))* nel + r*I*(1+gamma*(k-1)) * n0 * ((N-n0-nel)/(l-2))), (G/l + r*((N-n0-nel)/(l-2)) -rd*n0 - r*I*(1+gamma*(k-1))*n0**2), r*I * n0*(1+gamma*(k-1)) - vo*(1+gamma*(k-1)))
-
+    N, nel, n0, l = y
+    return ((G + (r-rd)*N -r*n0 - vo*(1+gamma*(k-1))*nel), (G/l -rd *nel -vo *(1+gamma*(k-1))* nel + r*I*(1+gamma*(k-1)) * n0 * ((N-n0-nel)/(l-2))), (G/l + r*((N-n0-nel)/(l-2)) -rd*n0 - r*I*(1+gamma*(k-1))*n0**2), r*I * n0*(1+gamma*(k-1)) - vo*(1+gamma*(k-1)))
 
 def rd_critic(G , I, vo, r, rd, gamma, k):
     """Lattice length given linear pseudogap approximation.
