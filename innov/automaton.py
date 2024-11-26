@@ -154,6 +154,13 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         To set up the initial parameter values for running.
     innov_front_mode : str, 'explorer'
     """
+    # convert rates to floats
+    r = float(r)
+    rd = float(rd)
+    I = float(I)
+    r0 = float(r0)
+    vo = float(vo)
+
     # initialize graph properties
     n = jnp.zeros((samples, N), dtype=jnp.int32)
 
@@ -398,7 +405,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                                                  n,
                                                  thisdt)
 
-        # total rate includes replication (from all parents), influx, and death
+        # total rate at each site, includes replication (from all parents), influx, and death
         total_rate = jnp.maximum((r * inverse_sons * n) @ Ady +
                                  r0/in_sub_pop.sum(axis=1)[:,None] -
                                  rd * n, 0) * in_sub_pop
