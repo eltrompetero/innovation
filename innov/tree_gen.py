@@ -12,14 +12,12 @@ from .utils import *
 
 
 class KTree():
-    def __init__(self, n0, n1, K, gamma=0, rng=None, sparse_adj=True):
+    def __init__(self, n, K, gamma=0, rng=None, sparse_adj=True, periodic=True):
         """
         Parameters
         ----------
-        n0 : int
-            Length of initial single branch.
-        n1 : int
-            Length of the branches diverging from initial branch.
+        n : int
+            Length of the branches.
         K: int
             number of chains in the network
         gamma : float, 0.
@@ -27,51 +25,71 @@ class KTree():
         rng : np.random.RandomState, None
         sparse_adj : bool, True
             If False, adj array will not be sparse_adj.
+        periodic : bool, True
+            If True, connect the last generation to the first generation.
         """
         self.gamma = gamma
         if sparse_adj:
-            self.adj = sparse.lil_array((n0+n1*K, n0+n1*K), dtype=np.bool_)
+            self.adj = sparse.lil_array((n*K, n*K), dtype=np.bool_)
         else:
-            self.adj = np.zeros((n0+n1*K, n0+n1*K), dtype=np.bool_)
+            self.adj = np.zeros((n*K, n*K), dtype=np.bool_)
         self.rng = rng if not rng is None else np.random
 
-        # create first, shared root branch
-        if n0>1:
-            ix = zip(*((i,i+1) for i in range(n0-1)))
-            self.adj[tuple(ix)] = True
         # create interleaved representation of K branches
-        ix = zip(*((i,i+K) for i in range(n0, n0+K*n1-K)))
+        if periodic:
+            ix = zip(*((i%(n*K),(i+K)%(n*K)) for i in range(K*n)))
+        else:
+            ix = zip(*((i,i+K) for i in range(K*n-K)))
         self.adj[tuple(ix)] = True
 
         # create connections between branches
-        # between root and first branching generation, to skip if no root
-        if n0>0:
-            for i in range(K):
-                self.adj[n0-1,n0+i] = True        
         if gamma==1:
             # take every branch pair and randomly connect sequential generations
             # with probability gamma
             # must consider both ordered directions of connections
-            for i, j in combinations(range(K), 2):
-                # from i->j
-                ix = zip(*((n0+i+K*el,n0+j+K*(el+1)) for el in range(n1-1)))
-                self.adj[tuple(ix)] = True
+            if periodic:
+                for i, j in combinations(range(K), 2):
+                    # from i->j
+                    ix = zip(*(((i+K*el)%(n*K),(j+K*(el+1))%(n*K)) for el in range(n)))
+                    self.adj[tuple(ix)] = True
 
-                # from j->i
-                ix = zip(*((n0+j+K*el,n0+i+K*(el+1)) for el in range(n1-1)))
-                self.adj[tuple(ix)] = True
+                    # from j->i
+                    ix = zip(*(((j+K*el)%(n*K),(i+K*(el+1))%(n*K)) for el in range(n)))
+                    self.adj[tuple(ix)] = True
+            else:
+                for i, j in combinations(range(K), 2):
+                    # from i->j
+                    ix = zip(*((i+K*el,j+K*(el+1)) for el in range(n-1)))
+                    self.adj[tuple(ix)] = True
+
+                    # from j->i
+                    ix = zip(*((j+K*el,i+K*(el+1)) for el in range(n-1)))
+                    self.adj[tuple(ix)] = True
         elif gamma:
-            # random connections
-            for i, j in combinations(range(K), 2):
-                # from i->j
-                seq = self.rng.rand(n1-1) < gamma
-                ix = zip(*((n0+i+K*el,n0+j+K*(el+1)) for el in range(n1-1)))
-                self.adj[tuple(ix)] = seq
+            if periodic:
+                # random connections
+                for i, j in combinations(range(K), 2):
+                    # from i->j
+                    seq = self.rng.rand(n) < gamma
+                    ix = zip(*(((i+K*el)%(n*K),(j+K*(el+1))%(n*K)) for el in range(n)))
+                    self.adj[tuple(ix)] = seq
 
-                # from j->i
-                seq = self.rng.rand(n1-1) < gamma
-                ix = zip(*((n0+j+K*el,n0+i+K*(el+1)) for el in range(n1-1)))
-                self.adj[tuple(ix)] = seq
+                    # from j->i
+                    seq = self.rng.rand(n) < gamma
+                    ix = zip(*(((j+K*el)%(n*K),(i+K*(el+1))%(n*K)) for el in range(n)))
+                    self.adj[tuple(ix)] = seq
+            else:
+                # random connections
+                for i, j in combinations(range(K), 2):
+                    # from i->j
+                    seq = self.rng.rand(n-1) < gamma
+                    ix = zip(*((i+K*el,j+K*(el+1)) for el in range(n-1)))
+                    self.adj[tuple(ix)] = seq
+
+                    # from j->i
+                    seq = self.rng.rand(n-1) < gamma
+                    ix = zip(*((j+K*el,i+K*(el+1)) for el in range(n-1)))
+                    self.adj[tuple(ix)] = seq
 
     def as_graph(self):
         return nx.DiGraph(self.adj)
@@ -192,8 +210,7 @@ def draw_KTree(G, el, K, pos=None, ax=None,
     ----------
     G : nx.Graph
     el : int
-        Tuple for the number of generations to consider as root and branches in
-        tree.
+        Number of generations to show.
     K : int
         Number of branches.
     pos : dict, None
@@ -212,11 +229,9 @@ def draw_KTree(G, el, K, pos=None, ax=None,
         fig, ax = plt.subplots()
     if pos is None:
         pos = []
-        for i in range(el[0]):
-            pos.append((0, -i*dy))
-        for i in range(el[1]):
+        for i in range(el):
             for j in range(K):
-                pos.append((j*dx-(K-1)*dx/2, -dy*el[0] -i*dy))
+                pos.append((j*dx-(K-1)*dx/2, -i*dy))
         pos = dict(zip(G.nodes, pos))
 
     if edge:
@@ -227,9 +242,9 @@ def draw_KTree(G, el, K, pos=None, ax=None,
                                alpha=.5)
     if node:
         nx.draw_networkx_nodes(G, pos,
-                            ax=ax,
-                            node_size=20,
-                            node_color='skyblue')
+                               ax=ax,
+                               node_size=20,
+                               node_color='skyblue')
     if label:
         nx.draw_networkx_labels(G, pos,
                                 ax=ax,
