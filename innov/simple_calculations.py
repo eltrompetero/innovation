@@ -39,16 +39,17 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
     N, L, n0, nl = y0
     k = 1 + gamma * (K - 1)
 
+    # assume system collapses fully if it falls below these limits
     if L<=2 or N<=0:
-        dN = np.nan
-        dL = np.nan
-        dn0 = np.nan
-        dnl = np.nan
+        dN = -N
+        dL = -L
+        dn0 = -n0
+        dnl = -nl
     else:
-        dN = r0 + - rd*N - r*(N-n0) - vo*k*nl
+        dN = r0 - rd*N + r*(N-n0) - vo*k*nl
         dL = r*I*k*n0 - vo*k
-        dn0 = r0/L - rd*n0 + r*(N - n0 - nl)/(L-2) - r*I*k*n0*(n0 - (N - n0 - nl)/(L-2))
-        dnl = r0/L - rd*nl - r*vo*k*(nl - (N - n0 - nl)/(L-2))
+        dn0 = r0/L - rd*n0 + r*(N-n0-nl)/(L-2) - r*I*k*n0*n0
+        dnl = r0/L - rd*nl - vo*k*(nl - (N-n0-nl)/(L-2))
 
     return np.array([dN, dL, dn0, dnl])
 
