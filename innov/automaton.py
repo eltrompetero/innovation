@@ -206,8 +206,8 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             front_moved = jnp.logical_and(inn_front, urand_matrix > (1 - r*I*dt*n))
             
             # select new sites for innovation front, if not present in
-            # obsolescence or subpopulated graph 
-            new_front_ix = jnp.logical_and(front_moved @ Ady, jnp.logical_and(~obs_sub, ~in_sub_pop))
+            # subpopulated graph 
+            new_front_ix = jnp.logical_and(front_moved @ Ady, ~in_sub_pop)
             
             # add new nodes to the innovation front
             inn_front = jnp.logical_or(inn_front, new_front_ix)
@@ -220,8 +220,11 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # must do this way (instead of removing parents who have children in innovation front)
             # because of colliding fronts
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
+
+            # remove innov front nodes from obsolescence subgraph (necessary when graph is periodic)
+            obs_sub = jnp.logical_and(obs_sub, ~inn_front)
             
-            return inn_front, in_sub_pop
+            return inn_front, in_sub_pop, obs_sub
 
     elif innov_front_mode=='single_explorer':
         # ================ requires debugging ================ #
@@ -348,9 +351,12 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # add new sites to obsolescence subgraph
             obs_sub = jnp.logical_or(obs_sub, new_front_ix)
 
+            # obs cannot "eat" innovation front b/c that would cause problems with
+            # periodic boundary conditions (disappearing innov front in trusses)
+            obs_sub = jnp.logical_and(obs_sub, ~inn_front)
+
             # remove new obsolescent sites from populated subgraph and zero the density
             in_sub_pop = in_sub_pop * ~obs_sub
-            inn_front = inn_front * ~obs_sub
             n *= in_sub_pop
             return obs_sub, in_sub_pop, inn_front, n
     else:
@@ -398,12 +404,12 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
 
         # move innovation front
-        inn_front, in_sub_pop = move_innov_front(urand_matrix,
-                                                 inn_front,
-                                                 in_sub_pop,
-                                                 obs_sub,
-                                                 n,
-                                                 thisdt)
+        inn_front, in_sub_pop, obs_sub = move_innov_front(urand_matrix,
+                                                          inn_front,
+                                                          in_sub_pop,
+                                                          obs_sub,
+                                                          n,
+                                                          thisdt)
 
         # total rate at each site, includes replication (from all parents), influx, and death
         total_rate = jnp.maximum((r * inverse_sons * n) @ Ady +
