@@ -57,64 +57,36 @@ def Equilibrium_compartment_model_equations(y, G, I, r, rd, vo, gamma, k):
     N, nel, n0, l = y
     return ((G + (r-rd)*N -r*n0 - vo*(1+gamma*(k-1))*nel), (G/l -rd *nel -vo *(1+gamma*(k-1))* nel + r*I*(1+gamma*(k-1)) * n0 * ((N-n0-nel)/(l-2))), (G/l + r*((N-n0-nel)/(l-2)) -rd*n0 - r*I*(1+gamma*(k-1))*n0**2), r*I * n0*(1+gamma*(k-1)) - vo*(1+gamma*(k-1)))
 
-def rd_critic(G , I, vo, r, rd, gamma, k):
-    """Lattice length given linear pseudogap approximation.
+def critical_rd(r0, I, gamma, K):
+    """Define function for returning curve of critical rd as a function of vo.
 
-    Parameters
-    ----------
-    G : float
-    vo : float
-    rd : float
-    I : float
-    gamma : float
-    k : int
-    
-    Returns
-    -------
-    float
-        critic death rate.
-    """
-    assert k>=1
-    #assert z(re, rd, vo)>0
-    def cost(lk):
-        rd = lk
-        #print(vo, rd)
-        nl_star = (vo * (rd+ vo*(1+gamma*(k-1))-2*r) )/(r*I*(rd+(1+gamma*(k-1))*vo))
-        #print(vo)
-        return  ((rd - r + vo*vo * (1+gamma*(k-1)) * nl_star /G))**2
-    sol = minimize(cost, 0.3, tol=1e-10, bounds=[(0,np.inf)])
-    return sol['x']
-
-def rd_crit_quadratic(r0 , I, vo, r, gamma, k, initial_guess=-1):
-    """Critical death rate rd as a function of other parameters by solving
-    the discriminant. (Given compartment model?)
+    See Mathematica notebook 20241129_derivation.nb for derivation.
 
     Parameters
     ----------
     r0 : float
-    vo : float
+        Rescaled birth rate.
     I : float
     gamma : float
-    k : int
-    initial_guess : float, -1
-        Log of rd.
-    
+    K : int
+        Branching number.
+
     Returns
     -------
-    float
-        critic death rate.
+    function
+        Takes vo as input and returns critical rd.
     """
-    assert k>=1
-    def cost(log_rd):
-        rd = np.exp(log_rd)
-        a = (rd/r -1)*I
-        b = (rd/r -1)*I*r0/r +vo**3*(1+gamma*(k-1))**2/r**3 -(r0/r - vo/r/I)*I
-        c = (vo/r/I - r0/r)*I*r0/r + vo**2*(1+gamma*(k-1))/r**2*r0/r 
-        return  (b**2-4*a*c)**2
-    sol = minimize(cost, initial_guess, tol=1e-10)
-    if sol['x'][0]==initial_guess:
-        return np.nan
-    return np.exp(sol['x'][0])
+    # Define function for root finding
+    k = 1 + gamma*(K-1)
+    naive_rd = lambda vo: (I*r0 + 3*vo - k*vo**2 - np.sqrt(((-I*r0 - 3*vo + k*vo**2)**2 -
+        8*vo*(-k*vo**2 - k**2*vo**3 + 2*np.sqrt(I*r0*vo + I*k**2*r0*vo**3)))))/(4*vo)
+    vo_star = minimize(lambda vo: (naive_rd(vo) - 1)**2, .01)['x'][0]
+
+    def f(vo):
+        if vo < vo_star:
+            return 1.
+        return naive_rd(vo)
+    return np.vectorize(f)
 
 def _K_critical_quadratic(r0, I, vo, r, rd, gamma, initial_guess=300, full_output=False):
     """Critical branching number K as a function of other parameters by solving 
