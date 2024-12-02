@@ -115,18 +115,19 @@ def create_init_variables(el, K, n0):
         input variables for one_loop
         """
         inn = jnp.zeros((samples, N), dtype=jnp.bool_)
-        obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_) 
+        obs_front = jnp.zeros((samples, N), dtype=jnp.bool_) 
         sub = jnp.zeros((samples, N), dtype=jnp.bool_)
         n = jnp.zeros((samples, N), dtype=jnp.float32)
         t = jnp.zeros(1, dtype=jnp.float32)
 
         # innovation front is a uniform line of sites
         inn = inn.at[:,el[0]*K:(el[0]+1)*K].set(True)
-        obs_sub = obs_sub.at[:,:K].set(True)
+        # obsolescence front is a uniform line of sites at generation 0
+        obs_front = obs_front.at[:,:K].set(True)
         # initial density is everything beyond the obs front up to and including innov front
         n = n.at[:,K:K+K*el[0]].set(n0)
         sub = sub.at[:,K:K+K*el[0]].set(True)
-        return inn, obs_sub, sub, n, t
+        return inn, obs_front, sub, n, t
     return init_variables
 
 
@@ -165,7 +166,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     n = jnp.zeros((samples, N), dtype=jnp.int32)
 
     # obsolescence sites must always appear the initial graph
-    obs_sub = jnp.zeros((samples, N), dtype=jnp.bool_)
+    obs_front = jnp.zeros((samples, N), dtype=jnp.bool_)
     inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
@@ -180,7 +181,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define innovation front subroutine
     if innov_front_mode=='explorer':
         @jit
-        def move_innov_front(urand_matrix, inn_front, in_sub_pop, obs_sub, n, dt):
+        def move_innov_front(urand_matrix, inn_front, in_sub_pop, obs_front, n, dt):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
             
@@ -192,8 +193,8 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                 Indicates sites that are innovation fronts using True.
             in_sub_pop : boolean array
                 Indicates which sites are in the populated subgraph.
-            obs_sub : boolean array
-                Indicates sites that are obsolescence fronts using True.
+            obs_front : boolean array
+                Indicates sites in the obsolescence front using True.
             n : jnp.ndarray
                 Density values.
             
@@ -221,10 +222,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # because of colliding fronts
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
-            # remove innov front nodes from obsolescence subgraph (necessary when graph is periodic)
-            obs_sub = jnp.logical_and(obs_sub, ~inn_front)
-            
-            return inn_front, in_sub_pop, obs_sub
+            return inn_front, in_sub_pop, obs_front
 
     elif innov_front_mode=='single_explorer':
         # ================ requires debugging ================ #
@@ -326,39 +324,36 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define obsolescence front subroutine
     if obs_mode =='random':
         @jit
-        def move_obs_front(urand_matrix, in_sub_pop, inn_front, obs_sub, n, dt):
+        def move_obs_front(urand_matrix, in_sub_pop, inn_front, obs_front, n, dt):
             """Grow obsolescence subgraph stochastically.
 
             Parameters
             ----------
             urand_matrix : jnp.ndarray
                 Matrix of random numbers from [0,1] interval.
-            obs_sub : boolean array
+            obs_front: boolean array
                 Indicates sites that are in obsolescence subgraph.
 
             Returns
             -------
-            obs_sub
+            obs_front
             in_sub_pop
             inn_front
             """
             # sample from obsolesence front sites to move
-            front_moved = obs_sub * (urand_matrix <= (vo*dt))
+            front_moved = obs_front * (urand_matrix <= (vo*dt))
 
-            # move into all children vertices if not in the front
-            new_front_ix = front_moved @ Ady
+            # move into all children vertices
+            obs_front = jnp.logical_or(obs_front, front_moved @ Ady)
 
-            # add new sites to obsolescence subgraph
-            obs_sub = jnp.logical_or(obs_sub, new_front_ix)
-
-            # obs cannot "eat" innovation front b/c that would cause problems with
-            # periodic boundary conditions (disappearing innov front in trusses)
-            obs_sub = jnp.logical_and(obs_sub, ~inn_front)
+            # remove parents
+            obs_front = obs_front * ~front_moved
 
             # remove new obsolescent sites from populated subgraph and zero the density
-            in_sub_pop = in_sub_pop * ~obs_sub
+            in_sub_pop = in_sub_pop * ~obs_front
             n *= in_sub_pop
-            return obs_sub, in_sub_pop, inn_front, n
+            inn_front = inn_front * ~obs_front
+            return obs_front, in_sub_pop, inn_front, n
     else:
         raise NotImplementedError("obs_front_mode not recognized.")
 
@@ -376,7 +371,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # read in values
         key = val[0]
         inn_front = val[1]
-        obs_sub = val[2]
+        obs_front = val[2]
         in_sub_pop = val[3]
         n = val[4]
         t = val[5]
@@ -393,10 +388,10 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         urand_matrix = random.uniform(subkey, (samples, N))
 
         # move obsolescence front 
-        obs_sub, in_sub_pop, inn_front, n = move_obs_front(urand_matrix,
+        obs_front, in_sub_pop, inn_front, n = move_obs_front(urand_matrix,
                                                            in_sub_pop,
                                                            inn_front,
-                                                           obs_sub,
+                                                           obs_front,
                                                            n,
                                                            thisdt)
 
@@ -404,10 +399,10 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
 
         # move innovation front
-        inn_front, in_sub_pop, obs_sub = move_innov_front(urand_matrix,
+        inn_front, in_sub_pop, obs_front = move_innov_front(urand_matrix,
                                                           inn_front,
                                                           in_sub_pop,
-                                                          obs_sub,
+                                                          obs_front,
                                                           n,
                                                           thisdt)
 
@@ -420,7 +415,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         dn = random.poisson(subkey, total_rate * thisdt)
         n += dn
         
-        return [key, inn_front, obs_sub, in_sub_pop, n, t]
+        return [key, inn_front, obs_front, in_sub_pop, n, t]
 
     init_vars = init_fcn(Ady.shape[0], samples)
 
@@ -454,7 +449,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # define output vars to copy GPU variables to CPU RAM
         key = np.zeros((max_steps, 2), dtype=np.uint32)
         inn_front = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
-        obs_sub = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        obs_front = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         in_sub_pop = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
         n = np.zeros((max_steps//save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
         t = np.zeros(max_steps//save_steps+1, dtype=np.float32)
@@ -462,7 +457,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # save initial variable values
         key[0] = out_vars[0]
         inn_front[0,:,:] = out_vars[1]
-        obs_sub[0,:,:] = out_vars[2]
+        obs_front[0,:,:] = out_vars[2]
         in_sub_pop[0,:,:] = out_vars[3]
         n[0,:,:] = out_vars[4]
         t[0] = out_vars[5][0]
@@ -479,7 +474,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             t0r = time.time()
             key[i+1] = out_vars[0]
             inn_front[i+1,:,:] = out_vars[1]
-            obs_sub[i+1,:,:] = out_vars[2]
+            obs_front[i+1,:,:] = out_vars[2]
             in_sub_pop[i+1,:,:] = out_vars[3]
             n[i+1,:,:] = out_vars[4]
             t[i+1] = out_vars[5][0]
@@ -493,7 +488,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             print("Total time", f'{total_t:.2f}')
             print("Fraction reading", f'{total_reading_t/total_t:.2f}')
 
-        return key, inn_front, obs_sub, in_sub_pop, n, t
+        return key, inn_front, obs_front, in_sub_pop, n, t
     
     def run(key, out_vars, t, iprint=True, loop_steps=100):
         """Run simulation until a certain duration (stop as soon as that
