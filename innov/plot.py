@@ -27,10 +27,11 @@ def density_snapshot(n, el, K, t, mean=False, replica_ix=0, **kwargs):
     if mean=='replica': 
         for tix in t:
             ax.plot(n[tix,:,::K].mean(0))
-            if K>1:
+            if K>1:  # show a second branch
                 ax.plot(n[tix,:,1::K].mean(0))
     elif mean=='branch+replica':
         for tix in t:
+            # mean over replicas then mean over branches
             ax.plot(n[tix].mean(0).reshape(el[1], K).mean(1))
     elif mean is False:
         for tix in t:
