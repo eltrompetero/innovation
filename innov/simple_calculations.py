@@ -8,7 +8,7 @@ from scipy.optimize import minimize, root
 from scipy.interpolate import interp1d
 from scipy.special import logsumexp
 from scipy.integrate import odeint
-import warnings
+from cmath import sqrt
 from .utils import *
 
 
@@ -79,8 +79,8 @@ def critical_rd(r0, I, gamma, K):
     # Define function for root finding
     k = 1 + gamma*(K-1)
     naive_rd = lambda vo: (I*r0 + 3*vo - k*vo**2 - np.sqrt(((-I*r0 - 3*vo + k*vo**2)**2 -
-        8*vo*(-k*vo**2 - k**2*vo**3 + 2*np.sqrt(I*r0*vo + I*k**2*r0*vo**3)))))/(4*vo)
-    vo_star = minimize(lambda vo: (naive_rd(vo) - 1)**2, .01)['x'][0]
+                           8*vo*(-k*vo**2 - k**2*vo**3 + 2*np.sqrt(I*r0*vo + I*k**2*r0*vo**3)))))/(4*vo)
+    vo_star = minimize(lambda vo: (naive_rd(vo) - 1)**2, .01, tol=1e-10)['x'][0]
 
     def f(vo):
         if vo < vo_star:
@@ -160,3 +160,105 @@ def K_critical_quadratic(r0, I, vo, r, rd, gamma, initial_guess=300, full_output
     elif sol['x'][0]==initial_guess or sol['fun']>1e-6:
         return np.nan
     return sol['x'][0]
+
+class CompartmentModel:
+    def __init__(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+        """Steady-state properties of compartment model including state
+        variables and phase boundaries.
+        """
+        self.r0 = r0
+        self.I = I
+        self.rd = rd
+        self.vo = vo
+        self.gamma = gamma
+        self.K = K
+
+    def N(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+        """Steady state solution for N, total number of agents per branch for compartment model."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+        K = K if K is not None else self.K
+        k = 1 + gamma*(K-1)
+        
+        A = I * (-1 + rd) * (rd + k * vo) * (-1 + 2 * rd**2 - k**2 * vo**2 + rd * (-1 + k * vo))
+        B = -2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo + 2 * rd * vo - 2 * I * k * r0 * rd * vo + 2 * rd**2 * vo + 5 * I * k * r0 * rd**2 * vo - 4 * rd**3 * vo + 2 * k * vo**2 + 2 * k * rd * vo**2 - I * k**2 * r0 * rd * vo**2 - 3 * k * rd**2 * vo**2 + I * k**2 * r0 * rd**2 * vo**2 - 2 * k * rd**3 * vo**2 - 2 * I * k**3 * r0 * vo**3 + 6 * k**2 * rd * vo**3 + I * k**3 * r0 * rd * vo**3 - 4 * k**2 * rd**2 * vo**3 - 2 * k**2 * rd**3 * vo**3 + 5 * k**3 * vo**4 - 2 * k**3 * rd * vo**4 - 3 * k**3 * rd**2 * vo**4 + k**5 * vo**6
+        C = (rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) + (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2)
+        quadform = (B + k * vo * sqrt(C) - k**2 * vo**2 * sqrt(C)) / (2 * A)
+        return quadform, A, B, C
+
+    def L(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+        """Steady state solution for length of lattice along each branch for compartment model."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+        K = K if K is not None else self.K
+        k = 1 + gamma*(K-1)
+
+        A = (-1 + rd) * vo * (rd + k * vo)**2
+        B = (I * r0 * rd**2 + I * k * r0 * rd * vo - 3 * rd**2 * vo + 2 * rd**3 * vo -
+            4 * k * rd * vo**2 + 3 * k * rd**2 * vo**2 - k**2 * vo**3 - k**3 * vo**4)
+        C = (rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
+                                (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2) 
+        quadform = (B + sqrt(C)) / (2 * A)
+        return quadform, A, B, C
+
+    @classmethod
+    def N_as_fun(cls, r0, I, rd, vo, gamma, K):
+        """Steady state solution for N, total number of agents per branch for
+        compartment model."""
+        k = 1 + gamma*(K-1)
+        
+        A = I * (-1 + rd) * (rd + k * vo) * (-1 + 2 * rd**2 - k**2 * vo**2 + rd * (-1 + k * vo))
+        B = (-2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo +
+             2 * rd * vo - 2 * I * k * r0 * rd * vo + 2 * rd**2 * vo + 5 * I * k * r0 * rd**2 * vo -
+             4 * rd**3 * vo + 2 * k * vo**2 + 2 * k * rd * vo**2 - I * k**2 * r0 * rd * vo**2 -
+             3 * k * rd**2 * vo**2 + I * k**2 * r0 * rd**2 * vo**2 - 2 * k * rd**3 * vo**2 -
+             2 * I * k**3 * r0 * vo**3 + 6 * k**2 * rd * vo**3 + I * k**3 * r0 * rd * vo**3 -
+             4 * k**2 * rd**2 * vo**3 - 2 * k**2 * rd**3 * vo**3 + 5 * k**3 * vo**4 - 2 * k**3 * rd * vo**4 -
+             3 * k**3 * rd**2 * vo**4 + k**5 * vo**6)
+        C = ((rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
+                                 (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2))
+        quadform = (B + k * vo * sqrt(C) - k**2 * vo**2 * sqrt(C)) / (2 * A)
+        return quadform, A, B, C
+
+    @classmethod
+    def L_as_fun(cls, r0, I, rd, vo, gamma, K):
+        """Steady state solution for length of lattice along each branch for compartment model."""
+        k = 1 + gamma*(K-1)
+
+        A = (-1 + rd) * vo * (rd + k * vo)**2
+        B = (I * r0 * rd**2 + I * k * r0 * rd * vo - 3 * rd**2 * vo + 2 * rd**3 * vo -
+            4 * k * rd * vo**2 + 3 * k * rd**2 * vo**2 - k**2 * vo**3 - k**3 * vo**4)
+        C = (rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
+                                (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2) 
+        quadform = (B + sqrt(C)) / (2 * A)
+        return quadform, A, B, C
+    
+    def gamma_runaway(self, r0=None, I=None, rd=None, vo=None, K=None):
+        """Critical gamma delineating runaway boundary."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        K = K if K is not None else self.K
+
+        return ((2 - 2 * K - rd / vo + (K * rd) / vo + ((-1 + K) *
+                sqrt(-4 - 4 * rd + 9 * rd**2)) / vo) / (2 * (1 - 2 * K + K**2)))
+    
+    def gamma_collapse(self, r0=None, I=None, rd=None, vo=None, K=None):
+        """Solve for critical gamma delineating collapse boundary."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        K = K if K is not None else self.K
+
+        def cost(loggamma):
+            gamma = np.exp(loggamma)
+            return np.abs(self.L(r0, I, rd, vo, gamma, K)[0] - 2)**2
+        return np.exp(minimize(cost, 0.)['x']) 

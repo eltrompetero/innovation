@@ -490,12 +490,13 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
 
         return key, inn_front, obs_front, in_sub_pop, n, t
     
-    def run(key, out_vars, t, iprint=True, loop_steps=100):
+    def run(key, out_vars, t, iprint=True):
         """Run simulation until a certain duration (stop as soon as that
         duration is crossed). Only return output.
 
         Parameters
         ----------
+        key : jax.random.PRNGKey
         out_vars : list
             Initial state with which to start simulation.
         t : float
