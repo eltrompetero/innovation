@@ -181,7 +181,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     # define innovation front subroutine
     if innov_front_mode=='explorer':
         @jit
-        def move_innov_front(urand_matrix, inn_front, in_sub_pop, obs_front, n, dt):
+        def move_innov_front(urand_matrix, inn_front, in_sub_pop, n, dt):
             """Move innovation fronts stochastically. When progressing, move to
             occupy all children nodes.
             
@@ -193,8 +193,6 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                 Indicates sites that are innovation fronts using True.
             in_sub_pop : boolean array
                 Indicates which sites are in the populated subgraph.
-            obs_front : boolean array
-                Indicates sites in the obsolescence front using True.
             n : jnp.ndarray
                 Density values.
             
@@ -222,7 +220,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # because of colliding fronts
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
-            return inn_front, in_sub_pop, obs_front
+            return inn_front, in_sub_pop
 
     elif innov_front_mode=='single_explorer':
         # ================ requires debugging ================ #
@@ -381,7 +379,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
         thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 100, 1/vo/100)
-        thisdt = jnp.maximum(jnp.minimum(thisdt, 1_000), 1e-7)
+        thisdt = jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)
         t += thisdt
         
         key, subkey = random.split(key)
@@ -389,31 +387,33 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
 
         # move obsolescence front 
         obs_front, in_sub_pop, inn_front, n = move_obs_front(urand_matrix,
-                                                           in_sub_pop,
-                                                           inn_front,
-                                                           obs_front,
-                                                           n,
-                                                           thisdt)
+                                                             in_sub_pop,
+                                                             inn_front,
+                                                             obs_front,
+                                                             n,
+                                                             thisdt)
 
         # roll matrix of shared random numbers as a cheap way to get new random numbers
         urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
 
         # move innovation front
-        inn_front, in_sub_pop, obs_front = move_innov_front(urand_matrix,
-                                                          inn_front,
-                                                          in_sub_pop,
-                                                          obs_front,
-                                                          n,
-                                                          thisdt)
+        inn_front, in_sub_pop = move_innov_front(urand_matrix,
+                                                inn_front,
+                                                in_sub_pop,
+                                                n,
+                                                thisdt)
 
         # total rate at each site, includes replication (from all parents), influx, and death
-        total_rate = jnp.maximum((r * inverse_sons * n) @ Ady +
-                                 r0/in_sub_pop.sum(axis=1)[:,None] -
-                                 rd * n, 0) * in_sub_pop
+        # keep n positive semi-definite
+        total_rate = ((r * inverse_sons * n) @ Ady +
+                      r0/in_sub_pop.sum(axis=1)[:,None] -
+                      rd * n) * in_sub_pop
+        total_rate_sign = jnp.sign(total_rate)
 
         key, subkey = random.split(key)
-        dn = random.poisson(subkey, total_rate * thisdt)
-        n += dn
+        dn = random.poisson(subkey, total_rate_sign * total_rate * thisdt)
+        n += dn * total_rate_sign
+        n = jnp.maximum(n, 0)
         
         return [key, inn_front, obs_front, in_sub_pop, n, t]
 
