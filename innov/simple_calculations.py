@@ -68,7 +68,8 @@ def critical_rd(r0, I, gamma, K):
         Takes vo as input and returns critical rd.
     """
     # Define function for root finding
-    k = 1 + gamma*(K-1)
+    lam = solve_lambda(gamma)
+    k = 1 + gamma*(K-1) + gamma*K*lam
     naive_rd = lambda vo: (I*r0 + 3*vo - k*vo**2 - np.sqrt(((-I*r0 - 3*vo + k*vo**2)**2 -
                            8*vo*(-k*vo**2 - k**2*vo**3 + 2*np.sqrt(I*r0*vo + I*k**2*r0*vo**3)))))/(4*vo)
     vo_star = minimize(lambda vo: (naive_rd(vo) - 1)**2, .01, tol=1e-10)['x'][0]
@@ -99,11 +100,18 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         gamma = gamma if gamma is not None else self.gamma
         K = K if K is not None else self.K
-        k = 1 + gamma*(K-1)
+        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
         
         A = I * (-1 + rd) * (rd + k * vo) * (-1 + 2 * rd**2 - k**2 * vo**2 + rd * (-1 + k * vo))
-        B = -2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo + 2 * rd * vo - 2 * I * k * r0 * rd * vo + 2 * rd**2 * vo + 5 * I * k * r0 * rd**2 * vo - 4 * rd**3 * vo + 2 * k * vo**2 + 2 * k * rd * vo**2 - I * k**2 * r0 * rd * vo**2 - 3 * k * rd**2 * vo**2 + I * k**2 * r0 * rd**2 * vo**2 - 2 * k * rd**3 * vo**2 - 2 * I * k**3 * r0 * vo**3 + 6 * k**2 * rd * vo**3 + I * k**3 * r0 * rd * vo**3 - 4 * k**2 * rd**2 * vo**3 - 2 * k**2 * rd**3 * vo**3 + 5 * k**3 * vo**4 - 2 * k**3 * rd * vo**4 - 3 * k**3 * rd**2 * vo**4 + k**5 * vo**6
-        C = (rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) + (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2)
+        B = (-2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo +
+             2 * rd * vo - 2 * I * k * r0 * rd * vo + 2 * rd**2 * vo + 5 * I * k * r0 * rd**2 * vo -
+             4 * rd**3 * vo + 2 * k * vo**2 + 2 * k * rd * vo**2 - I * k**2 * r0 * rd * vo**2 -
+             3 * k * rd**2 * vo**2 + I * k**2 * r0 * rd**2 * vo**2 - 2 * k * rd**3 * vo**2 -
+             2 * I * k**3 * r0 * vo**3 + 6 * k**2 * rd * vo**3 + I * k**3 * r0 * rd * vo**3 -
+             4 * k**2 * rd**2 * vo**3 - 2 * k**2 * rd**3 * vo**3 + 5 * k**3 * vo**4 - 2 * k**3 * rd * vo**4 -
+             3 * k**3 * rd**2 * vo**4 + k**5 * vo**6)
+        C = ((rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
+                                 (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2))
         quadform = (B + k * vo * sqrt(C) - k**2 * vo**2 * sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
@@ -115,7 +123,7 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         gamma = gamma if gamma is not None else self.gamma
         K = K if K is not None else self.K
-        k = 1 + gamma*(K-1)
+        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
 
         A = (-1 + rd) * vo * (rd + k * vo)**2
         B = (I * r0 * rd**2 + I * k * r0 * rd * vo - 3 * rd**2 * vo + 2 * rd**3 * vo -
@@ -129,7 +137,7 @@ class CompartmentModel:
     def N_as_fun(cls, r0, I, rd, vo, gamma, K):
         """Steady state solution for N, total number of agents per branch for
         compartment model."""
-        k = 1 + gamma*(K-1)
+        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
         
         A = I * (-1 + rd) * (rd + k * vo) * (-1 + 2 * rd**2 - k**2 * vo**2 + rd * (-1 + k * vo))
         B = (-2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo +
@@ -147,7 +155,7 @@ class CompartmentModel:
     @classmethod
     def L_as_fun(cls, r0, I, rd, vo, gamma, K):
         """Steady state solution for length of lattice along each branch for compartment model."""
-        k = 1 + gamma*(K-1)
+        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
 
         A = (-1 + rd) * vo * (rd + k * vo)**2
         B = (I * r0 * rd**2 + I * k * r0 * rd * vo - 3 * rd**2 * vo + 2 * rd**3 * vo -
@@ -165,6 +173,23 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         K = K if K is not None else self.K
 
+        def cost(loggamma):
+            if loggamma>0:
+                return 1e10
+            gamma = np.exp(loggamma)[0]
+            lam = solve_lambda(gamma)
+            #return ((0.5 * (-K * vo * (-rd + 2 * vo -rd * lam + 2 * vo * lam)
+            #               -np.sqrt(K**2 * vo**2 * (-rd + 2 * vo -rd * lam + 2 * vo * lam)**2 -
+            #                        4 * K**2 * vo**2 * (1 + rd - 2 * rd**2 -rd * vo + vo**2) * (1 + 2 * lam + lam**2)))) /
+            #                        (K**2 * vo**2 * (1 + 2 * lam + lam**2)) - gamma)**2
+            return ((.5 * (-K * vo * (-rd + 2 * vo -rd * lam + 2 * vo * lam) +
+                           np.sqrt(K**2 * vo**2 * (-rd + 2 * vo -rd * lam + 2 * vo * lam)**2 -
+                                   4 * K**2 * vo**2 * (1 + rd - 2 * rd**2 -rd * vo + vo**2) * (1 + 2 * lam + lam**2)))) /
+                                   (K**2 * vo**2 * (1 + 2 * lam + lam**2)) - gamma)**2
+        sol = minimize(cost, -1)
+        if sol['fun']>1e-5:
+            return np.nan
+        return np.exp(sol['x'])[0]
         return ((2 - 2 * K - rd / vo + (K * rd) / vo + ((-1 + K) *
                 sqrt(-4 - 4 * rd + 9 * rd**2)) / vo) / (2 * (1 - 2 * K + K**2)))
     
@@ -177,6 +202,30 @@ class CompartmentModel:
         K = K if K is not None else self.K
 
         def cost(loggamma):
-            gamma = np.exp(loggamma)
+            gamma = np.exp(loggamma)[0]
             return np.abs(self.L(r0, I, rd, vo, gamma, K)[0] - 2)**2
-        return np.exp(minimize(cost, 0.)['x']) 
+        return np.exp(minimize(cost, 0.)['x'])[0]
+    
+def solve_lambda(gamma, g0=-1.):
+    if hasattr(gamma, '__len__'):
+        lam = np.zeros_like(gamma)
+        for i, gamma_ in enumerate(gamma):
+            def cost(loglam):
+                lam = np.exp(loglam)
+                p0 = np.exp(-lam)
+                p1 = lam*np.exp(-lam)
+                return (np.exp(-lam)/(1+lam)-gamma_)**2
+
+            sol = minimize(cost, g0)
+            lam[i] = np.exp(sol['x'])
+        return lam
+
+    def cost(loglam):
+        lam = np.exp(loglam)
+        p0 = np.exp(-lam)
+        p1 = lam*np.exp(-lam)
+        return (np.exp(-lam)/(1+lam)-gamma)**2
+    
+    sol = minimize(cost, g0)
+    lam = np.exp(sol['x'])[0]
+    return lam
