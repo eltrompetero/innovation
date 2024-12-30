@@ -32,7 +32,7 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
         Derivatives of variables.
     """
     N, L, n0, nl = y0
-    k = 1 + gamma * (K - 1)
+    k = 1 + gamma * (K - 1) + gamma * K * solve_lambda(gamma)
 
     # assume system collapses fully if it falls below these limits
     if L<=2 or N<=0:
