@@ -174,24 +174,15 @@ class CompartmentModel:
         K = K if K is not None else self.K
 
         def cost(loggamma):
-            if loggamma>0:
-                return 1e10
             gamma = np.exp(loggamma)[0]
             lam = solve_lambda(gamma)
-            #return ((0.5 * (-K * vo * (-rd + 2 * vo -rd * lam + 2 * vo * lam)
-            #               -np.sqrt(K**2 * vo**2 * (-rd + 2 * vo -rd * lam + 2 * vo * lam)**2 -
-            #                        4 * K**2 * vo**2 * (1 + rd - 2 * rd**2 -rd * vo + vo**2) * (1 + 2 * lam + lam**2)))) /
-            #                        (K**2 * vo**2 * (1 + 2 * lam + lam**2)) - gamma)**2
-            return ((.5 * (-K * vo * (-rd + 2 * vo -rd * lam + 2 * vo * lam) +
-                           np.sqrt(K**2 * vo**2 * (-rd + 2 * vo -rd * lam + 2 * vo * lam)**2 -
-                                   4 * K**2 * vo**2 * (1 + rd - 2 * rd**2 -rd * vo + vo**2) * (1 + 2 * lam + lam**2)))) /
-                                   (K**2 * vo**2 * (1 + 2 * lam + lam**2)) - gamma)**2
+            return ((-2 * K + (K * rd) / vo - 2 * K * lam + (K * rd * lam) / vo + (K * np.sqrt(-4
+                    - 4 * rd + 9 * rd**2) * (1 + lam)) / vo) / (2 * (K**2 + 2 * K**2 * lam + K**2 *
+                    lam**2)) - gamma)**2
         sol = minimize(cost, -1)
         if sol['fun']>1e-5:
             return np.nan
         return np.exp(sol['x'])[0]
-        return ((2 - 2 * K - rd / vo + (K * rd) / vo + ((-1 + K) *
-                sqrt(-4 - 4 * rd + 9 * rd**2)) / vo) / (2 * (1 - 2 * K + K**2)))
     
     def gamma_collapse(self, r0=None, I=None, rd=None, vo=None, K=None):
         """Solve for critical gamma delineating collapse boundary."""
