@@ -379,7 +379,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
-        thisdt = jnp.minimum(1 / ((n * inn_front).max() * r * I) / 100, 1/vo/max_sons/100)
+        thisdt = jnp.minimum(1 / (((n * inn_front) @ Ady).max() * r * I) / 100, 1/vo/max_sons/100)
         thisdt = jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)
         t += thisdt
         
