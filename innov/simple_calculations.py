@@ -100,19 +100,20 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         gamma = gamma if gamma is not None else self.gamma
         K = K if K is not None else self.K
-        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
+        k = 1 + gamma*(K-1)
+        k1 = k + gamma*K*solve_lambda(gamma)
         
-        A = I * (-1 + rd) * (rd + k * vo) * (-1 + 2 * rd**2 - k**2 * vo**2 + rd * (-1 + k * vo))
-        B = (-2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo +
-             2 * rd * vo - 2 * I * k * r0 * rd * vo + 2 * rd**2 * vo + 5 * I * k * r0 * rd**2 * vo -
-             4 * rd**3 * vo + 2 * k * vo**2 + 2 * k * rd * vo**2 - I * k**2 * r0 * rd * vo**2 -
-             3 * k * rd**2 * vo**2 + I * k**2 * r0 * rd**2 * vo**2 - 2 * k * rd**3 * vo**2 -
-             2 * I * k**3 * r0 * vo**3 + 6 * k**2 * rd * vo**3 + I * k**3 * r0 * rd * vo**3 -
-             4 * k**2 * rd**2 * vo**3 - 2 * k**2 * rd**3 * vo**3 + 5 * k**3 * vo**4 - 2 * k**3 * rd * vo**4 -
-             3 * k**3 * rd**2 * vo**4 + k**5 * vo**6)
-        C = ((rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
-                                 (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2))
-        quadform = (B + k * vo * sqrt(C) - k**2 * vo**2 * sqrt(C)) / (2 * A)
+        A = I * K * (-1 + rd) * (rd + k1 * vo) * (-1 + 2 * rd**2 - k1**2 * vo**2 + rd * (-1 + k1 * vo))
+        B = I * K * r0 * (4 * rd**3 + rd**2 * (-2 + 5 * k1 * vo + k1**2 * vo**2) - 2 * (k1 * vo + k1**3 *
+            vo**3) + rd * (-2 - 2 * k1 * vo - k1**2 * vo**2 + k1**3 * vo**3)) + k1 * vo * (2 * k1 * vo + 5 *
+                    k1**3 * vo**3 + k1**5 * vo**5 - 2 * rd**3 * (2 + k1 * vo + k1**2 * vo**2) + rd * (2 + 2 *
+                        k1 * vo + 6 * k1**2 * vo**2 - 2 * k1**3 * vo**3) - rd**2 * (-2 + 3 * k1 * vo + 4 *
+                            k1**2 * vo**2 + 3 * k1**3 * vo**3))
+        C = (rd + k1 * vo)**2 * (I**2 * K**2 * r0**2 * rd**2 + k1**2 * vo**2 * (-2 * rd**2 + rd * (3 - k1 *
+            vo) + k1 * vo * (1 + k1 * vo))**2 + 2 * I * K * k1 * r0 * vo * (-2 * rd**3 + rd**2 * (3 - k1 *
+                vo) + k1 * rd * vo * (1 + k1 * vo) - 2 * (1 + k1**2 * vo**2)))
+        D = k1 * vo * (1 - k1 * vo)
+        quadform = (B + D * sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
     def L(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
@@ -123,13 +124,15 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         gamma = gamma if gamma is not None else self.gamma
         K = K if K is not None else self.K
-        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
-
-        A = (-1 + rd) * vo * (rd + k * vo)**2
-        B = (I * r0 * rd**2 + I * k * r0 * rd * vo - 3 * rd**2 * vo + 2 * rd**3 * vo -
-            4 * k * rd * vo**2 + 3 * k * rd**2 * vo**2 - k**2 * vo**3 - k**3 * vo**4)
-        C = (rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
-                                (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2) 
+        k = 1 + gamma*(K-1)
+        k1 = k + gamma*K*solve_lambda(gamma)
+        
+        A = k1 * (-1 + rd) * vo * (rd + k1 * vo)**2
+        B = (I * K * r0 * rd**2 + I * K * k1 * r0 * rd * vo - 3 * k1 * rd**2 * vo + 2 * k1 * rd**3 * vo - 4 *
+             k1**2 * rd * vo**2 + 3 * k1**2 * rd**2 * vo**2 - k1**3 * vo**3 - k1**4 * vo**4)
+        C = ((rd + k1 * vo)**2 * (4 * I * K * k1 * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k1 * rd * vo +
+            k1**2 * vo**2) + (I * K * r0 * rd - k1 * vo * (-2 * rd**2 + rd * (3 - k1 * vo) + k1 * vo * (1 +
+                k1 * vo)))**2))
         quadform = (B + sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
@@ -137,31 +140,34 @@ class CompartmentModel:
     def N_as_fun(cls, r0, I, rd, vo, gamma, K):
         """Steady state solution for N, total number of agents per branch for
         compartment model."""
-        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
+        k = 1 + gamma*(K-1)
+        k1 = k + gamma*K*solve_lambda(gamma)
         
-        A = I * (-1 + rd) * (rd + k * vo) * (-1 + 2 * rd**2 - k**2 * vo**2 + rd * (-1 + k * vo))
-        B = (-2 * I * r0 * rd - 2 * I * r0 * rd**2 + 4 * I * r0 * rd**3 - 2 * I * k * r0 * vo +
-             2 * rd * vo - 2 * I * k * r0 * rd * vo + 2 * rd**2 * vo + 5 * I * k * r0 * rd**2 * vo -
-             4 * rd**3 * vo + 2 * k * vo**2 + 2 * k * rd * vo**2 - I * k**2 * r0 * rd * vo**2 -
-             3 * k * rd**2 * vo**2 + I * k**2 * r0 * rd**2 * vo**2 - 2 * k * rd**3 * vo**2 -
-             2 * I * k**3 * r0 * vo**3 + 6 * k**2 * rd * vo**3 + I * k**3 * r0 * rd * vo**3 -
-             4 * k**2 * rd**2 * vo**3 - 2 * k**2 * rd**3 * vo**3 + 5 * k**3 * vo**4 - 2 * k**3 * rd * vo**4 -
-             3 * k**3 * rd**2 * vo**4 + k**5 * vo**6)
-        C = ((rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
-                                 (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2))
-        quadform = (B + k * vo * sqrt(C) - k**2 * vo**2 * sqrt(C)) / (2 * A)
+        A = I * K * (-1 + rd) * (rd + k1 * vo) * (-1 + 2 * rd**2 - k1**2 * vo**2 + rd * (-1 + k1 * vo))
+        B = I * K * r0 * (4 * rd**3 + rd**2 * (-2 + 5 * k1 * vo + k1**2 * vo**2) - 2 * (k1 * vo + k1**3 *
+            vo**3) + rd * (-2 - 2 * k1 * vo - k1**2 * vo**2 + k1**3 * vo**3)) + k1 * vo * (2 * k1 * vo + 5 *
+                    k1**3 * vo**3 + k1**5 * vo**5 - 2 * rd**3 * (2 + k1 * vo + k1**2 * vo**2) + rd * (2 + 2 *
+                        k1 * vo + 6 * k1**2 * vo**2 - 2 * k1**3 * vo**3) - rd**2 * (-2 + 3 * k1 * vo + 4 *
+                            k1**2 * vo**2 + 3 * k1**3 * vo**3))
+        C = (rd + k1 * vo)**2 * (I**2 * K**2 * r0**2 * rd**2 + k1**2 * vo**2 * (-2 * rd**2 + rd * (3 - k1 *
+            vo) + k1 * vo * (1 + k1 * vo))**2 + 2 * I * K * k1 * r0 * vo * (-2 * rd**3 + rd**2 * (3 - k1 *
+                vo) + k1 * rd * vo * (1 + k1 * vo) - 2 * (1 + k1**2 * vo**2)))
+        D = k1 * vo * (1 - k1 * vo)
+        quadform = (B + D * sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
     @classmethod
     def L_as_fun(cls, r0, I, rd, vo, gamma, K):
         """Steady state solution for length of lattice along each branch for compartment model."""
-        k = 1 + gamma*(K-1) + gamma*K*solve_lambda(gamma)
-
-        A = (-1 + rd) * vo * (rd + k * vo)**2
-        B = (I * r0 * rd**2 + I * k * r0 * rd * vo - 3 * rd**2 * vo + 2 * rd**3 * vo -
-            4 * k * rd * vo**2 + 3 * k * rd**2 * vo**2 - k**2 * vo**3 - k**3 * vo**4)
-        C = (rd + k * vo)**2 * (4 * I * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k * rd * vo + k**2 * vo**2) +
-                                (I * r0 * rd - vo * (-2 * rd**2 + rd * (3 - k * vo) + k * vo * (1 + k * vo)))**2) 
+        k = 1 + gamma*(K-1)
+        k1 = k + gamma*K*solve_lambda(gamma)
+        
+        A = k1 * (-1 + rd) * vo * (rd + k1 * vo)**2
+        B = (I * K * r0 * rd**2 + I * K * k1 * r0 * rd * vo - 3 * k1 * rd**2 * vo + 2 * k1 * rd**3 * vo - 4 *
+             k1**2 * rd * vo**2 + 3 * k1**2 * rd**2 * vo**2 - k1**3 * vo**3 - k1**4 * vo**4)
+        C = ((rd + k1 * vo)**2 * (4 * I * K * k1 * r0 * (-1 + rd) * vo * (1 + rd - 2 * rd**2 - k1 * rd * vo +
+            k1**2 * vo**2) + (I * K * r0 * rd - k1 * vo * (-2 * rd**2 + rd * (3 - k1 * vo) + k1 * vo * (1 +
+                k1 * vo)))**2))
         quadform = (B + sqrt(C)) / (2 * A)
         return quadform, A, B, C
     
