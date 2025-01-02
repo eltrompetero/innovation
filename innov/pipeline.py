@@ -17,26 +17,31 @@ def figure1(memfraction=.3, device=0):
         os.makedirs(f'cache')
 
     key = random.PRNGKey(10)
-    el = 20, 10_000  # len of initial no. of nodes to seed, no. of generations in K branches
-    samples = 100 # replica number
-    n0 = 10  # initial density
+    el = 20, 500  # len of initial no. of nodes to seed, no. of generations in K branches
+    samples = 10 # replica number
+    n0 = 20  # initial density
 
     # Dynamical parameters
-    I = .2  # innovativeness 
-    r = .41 # replication rate
+    I = 2  # innovativeness 
+    r = .4 # replication rate
 
     # Structural parameters
-    K = 2        # number of branches
+    K = 50        # number of branches
 
-    save_steps = 5_000       # steps between saving
-    max_steps = 40_000  # total run steps
+    save_steps = 2_000       # steps between saving
+    max_steps = 20_000  # total run steps
 
-    for r0, rd, vo, gamma in [(10, .4, .5, 0.),
-                              (320, .4, .5, .5),
-                              (1280, .4, .5, 1.)]:
+    with open('cache/fig1_base_params.p', 'wb') as f:
+        pickle.dump({'el':el, 'samples':samples, 'n0':n0, 'I':I, 'r':r, 'K':K,
+                     'save_steps':save_steps, 'max_steps':max_steps},
+                    f)
+
+    for r0, rd, vo, gamma in [(10, .5, .1, 0.),
+                              (320, .5, .1, .5),
+                              (1280, .5, .1, 1.)]:
         fname = f'cache/{gamma=}_{K=}_{r0=}_{vo=}_{rd=}_{r=}_{I=}_automaton.p'
         # define graph structure
-        tree = KTree(0, el[1], K, gamma)
+        tree = KTree(el[1], K, gamma)
         # transform Ady into a sparse matrix for JAX
         Ady = jsparse.BCOO.from_scipy_sparse(tree.adj)
         Ady.data = Ady.data.astype(jnp.int8)
@@ -44,17 +49,17 @@ def figure1(memfraction=.3, device=0):
         init_variables = create_init_variables(el, K, n0)
 
         # setup automaton simulations
-        init_vars, one_loop, run_save = setup_auto_sim(N = Ady.shape[0],
-                                                       r = r,
-                                                       rd = rd,
-                                                       I = I,
-                                                       r0 = r0,
-                                                       vo = vo,
-                                                       samples = samples,
-                                                       Ady = Ady,
-                                                       init_fcn = init_variables,
-                                                       obs_mode = 'random',
-                                                       innov_front_mode = 'explorer')
+        init_vars, one_loop, run_save, run = setup_auto_sim(N = Ady.shape[0],
+                                                            r = r,
+                                                            rd = rd,
+                                                            I = I,
+                                                            r0 = r0,
+                                                            vo = vo,
+                                                            samples = samples,
+                                                            Ady = Ady,
+                                                            init_fcn = init_variables,
+                                                            obs_mode = 'random',
+                                                            innov_front_mode = 'explorer')
         output = run_save(key, init_vars, save_steps, max_steps)
         key_save, inn_front, obs_front, in_sub_pop, n, t = output
 
@@ -140,4 +145,4 @@ def figure2(memfraction=.4, device=0):
                         f)
 
 if __name__=='__main__':
-    pass  
+    figure1()
