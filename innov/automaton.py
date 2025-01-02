@@ -203,7 +203,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             in_sub_pop
             """
             # randomly choose innovation fronts to move
-            front_moved = jnp.logical_and(inn_front, urand_matrix > (1 - r*I*dt*n))
+            front_moved = jnp.logical_and(inn_front, urand_matrix < r*I*dt*n)
             
             # select new sites for innovation front, if not present in
             # subpopulated graph 
@@ -379,7 +379,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
-        thisdt = jnp.minimum(1 / (((n * inn_front) @ Ady).max() * r * I) / 100, 1/vo/max_sons/100)
+        thisdt = jnp.minimum(1 / (((n * inn_front) @ Ady).max() * r * I), 1/vo/max_sons) / 100
         thisdt = jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)
         t += thisdt
         
@@ -399,10 +399,10 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
 
         # move innovation front
         inn_front, in_sub_pop = move_innov_front(urand_matrix,
-                                                inn_front,
-                                                in_sub_pop,
-                                                n,
-                                                thisdt)
+                                                 inn_front,
+                                                 in_sub_pop,
+                                                 n,
+                                                 thisdt)
 
         # total rate at each site, includes replication (from all parents), influx, and death
         # keep n positive semi-definite
