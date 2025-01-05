@@ -203,11 +203,13 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             in_sub_pop
             """
             # randomly choose innovation fronts to move
-            front_moved = jnp.logical_and(inn_front, urand_matrix < r*I*dt*n)
+            #front_moved = jnp.logical_and(inn_front, urand_matrix < r*I*dt*n)
+            front_moved = jnp.logical_and(inn_front, urand_matrix > (1-r*I*dt*n))
             
             # select new sites for innovation front, if not present in
             # subpopulated graph 
             new_front_ix = jnp.logical_and(front_moved @ Ady, ~in_sub_pop)
+            #new_front_ix = front_moved @ Ady
             
             # add new nodes to the innovation front
             inn_front = jnp.logical_or(inn_front, new_front_ix)
@@ -216,9 +218,15 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # come after removing parent nodes)
             in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
 
+            ## remove all nodes that moved
+            #inn_front = jnp.logical_and(inn_front, ~front_moved)
+
             # remove parent innovation fronts only if all children are in populated subgraph
+            # this can happen if neighboring sites move and occupy all children
             # must do this way (instead of removing parents who have children in innovation front)
             # because of colliding fronts
+            # this also removes any front that has moved because all children are then
+            # occupied
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
             return inn_front, in_sub_pop

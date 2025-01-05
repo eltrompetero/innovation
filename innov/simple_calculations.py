@@ -32,7 +32,8 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
         Derivatives of variables.
     """
     N, L, n0, nl = y0
-    k = 1 + gamma * (K - 1) + gamma * K * solve_lambda(gamma)
+    k = 1 + gamma * (K - 1)
+    k1 = k + gamma * K * solve_lambda(gamma)
 
     # assume system collapses fully if it falls below these limits
     if L<=2 or N<=0:
@@ -41,10 +42,10 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
         dn0 = -n0
         dnl = -nl
     else:
-        dN = r0 - rd*N + r*(N-n0) - vo*k*nl
-        dL = r*I*k*n0 - vo*k
+        dN = r0 - rd*N + r*(N-n0) - vo*k1*nl
+        dL = r*I*k*n0 - vo*k1
         dn0 = r0/L - rd*n0 + r*(N-n0-nl)/(L-2) - r*I*k*n0*n0
-        dnl = r0/L - rd*nl - vo*k*(nl - (N-n0-nl)/(L-2))
+        dnl = r0/L - rd*nl - vo*k1*(nl - (N-n0-nl)/(L-2))
 
     return np.array([dN, dL, dn0, dnl])
 
@@ -69,16 +70,26 @@ def critical_rd(r0, I, gamma, K):
     """
     # Define function for root finding
     lam = solve_lambda(gamma)
-    k = 1 + gamma*(K-1) + gamma*K*lam
-    naive_rd = lambda vo: (I*r0 + 3*vo - k*vo**2 - np.sqrt(((-I*r0 - 3*vo + k*vo**2)**2 -
-                           8*vo*(-k*vo**2 - k**2*vo**3 + 2*np.sqrt(I*r0*vo + I*k**2*r0*vo**3)))))/(4*vo)
-    vo_star = minimize(lambda vo: (naive_rd(vo) - 1)**2, .01, tol=1e-10)['x'][0]
+    k = 1 + gamma*(K-1)
+    k1 = k + gamma*K*lam
+    
+    def rd_by_vo(vo):
+        rd = (1 / (4 * k1 * vo)) * (I * k * r0 + 3 * k1 * vo - k1**2 * vo**2 - np.sqrt((-I * k * r0 - 3 * k1 *
+            vo + k1**2 * vo**2)**2 - 8 * k1 * vo * (-k1**2 * vo**2 - k1**3 * vo**3 + 2 * np.sqrt(I * k * k1 * r0
+                * vo + I * k * k1**3 * r0 * vo**3))))
+        return rd
+    
+    # find peak in relation, before which we have a negative L regime
+    def cost(logvo):
+        vo = np.exp(logvo)
+        return (rd_by_vo(vo)-1.)**2
+    peak_vo = np.exp(minimize(cost, 0.)['x'])
 
-    def f(vo):
-        if vo < vo_star:
-            return 1.
-        return naive_rd(vo)
+    def f(vo, peak_vo=peak_vo):
+        if vo<peak_vo: return 1.
+        return rd_by_vo(vo)
     return np.vectorize(f)
+
 
 class CompartmentModel:
     def __init__(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):

@@ -4,6 +4,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import CubicSpline
+from .utils import *
+
+from .simple_calculations import CompartmentModel
 
 
 def density_snapshot(n, el, K, t, mean=False, replica_ix=0, **kwargs):
