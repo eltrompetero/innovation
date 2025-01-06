@@ -13,78 +13,79 @@ import numpy as np
 # ================ #
 # Helper functions #
 # ================ #
-def body_fun(xi, mi):
-    # Use lax.cond to perform the conditional logic
-    return cond(mi,
-                lambda _: False,  # If mi is True, return value
-                lambda _: xi,     # If mi is False, return xi
-                operand=None)
-set_false = vmap(body_fun)
+def inn_front_loc(inn_front, samples, el, K, return_max=False, pinned=False):
+    """Returns mean location of innovation front by time step by replica.
+    
+    Parameters
+    ----------
+    inn_front : jnp.array
+    samples : int
+        Number of random replicas.
+    el : int
+        Total number of generations.
+    K : int
+        Number of branches.
+    return_max : bool, False
+        If True, return only the furthest location on each branch.
+    """
+    assert inn_front.ndim==3 and inn_front.shape[2]==el*K
 
-def body_fun(xi, mi):
-    # Use lax.cond to perform the conditional logic
-    return cond(mi,
-                lambda _: True,  # If mi is True, return value
-                lambda _: xi,     # If mi is False, return xi
-                operand=None)
-set_true = vmap(body_fun)
+    t = inn_front.shape[0]
+    mean_loc = np.zeros((t, samples))
+    x = inn_front.reshape(t, samples, el, K)
+    
+    if return_max:
+        counter = np.arange(el)  # useful var for tracking index
+        for t_ in range(t):
+            for i in range(samples):
+                m = []
+                for j in range(K):
+                    m.append(counter[x[t_,i,:,j]][-1])
+                if pinned:
+                    m = [max(m)-m_ for m_ in m]
+                mean_loc[t_, i] = np.mean(m)
+    else:
+        # mean of innov front locations along each branch per replica
+        counter = np.tile(np.arange(el), (K, 1)).T  # useful var for tracking index
+        for t_ in range(t):
+            for i in range(samples):
+                if pinned:
+                    mean_loc[t_, i] = (counter[x[t_,i,:,:]].max()-counter[x[t_,i,:,:]]).mean()
+                else:
+                    mean_loc[t_, i] = counter[x[t_,i,:,:]].mean()
+    return mean_loc
 
-def body_fun(xi, mi):
-    # Use lax.cond to perform the conditional logic
-    return cond(mi,
-                lambda _: 0,  # If mi is True, return value
-                lambda _: xi,     # If mi is False, return xi
-                operand=None)
-set_zero = vmap(body_fun)
-
-def compress_density(n):
-    """Compress density into a memory efficient representation.
+def obs_front_loc(obs_front, samples, el, K, pinned=False):
+    """Returns mean location of obsolescence front over all branches and then over replicas.
 
     Parameters
     ----------
-    n : jnp.ndarray
+    obs_front : jnp.array
+    samples : int
+        Number of random replicas.
+    el : int
+        Total number of generations.
+    K : int
+        Number of branches.
 
     Returns
     -------
-    jnp.ndarray
-        Density values.
-    jnp.ndarray
-        Corresponding indices.
+    ndarray
+        Avg location of obsolescence front per time point.
     """
-    ix = jnp.where(n)[0]
-    return n[ix], ix
-
-def decompress_density(n, ix, ix0=0, ix1=None):
-    """Decompress density from a memory efficient representation.
-
-    Parameters
-    ----------
-    n : jnp.ndarray
-        Density values.
-    ix : jnp.ndarray
-        Corresponding indices.
-    ix0 : int, 0
-        Starting index. If greater than the smallest value in ix, then the lower
-        value will be chosen as the new 0.
-    ix1 : int, None
-        Last index of array. Total array size shall be ix1-ix0+1.
-
-    Returns
-    -------
-    jnp.ndarray
-        Density array.
-    """
-    filled_n = jnp.zeros(ix.max()-min(ix.min(), ix0)+1, dtype=jnp.int32)
-    filled_n = filled_n.at[ix].set(n)
-
-    if ix1 is None:
-        return filled_n
-
-    if filled_n.size==ix1-ix0+1:
-        return filled_n
-    if filled_n.size<ix1-ix0+1:
-        return jnp.concatenate((filled_n, jnp.zeros(ix1-ix0+1-filled_n.size, dtype=jnp.int32)))
-    return filled_n[:ix1-ix0+1]
+    t = obs_front.shape[0]
+    mean_loc = np.zeros((t, samples))
+    x = obs_front.reshape(t, samples, el, K)
+    counter = np.arange(el)[:,None]  # helper var for tracking index
+    
+    for t_ in range(t):
+        for s in range(samples):
+            if pinned:
+                temp = [counter[ix].ravel()[-1] for ix in x[t_, s].T]
+                mean_loc[t_, s] = np.mean([max(temp)-t_ for t_ in temp])
+            else:
+                mean_loc[t_, s] = np.mean([counter[ix].ravel()[-1] for ix in x[t_, s].T])
+    return mean_loc
 
 def create_init_variables(el, K, n0):
     """Create a function to initialize variables for running the automaton.

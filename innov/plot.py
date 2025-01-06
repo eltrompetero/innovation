@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+from .simple_calculations import CompartmentModel
+from .utils import *
 
 def density_snapshot(n, el, K, t, mean=False, replica_ix=0, **kwargs):
     """Plot density snapshots from automaton simulation. Show the first two

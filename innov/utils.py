@@ -13,6 +13,7 @@ import dill as pickle
 from itertools import combinations
 from scipy.optimize import minimize
 from scipy import sparse
+from scipy.special import loggamma
 
 # JAX modules
 import jax.numpy as jnp
@@ -47,3 +48,6 @@ def check_init_conditions(el, samples, K, *args):
     # check that obs front does not overlap with populated subgraph
     assert (n[obs_front]==0).all()
     assert (n[obs_sub]==0).all()
+
+def poisson(k, lam):
+    return np.exp(-lam + k*np.log(lam) - loggamma(k+1))
