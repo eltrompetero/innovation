@@ -55,12 +55,14 @@ def collapse_rd(vo, r0, I, gamma, K):
     """
     vo *= vo_tilde_coefficient(gamma, K)
     I *= I_tilde_coefficient(gamma, K)
-    raise Exception("there is some sign error here. Check mathematica notebook carefully.")
     return ((-4 * vo**3 + I * r0 * (1 + vo) + np.sqrt(16 * vo**4 + 8 * I * r0 * vo *
-            (1 + vo) + (I**2) * r0**2 * (1 + vo)**2)) / (4 * vo * (1 + vo)))
+            (1 + vo) + I**2 * r0**2 * (1 + vo)**2)) / (4 * vo * (1 + vo)))
     
 def critical_rd(r0, I, gamma, K):
     """Define function for returning curve of critical rd as a function of vo.
+
+    Note that we have to handle separately the region in which L is negative but
+    real, which leads to extra complications in the solution.
 
     See Mathematica notebook 20241129_derivation.nb for derivation.
 
@@ -76,20 +78,24 @@ def critical_rd(r0, I, gamma, K):
     Returns
     -------
     function
-        Takes vo as input and returns critical rd.
+        Takes vo as input and returns critical rd, where L diverges.
     """
-    # Define function for root finding
-    lam = solve_obs_lambda(gamma)
-    k = 1 + gamma*(K-1) + gamma*K*lam
-    naive_rd = lambda vo: (I*r0 + 3*vo - k*vo**2 - np.sqrt(((-I*r0 - 3*vo + k*vo**2)**2 -
-                           8*vo*(-k*vo**2 - k**2*vo**3 + 2*np.sqrt(I*r0*vo + I*k**2*r0*vo**3)))))/(4*vo)
-    vo_star = minimize(lambda vo: (naive_rd(vo) - 1)**2, .01, tol=1e-10)['x'][0]
+    I *= I_tilde_coefficient(gamma, K)
+    def naive_rd_as_fun(vo):
+        vo *= vo_tilde_coefficient(gamma, K)
+        return (I*r0 + 3*vo - vo**2 - np.sqrt((-(I*r0) - 3*vo + vo**2)**2 -
+                                              8*vo*(-vo**2 - vo**3 + 2*np.sqrt(I*r0*vo + I*r0*vo**3))))/(4*vo)
+    
+    # find peak where rd=1, which determines critical point
+    vo_star = np.exp(minimize(lambda logvo: (naive_rd_as_fun(np.exp(logvo))-1)**2, 0.)['x'][0])
 
-    def f(vo):
-        if vo < vo_star:
+    def rd_as_fun(vo, vo_star=vo_star):
+        if vo<vo_star:
             return 1.
-        return naive_rd(vo)
-    return np.vectorize(f)
+        else:
+            return naive_rd_as_fun(vo)
+
+    return np.vectorize(rd_as_fun)
 
 class CompartmentModel:
     def __init__(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
@@ -123,7 +129,7 @@ class CompartmentModel:
         quadform = (B + D * sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
-    def L(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+    def L(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None, quadratic_form=0):
         """Steady state solution for length of lattice along each branch for compartment model."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
@@ -139,10 +145,14 @@ class CompartmentModel:
         A = (-1 + rd) * vo * (rd + vo)**2
         B = -3 * rd**2 * vo + 2 * rd**3 * vo - 4 * rd * vo**2 + 3 * rd**2 * vo**2 - vo**3 - vo**4 + I * r0 * rd * (rd + vo)
         C = (rd + vo)**2 * (I**2 * r0**2 * rd**2 + vo**2 * (3 * rd - 2 * rd**2 + vo - rd * vo + vo**2)**2 + 2 * I * r0 * vo * (-2 * rd**3 - rd**2 * (-3 + vo) + rd * vo * (1 + vo) - 2 * (1 + vo**2))) 
-        quadform = (B + sqrt(C)) / (2 * A)
+
+        if quadratic_form==0:
+            quadform = (B - sqrt(C)) / (2 * A)
+        else:
+            quadform = (B + sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
-    def gamma_runaway(self, r0=None, I=None, rd=None, vo=None, K=None):
+    def gamma_runaway(self, r0=None, I=None, rd=None, vo=None, K=None, f_threshold=1e-7):
         """Critical gamma delineating runaway boundary."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
@@ -157,21 +167,12 @@ class CompartmentModel:
             gamma = np.exp(loggamma)[0]
             if gamma>1: return 1e10
             return np.abs(self.L(r0, I, rd, vo, gamma, K)[0])**2
-        return np.exp(minimize(cost, -1.)['x'])[0]
-
-        def cost(loggamma):
-            gamma = np.exp(loggamma)[0]
-            if gamma>1: return 1e10
-            lam = solve_obs_lambda(gamma)
-            return ((-2 * K + (K * rd) / vo - 2 * K * lam + (K * rd * lam) / vo + (K * np.sqrt(-4
-                    - 4 * rd + 9 * rd**2) * (1 + lam)) / vo) / (2 * (K**2 + 2 * K**2 * lam + K**2 *
-                    lam**2)) - gamma)**2
-        sol = minimize(cost, -1)
-        if sol['fun']>1e-5:
+        sol = minimize(cost, -1.)
+        if sol['fun']>f_threshold:
             return np.nan
         return np.exp(sol['x'])[0]
-    
-    def gamma_collapse(self, r0=None, I=None, rd=None, vo=None, K=None):
+
+    def gamma_collapse(self, r0=None, I=None, rd=None, vo=None, K=None, f_threshold=1e-7):
         """Solve for critical gamma delineating collapse boundary."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
@@ -185,8 +186,11 @@ class CompartmentModel:
         def cost(loggamma):
             gamma = np.exp(loggamma)[0]
             if gamma>1: return 1e10
-            return np.abs(self.L(r0, I, rd, vo, gamma, K)[0] - 2)**2
-        return np.exp(minimize(cost, -1.)['x'])[0]
+            return np.abs(self.L(r0, I, rd, vo, gamma, K, quadratic_form=1)[0] - 2)**2
+        sol = minimize(cost, -1., tol=1e-10)
+        if sol['fun']>f_threshold:
+            return np.nan
+        return np.exp(sol['x'])[0]
 
 @cache
 def solve_obs_lambda(gamma, g0=-1.):
@@ -280,7 +284,6 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
         Correction factor to innovativeness. Multiply this to I to obtain Itilde in paper.
     """
     assert 0<=gamma<=1 and K>=1 and mx_x>=10
-
     mx_x += 1
     if gamma==0:
         return 1.
@@ -302,6 +305,20 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
 @cache
 def vo_tilde_coefficient(gamma, K, mx_x=100):
     """For solving for the correction to obsolescence front velocity.
+
+    Parameters
+    ----------
+    gamma : float
+        Connectivity.
+    K : int
+        Branching number.
+    mx_x : int, 100
+        Max (inclusive) value of x to which to calculate Poisson distribution.
+
+    Returns
+    -------
+    float
+        Correction factor to obsolescence. Multiply this to vo to obtain votilde in paper.
     """
     assert 0<=gamma<=1 and mx_x>=10
     mx_x += 1
