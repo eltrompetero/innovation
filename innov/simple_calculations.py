@@ -9,7 +9,8 @@ from .utils import *
 
 
 def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
-    """Compartment approximation model.
+    """Compartment approximation model with steady-state calculations for exnovation and 
+    innovation rates.
     
     Parameters
     ----------
@@ -109,7 +110,7 @@ class CompartmentModel:
         self.gamma = gamma
         self.K = K
 
-    def N(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+    def N(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None, quadratic_form=0):
         """Steady state solution for N, total number of agents per branch for compartment model."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
@@ -126,7 +127,10 @@ class CompartmentModel:
         B = I * r0 * (4 * rd**3 + rd**2 * (-2 + 5 * vo + vo**2) - 2 * (vo + vo**3) + rd * (-2 - 2 * vo - vo**2 + vo**3)) + vo * (2 * vo + 5 * vo**3 + vo**5 - 2 * rd**3 * (2 + vo + vo**2) + rd * (2 + 2 * vo + 6 * vo**2 - 2 * vo**3) - rd**2 * (-2 + 3 * vo + 4 * vo**2 + 3 * vo**3))
         C = (rd + vo)**2 * (I**2 * r0**2 * rd**2 + vo**2 * (3 * rd - 2 * rd**2 + vo - rd * vo + vo**2)**2 + 2 * I * r0 * vo * (-2 * rd**3 - rd**2 * (-3 + vo) + rd * vo * (1 + vo) - 2 * (1 + vo**2)))
         D = vo * (1 - vo) 
-        quadform = (B + D * sqrt(C)) / (2 * A)
+        if quadratic_form==0:
+            quadform = (B - D * sqrt(C)) / (2 * A)
+        else:
+            quadform = (B + D * sqrt(C)) / (2 * A)
         return quadform, A, B, C
 
     def L(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None, quadratic_form=0):
@@ -160,9 +164,6 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         K = K if K is not None else self.K
 
-        vo *= vo_tilde_coefficient(1, K)
-        I *= I_tilde_coefficient(1, K)
-
         def cost(loggamma):
             gamma = np.exp(loggamma)[0]
             if gamma>1: return 1e10
@@ -172,7 +173,9 @@ class CompartmentModel:
             return np.nan
         return np.exp(sol['x'])[0]
 
-    def gamma_collapse(self, r0=None, I=None, rd=None, vo=None, K=None, f_threshold=1e-7):
+    def gamma_collapse(self, r0=None, I=None, rd=None, vo=None, K=None, f_threshold=1e-7,
+                       gamma0=-1.,
+                       return_all=False):
         """Solve for critical gamma delineating collapse boundary."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
@@ -180,17 +183,66 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         K = K if K is not None else self.K
 
-        vo *= vo_tilde_coefficient(1, K)
-        I *= I_tilde_coefficient(1, K)
-
         def cost(loggamma):
             gamma = np.exp(loggamma)[0]
             if gamma>1: return 1e10
-            return np.abs(self.L(r0, I, rd, vo, gamma, K, quadratic_form=1)[0] - 2)**2
-        sol = minimize(cost, -1., tol=1e-10)
+            return np.abs(self.L(r0, I, rd, vo, gamma=gamma, K=K, quadratic_form=1)[0] - 2)**2
+        sol = minimize(cost, gamma0, tol=1e-10)
+
         if sol['fun']>f_threshold:
+            if return_all:
+                return np.nan, so
             return np.nan
+        if return_all:
+            return np.exp(sol['x'])[0], so
         return np.exp(sol['x'])[0]
+
+    def K_runaway(self, r0=None, I=None, rd=None, vo=None, gamma=None, f_threshold=1e-7,
+                  K0=1.,
+                  return_all=False):
+        """Solve for critical gamma delineating collapse boundary."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+
+        def cost(logK):
+            K = np.exp(logK)[0]
+            return np.abs(self.L(r0, I, rd, vo, gamma=gamma, K=K, quadratic_form=0)[0])**2
+        sol = minimize(cost, K0, tol=1e-10)
+
+        if sol['fun']>f_threshold:
+            if return_all:
+                return np.nan, sol
+            return np.nan
+        if return_all:
+            return np.exp(sol['x'][0]), sol
+        return np.exp(sol['x'][0])
+
+    def K_collapse(self, r0=None, I=None, rd=None, vo=None, gamma=None, f_threshold=1e-7,
+                   K0=20,
+                   return_all=False):
+        """Solve for critical gamma delineating collapse boundary."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+
+        def cost(K):
+            if K<1: return 1e10
+            return np.abs(self.L(r0, I, rd, vo, gamma=gamma, K=K[0], quadratic_form=1)[0] - 2)**2
+        sol = minimize(cost, K0, tol=1e-10)
+
+        if sol['fun']>f_threshold:
+            if return_all:
+                return np.nan, sol
+            return np.nan
+        if return_all:
+            return sol['x'][0], sol
+        return sol['x'][0]
+
 
 @cache
 def solve_obs_lambda(gamma, g0=-1.):
@@ -209,7 +261,7 @@ def solve_obs_lambda(gamma, g0=-1.):
         Average distance of obsolescence front from leading one.
     """
     if hasattr(gamma, '__len__'):
-        assert np.all(0<=gamma) and np.all(gamma<=1)
+        assert np.all(0<=gamma)
         lam = np.zeros_like(gamma)
         for i, gamma_ in enumerate(gamma):
             def cost(loglam):
@@ -222,7 +274,7 @@ def solve_obs_lambda(gamma, g0=-1.):
             lam[i] = np.exp(sol['x'])
         return lam
 
-    assert 0<=gamma<=1
+    assert 0<=gamma
     def cost(loglam):
         lam = np.exp(loglam)
         p0 = np.exp(-lam)
@@ -249,7 +301,7 @@ def solve_inn_lambda(gamma, use_x1=False):
     float
         Average distance of innovation front from leading one.
     """
-    assert 0<=gamma<=1
+    assert 0<=gamma
 
     def cost(loglam):
         lam = np.exp(loglam)
@@ -283,7 +335,7 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
     float
         Correction factor to innovativeness. Multiply this to I to obtain Itilde in paper.
     """
-    assert 0<=gamma<=1 and K>=1 and mx_x>=10
+    assert 0<=gamma and K>=0 and mx_x>=10
     mx_x += 1
     if gamma==0:
         return 1.
@@ -320,7 +372,7 @@ def vo_tilde_coefficient(gamma, K, mx_x=100):
     float
         Correction factor to obsolescence. Multiply this to vo to obtain votilde in paper.
     """
-    assert 0<=gamma<=1 and mx_x>=10
+    assert 0<=gamma and mx_x>=10
     mx_x += 1
     i_range = np.arange(mx_x)
 
