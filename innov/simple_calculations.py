@@ -124,9 +124,11 @@ class CompartmentModel:
         vo *= vo_tilde_coefficient(gamma, K) 
         I *= I_tilde_coefficient(gamma, K)
 
-        A = I * (-1 + rd) * (rd + vo) * (-1 + 2 * rd**2 + rd * (-1 + vo) - vo**2)
-        B = I * r0 * (4 * rd**3 + rd**2 * (-2 + 5 * vo + vo**2) - 2 * (vo + vo**3) + rd * (-2 - 2 * vo - vo**2 + vo**3)) + vo * (2 * vo + 5 * vo**3 + vo**5 - 2 * rd**3 * (2 + vo + vo**2) + rd * (2 + 2 * vo + 6 * vo**2 - 2 * vo**3) - rd**2 * (-2 + 3 * vo + 4 * vo**2 + 3 * vo**3))
-        C = (rd + vo)**2 * (I**2 * r0**2 * rd**2 + vo**2 * (3 * rd - 2 * rd**2 + vo - rd * vo + vo**2)**2 + 2 * I * r0 * vo * (-2 * rd**3 - rd**2 * (-3 + vo) + rd * vo * (1 + vo) - 2 * (1 + vo**2)))
+        A = I * (rd-1) * (rd + vo) * (2*rd**2 + rd * (vo-1) - vo**2 - 1)
+        B = (I*r0*(4*rd**2 - 2*(1+vo**2) + rd*(vo+vo**2-2)) +
+             vo*(2 + 5*vo**2 + vo**4 - 2*rd**2*(2+vo+vo**2) + rd*(2+vo-2*vo**2-vo**3)))
+        C = (I**2 * r0**2 * rd**2 + vo**2 * (3*rd - 2*rd**2 + vo - rd*vo + vo**2)**2 +
+             2*I*r0*vo * (-2*rd**3 - rd**2 * (vo-3) + rd*vo * (1+vo) - 2 * (1+vo**2)))
         D = vo * (1 - vo) 
         if quadratic_form==0:
             quadform = (B - D * sqrt(C)) / (2 * A)
@@ -147,9 +149,10 @@ class CompartmentModel:
         vo *= vo_tilde_coefficient(gamma, K) 
         I *= I_tilde_coefficient(gamma, K)
 
-        A = (-1 + rd) * vo * (rd + vo)**2
-        B = -3 * rd**2 * vo + 2 * rd**3 * vo - 4 * rd * vo**2 + 3 * rd**2 * vo**2 - vo**3 - vo**4 + I * r0 * rd * (rd + vo)
-        C = (rd + vo)**2 * (I**2 * r0**2 * rd**2 + vo**2 * (3 * rd - 2 * rd**2 + vo - rd * vo + vo**2)**2 + 2 * I * r0 * vo * (-2 * rd**3 - rd**2 * (-3 + vo) + rd * vo * (1 + vo) - 2 * (1 + vo**2))) 
+        A = (rd-1) * vo * (rd + vo)
+        B = I*r0*rd - vo*(3*rd - 2*rd**2 + vo - rd*vo + vo**2)
+        C = (I**2*r0**2*rd**2 + vo**2*(3*rd - 2*rd**2 + vo - rd*vo + vo**2)**2 +
+             2*I*r0*vo*(-2*rd**3 - rd**2*(vo-3) + rd*vo*(1 + vo) - 2*(1 + vo**2)))
 
         if quadratic_form==0:
             quadform = (B - sqrt(C)) / (2 * A)
