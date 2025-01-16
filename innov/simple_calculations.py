@@ -8,7 +8,7 @@ from functools import cache
 from .utils import *
 
 
-def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
+def pde_pseudogap(y0, t, r0, I, rd, vo, gamma, K):
     """Compartment approximation model with steady-state calculations for exnovation and 
     innovation rates.
     
@@ -21,7 +21,6 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
     t : float
     r0 : float
     I : float
-    r : float
     rd : float
     vo : float
     gamma : float
@@ -44,9 +43,9 @@ def pde_pseudogap(y0, t, r0, I, r, rd, vo, gamma, K):
         dn0 = -n0
         dnl = -nl
     else:
-        dN = r0 - rd*N + r*(N-n0) - vo*nl
-        dL = r*I*n0 - vo
-        dn0 = r0/L - rd*n0 + r*(N-n0-nl)/(L-2) - r*I*n0*n0
+        dN = r0 - rd*N + (N-n0) - vo*nl
+        dL = I*n0 - vo
+        dn0 = r0/L - rd*n0 + (N-n0-nl)/(L-2) - I*n0*n0
         dnl = r0/L - rd*nl - vo*(nl - (N-n0-nl)/(L-2))
 
     return np.array([dN, dL, dn0, dnl])
@@ -59,7 +58,7 @@ def collapse_rd(vo, r0, I, gamma, K):
     return ((-4 * vo**3 + I * r0 * (1 + vo) + np.sqrt(16 * vo**4 + 8 * I * r0 * vo *
             (1 + vo) + I**2 * r0**2 * (1 + vo)**2)) / (4 * vo * (1 + vo)))
     
-def critical_rd(r0, I, gamma, K):
+def runaway_rd(r0, I, gamma, K):
     """Define function for returning curve of critical rd as a function of vo.
 
     Note that we have to handle separately the region in which L is negative but
@@ -82,9 +81,10 @@ def critical_rd(r0, I, gamma, K):
         Takes vo as input and returns critical rd, where L diverges.
     """
     I *= I_tilde_coefficient(gamma, K)
+
     def naive_rd_as_fun(vo):
         vo *= vo_tilde_coefficient(gamma, K)
-        return (I*r0 + 3*vo - vo**2 - np.sqrt((-(I*r0) - 3*vo + vo**2)**2 -
+        return (I*r0 + 3*vo - vo**2 - np.sqrt((-I*r0 - 3*vo + vo**2)**2 -
                                               8*vo*(-vo**2 - vo**3 + 2*np.sqrt(I*r0*vo + I*r0*vo**3))))/(4*vo)
     
     # find peak where rd=1, which determines critical point
@@ -149,7 +149,7 @@ class CompartmentModel:
         vo *= vo_tilde_coefficient(gamma, K) 
         I *= I_tilde_coefficient(gamma, K)
 
-        A = (rd-1) * vo * (rd + vo)
+        A = vo * (rd-1) * (rd + vo)
         B = I*r0*rd - vo*(3*rd - 2*rd**2 + vo - rd*vo + vo**2)
         C = (I**2*r0**2*rd**2 + vo**2*(3*rd - 2*rd**2 + vo - rd*vo + vo**2)**2 +
              2*I*r0*vo*(-2*rd**3 - rd**2*(vo-3) + rd*vo*(1 + vo) - 2*(1 + vo**2)))

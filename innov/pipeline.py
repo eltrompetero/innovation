@@ -74,7 +74,7 @@ def figure1(memfraction=.3, device=0):
                         f)
         print(f"Done with {fname}.")
 
-def figure2(memfraction=.4, device=0):
+def _figure2(memfraction=.4, device=0):
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = f'{memfraction}'
     os.environ["CUDA_VISIBLE_DEVICES"] = f'{device}'
 
@@ -185,7 +185,7 @@ def _front_test(key, r, I, vo, el, K, gamma, samples):
     return key, inn_front, obs_front, in_sub_pop, n, t
 
 def front_test():
-    """Check mean-field analytic calculation of innovation front speed."""
+    """Check mean-field analytic calculation of innovation front speed against automaton."""
     inn_lambda_auto = {}
     inn_lambda_anal = {}
     inn_vel_auto = {}

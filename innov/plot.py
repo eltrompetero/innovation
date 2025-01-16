@@ -61,7 +61,7 @@ def low_density_region(vo_plot, r0, I, K, gamma):
     ndarray
         Solved rd corresponding to input range.
     """
-    vo_range = np.linspace(.01, .5, 200)
+    vo_range = np.linspace(.001, 1.4, 200)
     rd = np.zeros_like(vo_range)
     err = np.zeros_like(vo_range)
     model = CompartmentModel(r0, I=I, gamma=gamma, K=K)
@@ -69,15 +69,14 @@ def low_density_region(vo_plot, r0, I, K, gamma):
     for i, vo in enumerate(vo_range):
         def cost(logrd):
             rd = np.exp(logrd)
-            #if vo<1.8 and rd>4:
-            #    return 1e10
-            return np.abs(model.L(vo=vo, rd=rd, quadratic_form=1)[0] - model.N(vo=vo, rd=rd, quadratic_form=1)[0])**2
-        sol = minimize(cost, .5, method='powell', tol=1e-10)
+            if rd>5 or rd<1: return 1e10
+            return np.abs(model.L(vo=vo, rd=rd, quadratic_form=0)[0] - model.N(vo=vo, rd=rd, quadratic_form=0)[0])**2
+        sol = minimize(cost, 1., method='powell', tol=1e-10)
         rd[i] = np.exp(sol['x'][0])
         err[i] = sol['fun']
     ix = (err<1e-5) & (~np.isnan(rd))
     x, y = vo_range[ix], rd[ix]
     spline = CubicSpline(x, y)
     y = spline(vo_plot)
-    y[y<1] = 1
+    #y[y<1] = 1
     return y
