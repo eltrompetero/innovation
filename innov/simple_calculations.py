@@ -4,7 +4,6 @@
 # Author : Eddie Lee, edlee@csh.ac.at
 # ====================================================================================== #
 from cmath import sqrt
-from functools import cache
 from .utils import *
 
 
@@ -124,12 +123,13 @@ class CompartmentModel:
         vo *= vo_tilde_coefficient(gamma, K) 
         I *= I_tilde_coefficient(gamma, K)
 
-        A = I * (rd-1) * (rd + vo) * (2*rd**2 + rd * (vo-1) - vo**2 - 1)
-        B = (I*r0*(4*rd**2 - 2*(1+vo**2) + rd*(vo+vo**2-2)) +
-             vo*(2 + 5*vo**2 + vo**4 - 2*rd**2*(2+vo+vo**2) + rd*(2+vo-2*vo**2-vo**3)))
-        C = (I**2 * r0**2 * rd**2 + vo**2 * (3*rd - 2*rd**2 + vo - rd*vo + vo**2)**2 +
-             2*I*r0*vo * (-2*rd**3 - rd**2 * (vo-3) + rd*vo * (1+vo) - 2 * (1+vo**2)))
-        D = vo * (1 - vo) 
+        A = I * (-1 + rd) * (-1 + 2 * rd**2 + rd * (-1 + vo) - vo**2)
+        B = (I * r0 * (4 * rd**2 - 2 * (1 + vo**2) + rd * (-2 + vo + vo**2)) +
+             vo * (2 + 5 * vo**2 + vo**4 - 2 * rd**2 * (2 + vo + vo**2) + rd * (2 + vo - 2 * vo**2 - vo**3)))
+        C = ((I**2 * r0**2 * rd**2 + vo**2 * (3 * rd - 2 * rd**2 + vo - rd * vo + vo**2)**2 +
+              2 * I * r0 * vo * (-2 * rd**3 - rd**2 * (-3 + vo) + rd * vo * (1 + vo) - 2 * (1 + vo**2))))
+        D = vo * (1 - vo)
+
         if quadratic_form==0:
             quadform = (B - D * sqrt(C)) / (2 * A)
         else:
@@ -159,6 +159,47 @@ class CompartmentModel:
         else:
             quadform = (B + sqrt(C)) / (2 * A)
         return quadform, A, B, C
+
+    def n0(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+        """Steady state solution for length of lattice along each branch for compartment model."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+        K = K if K is not None else self.K
+
+        # corrections
+        vo *= vo_tilde_coefficient(gamma, K) 
+        I *= I_tilde_coefficient(gamma, K)
+
+        return vo/I
+
+    def nl(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None, quadratic_form=0):
+        """Steady state solution for length of lattice along each branch for compartment model."""
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+        K = K if K is not None else self.K
+
+        # corrections
+        vo *= vo_tilde_coefficient(gamma, K) 
+        I *= I_tilde_coefficient(gamma, K)
+
+        A = I * (rd + vo) * (-1 + 2 * rd**2 + rd * (-1 + vo) - vo**2)
+        B = -(3 * rd**2 * vo - 2 * rd**3 * vo + 6 * rd * vo**2 - 4 * rd**2 * vo**2 - 2 * rd**3 * vo**2 +
+              3 * vo**3 - 2 * rd * vo**3 - 3 * rd**2 * vo**3 + vo**5 + I * r0 * rd * (-1 + vo) * (rd + vo))
+        C = ((rd + vo)**2 * (I**2 * r0**2 * rd**2 + vo**2 * (3 * rd - 2 * rd**2 + vo - rd * vo + vo**2)**2 +
+                             2 * I * r0 * vo * (-2 * rd**3 - rd**2 * (-3 + vo) + rd * vo * (1 + vo) - 2 * (1 + vo**2))))
+        D = vo-1
+
+        if quadratic_form==0:
+            quadform = (B - D * sqrt(C)) / (2 * A)
+        else:
+            quadform = (B + D * sqrt(C)) / (2 * A)
+        return quadform, A, B, C, D
 
     def gamma_runaway(self, r0=None, I=None, rd=None, vo=None, K=None, f_threshold=1e-7):
         """Critical gamma delineating runaway boundary."""
@@ -201,10 +242,12 @@ class CompartmentModel:
             return np.exp(sol['x'])[0], so
         return np.exp(sol['x'])[0]
 
-    def K_runaway(self, r0=None, I=None, rd=None, vo=None, gamma=None, f_threshold=1e-7,
+    def K_runaway(self, r0=None, I=None, rd=None, vo=None, gamma=None,
+                  f_threshold=1e-7,
                   K0=1.,
+                  K_max=1e5,
                   return_all=False):
-        """Solve for critical gamma delineating collapse boundary."""
+        """Solve for critical K delineating runaway boundary."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
         rd = rd if rd is not None else self.rd
@@ -213,7 +256,8 @@ class CompartmentModel:
 
         def cost(logK):
             K = np.exp(logK)[0]
-            return np.abs(self.L(r0, I, rd, vo, gamma=gamma, K=K, quadratic_form=0)[0])**2
+            if K>K_max: return 1e10
+            return (self.L(r0, I, rd, vo, gamma=gamma, K=K, quadratic_form=1)[0].real)**2
         sol = minimize(cost, K0, tol=1e-10)
 
         if sol['fun']>f_threshold:
@@ -227,7 +271,7 @@ class CompartmentModel:
     def K_collapse(self, r0=None, I=None, rd=None, vo=None, gamma=None, f_threshold=1e-7,
                    K0=20,
                    return_all=False):
-        """Solve for critical gamma delineating collapse boundary."""
+        """Solve for critical K delineating collapse boundary."""
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
         rd = rd if rd is not None else self.rd
@@ -246,6 +290,18 @@ class CompartmentModel:
         if return_all:
             return sol['x'][0], sol
         return sol['x'][0]
+
+    def stable_sol(self, r0=None, I=None, rd=None, vo=None, gamma=None, K=None):
+        r0 = r0 if r0 is not None else self.r0
+        I = I if I is not None else self.I
+        rd = rd if rd is not None else self.rd
+        vo = vo if vo is not None else self.vo
+        gamma = gamma if gamma is not None else self.gamma
+
+        return np.array([self.N(r0, I, rd, vo, gamma, K, quadratic_form=1),
+                         self.L(r0, I, rd, vo, gamma, K, quadratic_form=1),
+                         self.n0(r0, I, rd, vo, gamma, K, quadratic_form=1),
+                         self.nl(r0, I, rd, vo, gamma, K, quadratic_form=1)])
 
 
 @cache
@@ -339,7 +395,7 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
     float
         Correction factor to innovativeness. Multiply this to I to obtain Itilde in paper.
     """
-    assert 0<=gamma and K>=0 and mx_x>=10
+    assert 0<=gamma and K>=0 and mx_x>=10, (gamma, K, mx_x)
     mx_x += 1
     if gamma==0:
         return 1.

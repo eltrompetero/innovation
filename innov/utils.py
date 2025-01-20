@@ -14,6 +14,7 @@ from itertools import combinations
 from scipy.optimize import minimize
 from scipy import sparse
 from scipy.special import loggamma
+from functools import cache
 
 # JAX modules
 import jax.numpy as jnp
