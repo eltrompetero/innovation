@@ -300,7 +300,7 @@ class CompartmentModel:
 
         return np.array([self.N(r0, I, rd, vo, gamma, K, quadratic_form=1)[0],
                          self.L(r0, I, rd, vo, gamma, K, quadratic_form=1)[0],
-                         self.n0(r0, I, rd, vo, gamma, K, quadratic_form=1),
+                         self.n0(r0, I, rd, vo, gamma, K),
                          self.nl(r0, I, rd, vo, gamma, K, quadratic_form=1)[0]])
 
 
