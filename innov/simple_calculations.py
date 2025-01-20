@@ -298,10 +298,10 @@ class CompartmentModel:
         vo = vo if vo is not None else self.vo
         gamma = gamma if gamma is not None else self.gamma
 
-        return np.array([self.N(r0, I, rd, vo, gamma, K, quadratic_form=1),
-                         self.L(r0, I, rd, vo, gamma, K, quadratic_form=1),
+        return np.array([self.N(r0, I, rd, vo, gamma, K, quadratic_form=1)[0],
+                         self.L(r0, I, rd, vo, gamma, K, quadratic_form=1)[0],
                          self.n0(r0, I, rd, vo, gamma, K, quadratic_form=1),
-                         self.nl(r0, I, rd, vo, gamma, K, quadratic_form=1)])
+                         self.nl(r0, I, rd, vo, gamma, K, quadratic_form=1)[0]])
 
 
 @cache
