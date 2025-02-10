@@ -148,16 +148,12 @@ def _figure2(memfraction=.4, device=0):
                          'in_sub_pop':in_sub_pop, 'n':n, 't':t},
                         f)
 
-def _front_test(key, r, I, vo, el, K, gamma, samples):
+def _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples):
     """Helper function."""
     n0 = 20
 
-    # Dynamical parameters
-    r0 = 10
-    rd = .5
-
     max_steps = 60_000  # dt's to save temporal variables 
-    save_steps = max_steps//20  # time steps between saves
+    save_steps = max_steps//21  # time steps between saves
 
     # define graph structure
     tree = KTree(el[1], K, gamma)
@@ -172,7 +168,7 @@ def _front_test(key, r, I, vo, el, K, gamma, samples):
                                                         r = r,
                                                         rd = rd,
                                                         I = I,
-                                                        r0 = r0,
+                                                        r0 = r0*K,
                                                         vo = vo,
                                                         samples = samples,
                                                         Ady = Ady,
@@ -184,8 +180,11 @@ def _front_test(key, r, I, vo, el, K, gamma, samples):
     clear_caches()
     return key, inn_front, obs_front, in_sub_pop, n, t
 
-def front_test():
+def front_test(memfraction=.2, device=0):
     """Check mean-field analytic calculation of innovation front speed against automaton."""
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = f'{memfraction}'
+    os.environ["CUDA_VISIBLE_DEVICES"] = f'{device}'
+
     inn_lambda_auto = {}
     inn_lambda_anal = {}
     inn_vel_auto = {}
@@ -198,15 +197,17 @@ def front_test():
     key = random.PRNGKey(6)
 
     # Structural parameters
-    samples = 100 
-    r = .51
+    samples = 25
+    r = .4
     I = 2.
-    vo = .02
-    el = 20, 600  # size of binary trees: initial chain number of nodes, number of generations of K chains  
+    r0 = 50
+    rd = .5
+    vo = .2
+    el = 20, 700  # size of binary trees: initial chain number of nodes, number of generations of K chains  
     K = 50        # number of branches
 
-    for gamma in np.linspace(0, .7, 15):  # max gamma is close to collapse
-        key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, I, vo, el, K, gamma, samples)
+    for gamma in np.linspace(0, 1, 15):  # max gamma is close to collapse
+        key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
 
         # for solving for the correction to innovation front
         front_loc_max = inn_front_loc(inn_front, samples, el[1], K)
@@ -222,19 +223,18 @@ def front_test():
         
         # obsolescence front
         lam = solve_obs_lambda(gamma, 0.)
-        i_range = np.arange(101)
-        pk = poisson(i_range, lam)
-        correction = sum([pk[i]*(pk[:i+1]*(i-np.arange(i+1))).sum() for i in i_range]) * K * vo * gamma
+        vo_tilde = vo * vo_tilde_coefficient(gamma, K)
 
         p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
         obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
         obs_lambda_anal[gamma] = lam
         obs_vel_auto[gamma] = p1[0]
-        obs_vel_anal[gamma] = vo*(1+gamma*(K-1)) + correction
+        obs_vel_anal[gamma] = vo_tilde
 
         save_pickle(['r', 'I', 'K', 'n_i', 'inn_vel_anal', 'inn_vel_auto', 'obs_vel_anal', 'obs_vel_auto',
                      'inn_lambda_anal', 'inn_lambda_auto', 'obs_lambda_anal', 'obs_lambda_auto'],
                     'cache/front_vel_test.p', True)
+        clear_caches()
 
 if __name__=='__main__':
     figure1()

@@ -399,24 +399,22 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
     mx_x += 1
     if gamma==0:
         return 1.
-    if gamma==1:
-        return K
         
     lam = solve_inn_lambda(gamma)
-    p = poisson(np.arange(mx_x), lam)
+    pk = poisson(np.arange(mx_x), lam)
+    
+    term1 = ((1-gamma*(K-1)/K)*sum([np.prod(1-pk[:x])*pk[x] for x in range(mx_x)]) +
+             (1-1/K)*gamma*(K-1) * sum([pk[x]*sum([pk[xp]*np.prod(1-pk[:xp])*(xp-x+1) for xp in range(x, mx_x)]) for x in range(mx_x)]))
+    term2 = sum([np.prod(1-pk[:x])*pk[x]*(pk[0]*x + sum([(x-xp+1)*pk[xp] for xp in range(1, x)])) for x in range(1, mx_x)])
+    term2 *= gamma * K
 
-    term1 = 0.
-    term2 = 0.
-    for x in range(mx_x):
-        term1 += p[x]**2 * np.prod([1-p[xp] for xp in range(x)])
-    for x in range(mx_x):
-        term2 += p[x] * np.prod([1-p[xp] for xp in range(x)]) * sum([p[xpp] * (xpp-x) for xpp in range(x+1, mx_x)])
-
-    return term1 * (1 + gamma * (K-1)) + term2 * gamma * K
+    return term1 + term2
 
 @cache
 def vo_tilde_coefficient(gamma, K, mx_x=100):
     """For solving for the correction to obsolescence front velocity.
+
+    TODO: Handle gamma=1 case separately.
 
     Parameters
     ----------
@@ -432,12 +430,16 @@ def vo_tilde_coefficient(gamma, K, mx_x=100):
     float
         Correction factor to obsolescence. Multiply this to vo to obtain votilde in paper.
     """
-    assert 0<=gamma and mx_x>=10
+    assert 0<=gamma and mx_x>=10, (gamma, K, mx_x)
     mx_x += 1
     i_range = np.arange(mx_x)
 
     # correction to obsolescence
     lam = solve_obs_lambda(gamma)
     pk = poisson(i_range, lam)
-    correction = sum([pk[i]*(pk[:i+1]*(i-np.arange(i+1))).sum() for i in i_range]) * K * gamma
-    return (1+gamma*(K-1)) + correction
+
+    term1 = 1-gamma*(K-1)/K + (1-1/K)*gamma*(K-1) * sum([pk[x]*sum(pk[x:]*(np.arange(x, mx_x)-x+1)) for x in range(mx_x)])
+    term2 = sum([pk[x]*(pk[0]*x + sum([(x-xp+1)*pk[xp] for xp in range(1, x)])) for x in range(1, mx_x)])
+    term2 *= gamma * K
+
+    return term1 + term2

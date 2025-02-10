@@ -162,6 +162,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     I = float(I)
     r0 = float(r0)
     vo = float(vo)
+    assert vo>0
 
     # initialize graph properties
     n = jnp.zeros((samples, N), dtype=jnp.int32)
