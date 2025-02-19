@@ -58,6 +58,8 @@ def inn_front_loc(inn_front, samples, el, K, return_max=False, pinned=False):
 def obs_front_loc(obs_front, samples, el, K, pinned=False):
     """Returns mean location of obsolescence front over all branches and then over replicas.
 
+    The front is only the leading site along a given branch.
+
     Parameters
     ----------
     obs_front : jnp.array
@@ -86,6 +88,39 @@ def obs_front_loc(obs_front, samples, el, K, pinned=False):
             else:
                 mean_loc[t_, s] = np.mean([counter[ix].ravel()[-1] for ix in x[t_, s].T])
     return mean_loc
+
+def leading_front_density(n, inn_front, el, K):
+    """Given automaton output, return the mean density at the leading front averaged over branches and replicas.
+
+    Parameters
+    ----------
+    n : jnp.array
+    inn_front : jnp.array
+    el : tuple
+        (length of initial seeded branch, total length branches)   
+    K : int
+
+    Returns
+    -------
+    list
+    """
+    samples = inn_front.shape[1]
+    T = inn_front.shape[0]
+
+    inn_front_ = inn_front.reshape(T, samples, el[1], K)
+    n_ = n.reshape(T, samples, el[1], K)
+
+    n0 = []
+    for t in range(T):
+        n0.append([])
+        for i in range(samples):
+            for j in range(K):
+                ix = inn_front_[t,i,:,j]
+                if ix.any():
+                    ix = np.where(ix)[0][-1]
+                    n0[-1].append(n_[t,i,:,j][ix])
+        n0[t] = np.mean(n0[t])
+    return n0
 
 def create_init_variables(el, K, n0):
     """Create a function to initialize variables for running the automaton.
@@ -168,15 +203,12 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     n = jnp.zeros((samples, N), dtype=jnp.int32)
 
     # obsolescence sites must always appear the initial graph
-    obs_front = jnp.zeros((samples, N), dtype=jnp.bool_)
     inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
-    sites = jnp.arange(N, dtype=jnp.int32)
     new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
 
     sons = Ady.sum(1).todense()
-    max_sons = sons.max()
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
@@ -205,8 +237,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             in_sub_pop
             """
             # randomly choose innovation fronts to move
-            #front_moved = jnp.logical_and(inn_front, urand_matrix < r*I*dt*n)
-            front_moved = jnp.logical_and(inn_front, urand_matrix > (1-r*I*dt*n))
+            front_moved = jnp.logical_and(inn_front, urand_matrix < r*I*dt*n)
             
             # select new sites for innovation front, if not present in
             # subpopulated graph 
@@ -355,9 +386,6 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             # move into all children vertices
             obs_front = jnp.logical_or(obs_front, front_moved @ Ady)
 
-            # remove parents
-            obs_front = obs_front * ~front_moved
-
             # remove new obsolescent sites from populated subgraph and zero the density
             in_sub_pop = in_sub_pop * ~obs_front
             n *= in_sub_pop
@@ -389,7 +417,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
-        thisdt = jnp.minimum(1 / (((n * inn_front) @ Ady).max() * r * I), 1/vo/max_sons) / 100
+        thisdt = jnp.minimum(1/((n * inn_front).max() * r * I), 1/vo) / 100
         thisdt = jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)
         t += thisdt
         
@@ -535,10 +563,88 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # run while loop
         t0 = time.time()
         out_vars = while_loop(cond_fun, body_fun, out_vars)
-        if iprint: print(f'Simulation t={out_vars[-1][0]:.2f}', flush=True)
+        if iprint: print(f'Running simulation for dt={out_vars[-1][0]:.2f}', flush=True)
         total_t = time.time()-t0
         if iprint: print("Runtime", f'{total_t:.2f} s', flush=True)
 
         return out_vars
 
-    return init_vars, one_loop, run_save, run
+    def run_save_t(key, out_vars, save_dt, max_t, iprint=True):
+        """run_save except using time.
+
+        Note that this will only run til the maximum t that is an integer multiple of save_dt.
+
+        Parameters
+        ----------
+        out_vars : list
+            Initial state with which to start simulation.
+        save_dt : float
+            dt between saves.
+        max_t : float
+            Simulation runtime.
+
+        Returns
+        -------
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        ndarray
+        """
+        assert save_dt<=max_t
+        save_steps = max_t//save_dt
+
+        # initialize variables for for loop
+        out_vars = [key]+list(out_vars)
+
+        # define output vars to copy GPU variables to CPU RAM
+        key = np.zeros((save_steps+1, 2), dtype=np.uint32)
+        inn_front = np.zeros((save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        obs_front = np.zeros((save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        in_sub_pop = np.zeros((save_steps+1,samples,Ady.shape[0]), dtype=np.bool_)
+        n = np.zeros((save_steps+1,samples,Ady.shape[0]), dtype=np.float32)
+        t = np.zeros(save_steps+1, dtype=np.float32)
+
+        # save initial variable values
+        key[0] = out_vars[0]
+        inn_front[0,:,:] = out_vars[1]
+        obs_front[0,:,:] = out_vars[2]
+        in_sub_pop[0,:,:] = out_vars[3]
+        n[0,:,:] = out_vars[4]
+        t[0] = out_vars[5][0]
+
+        total_t = 0
+        total_reading_t = 0
+        t0 = time.time()
+        for i in range(save_steps):
+            if iprint: print(i+1, save_dt*(i+1), '/', save_steps*save_dt, '...', end=' ', flush=True)
+            loopt0 = time.time()
+            out_vars = run(key[i], out_vars[1:], (i+1)*save_dt-t[i], iprint=False)
+            if iprint: print(f'{time.time()-loopt0:.2f}', 's', '...', end=' ', flush=True)
+        
+            t0r = time.time()
+            key[i+1] = out_vars[0]
+            inn_front[i+1,:,:] = out_vars[1]
+            obs_front[i+1,:,:] = out_vars[2]
+            in_sub_pop[i+1,:,:] = out_vars[3]
+            n[i+1,:,:] = out_vars[4]
+            t[i+1] = out_vars[5][0] + t[i]
+            total_reading_t += time.time()-t0r
+
+            # reset sim time
+            out_vars[5] = out_vars[5].at[0].set(0)
+
+            if iprint: print("Done!", flush=True)
+        total_t = time.time()-t0
+
+        if iprint:
+            print("Total time reading out vars", f'{total_reading_t:.2f}')
+            print("Total time", f'{total_t:.2f}')
+            print("Fraction reading", f'{total_reading_t/total_t:.2f}')
+
+        return key, inn_front, obs_front, in_sub_pop, n, t
+
+    return init_vars, one_loop, run_save, run, run_save_t

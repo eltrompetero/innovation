@@ -303,17 +303,14 @@ class CompartmentModel:
                          self.n0(r0, I, rd, vo, gamma, K),
                          self.nl(r0, I, rd, vo, gamma, K, quadratic_form=1)[0]])
 
-
 @cache
-def solve_obs_lambda(gamma, g0=-1.):
+def solve_poisson_lambda(gamma):
     """Solve for average distance of obsolescence front from leading one.
     
     Parameters
     ----------
     gamma : float
         Connectivity.
-    g0 : float, -1.
-        Initial guess for optimization.
     
     Returns
     -------
@@ -321,64 +318,24 @@ def solve_obs_lambda(gamma, g0=-1.):
         Average distance of obsolescence front from leading one.
     """
     if hasattr(gamma, '__len__'):
-        assert np.all(0<=gamma)
-        lam = np.zeros_like(gamma)
-        for i, gamma_ in enumerate(gamma):
-            def cost(loglam):
-                lam = np.exp(loglam)
-                p0 = np.exp(-lam)
-                p1 = lam*np.exp(-lam)
-                return (np.exp(-lam)/(1+lam)-gamma_)**2
-
-            sol = minimize(cost, g0)
-            lam[i] = np.exp(sol['x'])
-        return lam
+        return np.array([solve_poisson_lambda(g) for g in gamma])
 
     assert 0<=gamma
+    if gamma==1:
+        return 0.
+
+    # use K->infty limit
     def cost(loglam):
         lam = np.exp(loglam)
-        p0 = np.exp(-lam)
-        p1 = lam*np.exp(-lam)
-        return (np.exp(-lam)/(1+lam)-gamma)**2
-    
-    sol = minimize(cost, g0)
-    lam = np.exp(sol['x'])[0]
-    return lam
-
-@cache
-def solve_inn_lambda(gamma, use_x1=False):
-    """Solve for average distance of innovation front from leading one.
-
-    Parameters
-    ----------
-    gamma : float
-        Connectivity.
-    use_x1 : bool, True
-        Whether to use x=1 condition as the leading innovation front.
-
-    Returns
-    -------
-    float
-        Average distance of innovation front from leading one.
-    """
-    assert 0<=gamma
-
-    def cost(loglam):
-        lam = np.exp(loglam)
-        # this are inconsistent conditions, naturally b/c poisson is an assumption!
-        # but x=1 is slightly better when compared to samples
-        if use_x1:
-            term = (1-gamma) + lam**2/2 * (1-np.exp(-lam))*(1-np.exp(-lam)*lam)*gamma - lam
-        else:
-            term = gamma + gamma*lam*(1-np.exp(-lam)) - np.exp(-lam)
+        term = (1 + lam) * gamma - np.exp(-lam)
         return term**2
-    
-    sol = minimize(cost, 0.)
+
+    sol = minimize(cost, -1.)
     lam = np.exp(sol['x'])[0]
     return lam
 
 @cache
-def I_tilde_coefficient(gamma, K, mx_x=100):
+def I_tilde_coefficient(gamma, K, mx_x=100, full_output=False):
     """For solving for the correction to innovation front velocity.
 
     Parameters
@@ -389,6 +346,10 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
         Branching number.
     mx_x : int, 100
         Max (inclusive) value of x to which to calculate Poisson distribution.
+    method : int, 0
+        Method to use for calculating correction.
+    full_output : bool, False
+        If True, return all terms in the correction.
 
     Returns
     -------
@@ -398,20 +359,22 @@ def I_tilde_coefficient(gamma, K, mx_x=100):
     assert 0<=gamma and K>=0 and mx_x>=10, (gamma, K, mx_x)
     mx_x += 1
     if gamma==0:
+        if full_output:
+            return 1., 0., 0.
         return 1.
         
-    lam = solve_inn_lambda(gamma)
+    lam = solve_poisson_lambda(gamma)
     pk = poisson(np.arange(mx_x), lam)
-    
-    term1 = ((1-gamma*(K-1)/K)*sum([np.prod(1-pk[:x])*pk[x] for x in range(mx_x)]) +
-             (1-1/K)*gamma*(K-1) * sum([pk[x]*sum([pk[xp]*np.prod(1-pk[:xp])*(xp-x+1) for xp in range(x, mx_x)]) for x in range(mx_x)]))
-    term2 = sum([np.prod(1-pk[:x])*pk[x]*(pk[0]*x + sum([(x-xp+1)*pk[xp] for xp in range(1, x)])) for x in range(1, mx_x)])
-    term2 *= gamma * K
 
-    return term1 + term2
+    if full_output:
+        return (1 + gamma*(K-1)*(pk**2).sum() + gamma*(K-1)*sum([pk[x]*(sum(pk[:x]*(x-np.arange(x)+1))) for x in range(1, mx_x)]),
+                1 + gamma*(K-1)*(pk**2).sum(),
+                gamma*(K-1)*sum([pk[x]*(sum(pk[:x]*(x-np.arange(x)+1))) for x in range(1, mx_x)]))
+
+    return 1 + gamma*(K-1)*(pk**2).sum() + gamma*(K-1)*sum([pk[x]*(sum(pk[:x]*(x-np.arange(x)+1))) for x in range(1, mx_x)])
 
 @cache
-def vo_tilde_coefficient(gamma, K, mx_x=100):
+def vo_tilde_coefficient(gamma, K, mx_x=100, method=0):
     """For solving for the correction to obsolescence front velocity.
 
     TODO: Handle gamma=1 case separately.
@@ -435,11 +398,13 @@ def vo_tilde_coefficient(gamma, K, mx_x=100):
     i_range = np.arange(mx_x)
 
     # correction to obsolescence
-    lam = solve_obs_lambda(gamma)
+    lam = solve_poisson_lambda(gamma)
     pk = poisson(i_range, lam)
 
-    term1 = 1-gamma*(K-1)/K + (1-1/K)*gamma*(K-1) * sum([pk[x]*sum(pk[x:]*(np.arange(x, mx_x)-x+1)) for x in range(mx_x)])
-    term2 = sum([pk[x]*(pk[0]*x + sum([(x-xp+1)*pk[xp] for xp in range(1, x)])) for x in range(1, mx_x)])
-    term2 *= gamma * K
+    if method==0:  # simplified argument (site gets pulled ahead)
+        return 1 + gamma*(K-1) + gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)])
+    elif method==1:  # simplified argument (site pulls other sites ahead)
+        return (1 + gamma*(K-1) * sum([pk[x]*sum(pk[x:]*(np.arange(x, mx_x)-x+1)) for x in range(mx_x)]) + 
+                gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)]))
+    else: raise NotImplementedError("Method not implemented.")
 
-    return term1 + term2

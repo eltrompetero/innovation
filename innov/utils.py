@@ -51,4 +51,9 @@ def check_init_conditions(el, samples, K, *args):
     assert (n[obs_sub]==0).all()
 
 def poisson(k, lam):
+    if lam==0:
+        if hasattr(k, '__iter__'):
+            return np.where(k==0, 1., 0.)
+        if k==0: return 1.
+        else: return 0.
     return np.exp(-lam + k*np.log(lam) - loggamma(k+1))
