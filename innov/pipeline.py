@@ -20,7 +20,7 @@ def figure1(memfraction=.3, device=0):
 
     key = random.PRNGKey(10)
 
-    el = 20, 600  # tree dimensions
+    el = 10, 600  # tree dimensions
     samples = 100
     n0 = 20
 
@@ -34,12 +34,12 @@ def figure1(memfraction=.3, device=0):
     # Structural parameters
     K = 50
 
-    max_steps = 60_000  # dt's to save temporal variables 
-    save_steps = max_steps//10  # time steps between saves
+    max_t = 60  # dt's to save temporal variables 
+    save_dt = 5.  # time steps between saves
 
     with open('cache/fig1_base_params.p', 'wb') as f:
         pickle.dump({'el':el, 'samples':samples, 'n0':n0, 'I':I, 'r':r, 'K':K, 'r0':r0, 'rd':rd, 'vo':vo,
-                     'save_steps':save_steps, 'max_steps':max_steps},
+                     'save_dt':save_dt, 'max_t':max_t},
                     f)
 
     for gamma in [0, .5, 1]:
@@ -53,22 +53,22 @@ def figure1(memfraction=.3, device=0):
         init_variables = create_init_variables(el, K, n0)
 
         # setup automaton simulations
-        init_vars, one_loop, run_save, run = setup_auto_sim(N = Ady.shape[0],
-                                                            r = r,
-                                                            rd = rd,
-                                                            I = I,
-                                                            r0 = r0,
-                                                            vo = vo,
-                                                            samples = samples,
-                                                            Ady = Ady,
-                                                            init_fcn = init_variables,
-                                                            obs_mode = 'random',
-                                                            innov_front_mode = 'explorer')
-        output = run_save(key, init_vars, save_steps, max_steps)
+        init_vars, one_loop, run_save, run, run_save_t = setup_auto_sim(N = Ady.shape[0],
+                                                                        r = r,
+                                                                        rd = rd,
+                                                                        I = I,
+                                                                        r0 = r0,
+                                                                        vo = vo,
+                                                                        samples = samples,
+                                                                        Ady = Ady,
+                                                                        init_fcn = init_variables,
+                                                                        obs_mode = 'random',
+                                                                        innov_front_mode = 'explorer')
+        output = run_save_t(key, init_vars, save_dt, max_t)
         key_save, inn_front, obs_front, in_sub_pop, n, t = output
 
         with open(fname, 'wb') as f:
-            pickle.dump({'el':el, 'K':K, 'save_steps':save_steps, 'max_steps':max_steps,
+            pickle.dump({'el':el, 'K':K, 'save_dt':save_dt, 'max_t':max_t,
                          'samples':samples, 'key':key_save, 'inn_front':inn_front, 'obs_front':obs_front,
                          'in_sub_pop':in_sub_pop, 'n':n, 't':t},
                         f)
@@ -228,36 +228,39 @@ def front_test(memfraction=.2, device=0, sim_params=None,
         obs_lambda_auto = data['obs_lambda_auto']
         obs_vel_auto = data['obs_vel_auto']
         n_i = data['n_i']
-        gamma_range = np.linspace(0, 1, 15)[len(inn_lambda_auto):]
-    else:
-        gamma_range = np.linspace(0, 1, 15)
+    gamma_range = np.linspace(0, 1, 15)
 
     # automaton calculations
-    for gamma in gamma_range:  # note that max gamma may be close to collapse
-        key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
+    try:
+        for gamma_ix, gamma in enumerate(gamma_range[len(inn_lambda_auto):]):  # note that max gamma may be close to collapse
+            key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
 
-        # innovation front
-        front_loc_max = inn_front_loc(inn_front, samples, el[1], K, return_max=True)
-        n_i[gamma] = np.array(leading_front_density(n, inn_front, el, K))
-        p1 = np.polyfit(t[-10:], front_loc_max.mean(1)[-10:], 1)
+            # innovation front
+            front_loc_max = inn_front_loc(inn_front, samples, el[1], K, return_max=True)
+            n_i[gamma] = np.array(leading_front_density(n, inn_front, el, K))
+            p1 = np.polyfit(t[-10:], front_loc_max.mean(1)[-10:], 1)
 
-        inn_lambda_auto[gamma] = inn_front_loc(inn_front, samples, el[1], K,
-                                                return_max=True, pinned=True).mean(1)[-10:].mean()
-        inn_vel_auto[gamma] = p1[0]
-        
-        # obsolescence front
-        p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
-        obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
-        obs_vel_auto[gamma] = p1[0]
+            inn_lambda_auto[gamma] = inn_front_loc(inn_front, samples, el[1], K,
+                                                    return_max=True, pinned=True).mean(1)[-10:].mean()
+            inn_vel_auto[gamma] = p1[0]
+            
+            # obsolescence front
+            p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
+            obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
+            obs_vel_auto[gamma] = p1[0]
 
-        save_pickle(['r', 'I', 'r0', 'rd', 'vo', 'el', 'K', 'n_i', 'inn_vel_auto',
-                        'obs_vel_auto', 'inn_lambda_auto', 'obs_lambda_auto',
-                        'inn_front', 'obs_front', 'n', 't', 'key'],
-                    automaton_save_file, True)
+            save_pickle(['r', 'I', 'r0', 'rd', 'vo', 'el', 'K', 'n_i', 'inn_vel_auto',
+                            'obs_vel_auto', 'inn_lambda_auto', 'obs_lambda_auto',
+                            'inn_front', 'obs_front', 'n', 't', 'key'],
+                        automaton_save_file, True)
+            clear_caches()
+        gamma_ix = np.where(gamma_range==gamma)[0][0]
+    except IndexError:
+        gamma_ix -= 1
         clear_caches()
 
     # mean-field calculations
-    for gamma in np.linspace(0, 1, 15):  # max gamma is close to collapse
+    for gamma in gamma_range[:gamma_ix+1]:  # max gamma is close to collapse
         lambda_anal[gamma] = solve_poisson_lambda(gamma)
 
         # innovation front

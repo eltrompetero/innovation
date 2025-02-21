@@ -101,7 +101,7 @@ def structure_low_density(vo):
     for i, g in enumerate(gamma_range):
         def cost(logK):
             K = np.exp(logK[0]) + 1
-            if g>.1 and K>10: return 1e20
+            if g>.1 and K>25: return 1e20
             elif .01<=g<=.1 and K>1e2: return 1e20
             elif g<1e-2 and K>1e3: return 1e20
             return np.abs(model.L(gamma=g, K=K, quadratic_form=1)[0].real -
