@@ -200,15 +200,8 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     assert vo>0
 
     # initialize graph properties
-    n = jnp.zeros((samples, N), dtype=jnp.int32)
-
-    # obsolescence sites must always appear the initial graph
-    inn_front = jnp.zeros((samples, N), dtype=jnp.bool_)
-
-    in_sub_pop = jnp.zeros((samples, N), dtype=jnp.bool_)
-    new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
-
     sons = Ady.sum(1).todense()
+    max_sons = sons.max()
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
@@ -263,101 +256,6 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
 
             return inn_front, in_sub_pop
-
-    elif innov_front_mode=='single_explorer':
-        # ================ requires debugging ================ #
-        raise NotImplementedError("To be checked.")
-        @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, dt):
-            """Move innovation fronts stochastically to one child node. Parent node
-            remains part of the front as long as at least one child is not occupied
-            and leave as soon as all children nodes are occupied.
-            
-            Parameters
-            ----------
-            key : jax.random.PRNGKey
-            inn_front : boolean array
-                Indicates sites that are innovation fronts using True.
-            in_sub_pop : boolean array
-                Indicates which sites are in the populated subgraph.
-            n : jnp.ndarray
-                Density values.
-            
-            Returns
-            -------
-            key
-            inn_front
-            in_sub_pop
-            """
-            # randomly choose innovation fronts to move
-            key, subkey = random.split(key)
-            front_moved = inn_front * (random.uniform(subkey, (samples, N)) > (1 - r*I*dt*n))
-
-            # randomly choose amongst children to move innovation front to
-            key, subkey = random.split(key)
-            new_front_ix = (Ady * random.uniform(subkey, (N,N))).todense().argmax(1)
-            new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
-            # make sure the parent was one of the moving innov fronts
-            new_front = new_front.at[(jnp.arange(N), new_front_ix)].set(True) & (front_moved @ Ady)
-
-            # set children innovation fronts
-            inn_front = jnp.logical_or(inn_front, new_front)
-            inn_front = inn_front.at[:,0].set(False)  # bookkeeping
-
-            # advance populated subgraph to innovation front
-            in_sub_pop = jnp.logical_or(in_sub_pop, new_front)
-
-            # remove parent innovation fronts only if all children are in populated subgraph
-            inn_front = jnp.logical_and(inn_front, (in_sub_pop @ Ady.T)!=sons)
-
-            return key, inn_front, in_sub_pop
-
-    elif innov_front_mode=='ant':
-        # ================ requires debugging ================ #
-        raise NotImplementedError("To be checked.")
-        @jit
-        def move_innov_front(key, inn_front, in_sub_pop, obs_sub, n, dt):
-            """Move innovation fronts stochastically to one child node. Parent node
-            is no longer part of the front afterwards.
-            
-            Parameters
-            ----------
-            key : jax.random.PRNGKey
-            inn_front : boolean array
-                Indicates sites that are innovation fronts using True.
-            in_sub_pop : boolean array
-                Indicates which sites are in the populated subgraph.
-            n : jnp.ndarray
-                Density values.
-            
-            Returns
-            -------
-            key
-            inn_front
-            in_sub_pop
-            """
-            # randomly choose innovation fronts to move
-            key, subkey = random.split(key)
-            front_moved = in_sub_pop * (random.uniform(subkey, (samples,N)) > (1 - r*I*dt*n))
-            
-            # randomly choose amongst children to move innovation to
-            key, subkey = random.split(key)
-            new_front_ix = (Ady * random.uniform(subkey, (N,N))).todense().argmax(1)
-            new_front = jnp.zeros((samples, N), dtype=jnp.bool_)
-            # make sure the parent was one of the moving innov fronts
-            new_front = new_front.at[(jnp.arange(N), new_front_ix)].set(True) & (front_moved @ Ady)
-
-            # remove parent innovation fronts
-            inn_front = jnp.logical_xor(inn_front, front_moved)
-
-            # set children innovation fronts
-            inn_front = jnp.logical_or(inn_front, new_front)
-            inn_front = inn_front.at[:,0].set(False)  # bookkeeping
-
-            # move populated subgraph
-            in_sub_pop = jnp.logical_or(in_sub_pop, inn_front)
-            
-            return key, inn_front, in_sub_pop
     else:
         raise NotImplementedError("innov_front_mode not recognized.")
 
@@ -393,6 +291,20 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
             return obs_front, in_sub_pop, inn_front, n
     else:
         raise NotImplementedError("obs_front_mode not recognized.")
+    
+    @jit
+    def set_obs_as_smaller_dt(inn_dt, obs_dt):
+        nloops_inn = jnp.array([1], dtype=jnp.int32)
+        nloops_obs = jnp.array([inn_dt[0]//obs_dt[0] + 1], dtype=jnp.int32)
+        obs_dt = inn_dt/nloops_obs
+        return nloops_inn, nloops_obs, inn_dt, obs_dt
+    
+    @jit
+    def set_inn_as_smaller_dt(inn_dt, obs_dt):
+        nloops_obs = jnp.array([1], dtype=jnp.int32)
+        nloops_inn = jnp.array([obs_dt[0]//inn_dt[0] + 1], dtype=jnp.int32)
+        inn_dt = obs_dt/nloops_inn
+        return nloops_inn, nloops_obs, inn_dt, obs_dt
 
     @jit
     def one_loop(i, val):
@@ -417,30 +329,43 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
-        thisdt = jnp.minimum(1/((n * inn_front).max() * r * I), 1/vo) / 100
-        thisdt = jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)
+        #inn_dt = 1/((n * inn_front).max() * r * I) / max_sons / 100
+        #inn_dt = jnp.array([jnp.maximum(jnp.minimum(inn_dt, 100), 1e-7)])
+        #obs_dt = 1/vo / max_sons / 100
+        #obs_dt = jnp.array([jnp.maximum(jnp.minimum(obs_dt, 100), 1e-7)])
+        #thisdt = jnp.maximum(inn_dt, obs_dt)
+        thisdt = jnp.minimum(1/((n * inn_front).max() * r * I), 1/vo) / max_sons / 100
+        thisdt = jnp.array([jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)])
         t += thisdt
+
+        # take the smaller one and see how many times it needs to be looped
+        # to reach the larger one
+        #nloops_inn, nloops_obs, inn_dt, obs_dt = cond(inn_dt[0]>=obs_dt[0],
+        #                                              set_obs_as_smaller_dt,
+        #                                              set_inn_as_smaller_dt,
+        #                                              inn_dt,
+        #                                              obs_dt)
         
         key, subkey = random.split(key)
         urand_matrix = random.uniform(subkey, (samples, N))
 
         # move obsolescence front 
         obs_front, in_sub_pop, inn_front, n = move_obs_front(urand_matrix,
-                                                             in_sub_pop,
-                                                             inn_front,
-                                                             obs_front,
-                                                             n,
-                                                             thisdt)
+                                                                in_sub_pop,
+                                                                inn_front,
+                                                                obs_front,
+                                                                n,
+                                                                thisdt)
 
         # roll matrix of shared random numbers as a cheap way to get new random numbers
         urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
 
         # move innovation front
         inn_front, in_sub_pop = move_innov_front(urand_matrix,
-                                                 inn_front,
-                                                 in_sub_pop,
-                                                 n,
-                                                 thisdt)
+                                                inn_front,
+                                                in_sub_pop,
+                                                n,
+                                                thisdt)
 
         # total rate at each site, includes replication (from all parents), influx, and death
         # keep n positive semi-definite
@@ -595,7 +520,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         ndarray
         """
         assert save_dt<=max_t
-        save_steps = max_t//save_dt
+        save_steps = int(max_t//save_dt)
 
         # initialize variables for for loop
         out_vars = [key]+list(out_vars)

@@ -146,7 +146,7 @@ class CompartmentModel:
         K = K if K is not None else self.K
 
         # corrections
-        vo *= vo_tilde_coefficient(gamma, K) 
+        vo *= vo_tilde_coefficient(gamma, K)
         I *= I_tilde_coefficient(gamma, K)
 
         A = vo * (rd-1) * (rd + vo)
@@ -402,6 +402,7 @@ def vo_tilde_coefficient(gamma, K, mx_x=100, method=0):
     pk = poisson(i_range, lam)
 
     if method==0:  # simplified argument (site gets pulled ahead)
+        return 1 + gamma*(K-1) + gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)])
         return 1 + gamma*(K-1) + gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)])
     elif method==1:  # simplified argument (site pulls other sites ahead)
         return (1 + gamma*(K-1) * sum([pk[x]*sum(pk[x:]*(np.arange(x, mx_x)-x+1)) for x in range(mx_x)]) + 

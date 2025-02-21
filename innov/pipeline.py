@@ -183,7 +183,8 @@ def _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples):
 def front_test(memfraction=.2, device=0, sim_params=None,
                automaton_save_file='cache/front_vel_test_automata.p',
                comparison_save_file='cache/front_vel_test.p'):
-    """Check mean-field analytic calculation of innovation front speed against automaton."""
+    """This automates the check of the mean-field analytic calculation of
+    innovation front speed against automaton across a range of gamma."""
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = f'{memfraction}'
     os.environ["CUDA_VISIBLE_DEVICES"] = f'{device}'
 
@@ -193,9 +194,8 @@ def front_test(memfraction=.2, device=0, sim_params=None,
     obs_vel_auto = {}
     n_i = {}
 
-    inn_lambda_anal = {}
+    lambda_anal = {}
     inn_vel_anal = {}
-    obs_lambda_anal = {}
     obs_vel_anal = {}
 
     key = random.PRNGKey(6)
@@ -219,55 +219,57 @@ def front_test(memfraction=.2, device=0, sim_params=None,
         el = sim_params['el']
         K = sim_params['K']
 
-    # run automaton calculations first
-    if not os.path.isfile(automaton_save_file):
-        for gamma in np.linspace(0, 1, 15):  # max gamma is close to collapse
-            key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
-
-            # innovation front
-            front_loc_max = inn_front_loc(inn_front, samples, el[1], K, return_max=True)
-            n_i[gamma] = np.array(leading_front_density(n, inn_front, el, K))
-            p1 = np.polyfit(t[-10:], front_loc_max.mean(1)[-10:], 1)
-
-            inn_lambda_auto[gamma] = inn_front_loc(inn_front, samples, el[1], K,
-                                                   return_max=True, pinned=True).mean(1)[-10:].mean()
-            inn_vel_auto[gamma] = p1[0]
-            
-            # obsolescence front
-            p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
-            obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
-            obs_vel_auto[gamma] = p1[0]
-
-            save_pickle(['r', 'I', 'r0', 'rd', 'vo', 'el', 'K', 'n_i', 'inn_vel_auto',
-                         'obs_vel_auto', 'inn_lambda_auto', 'obs_lambda_auto',
-                         'inn_front', 'obs_front', 'n', 't', 'key'],
-                        automaton_save_file, True)
-            clear_caches()
-    else:
+    # try loading existing sim outputs from file
+    if os.path.isfile(automaton_save_file):
         with open(automaton_save_file, 'rb') as f:
             data = pickle.load(f)
-            inn_lambda_auto = data['inn_lambda_auto']
-            inn_vel_auto = data['inn_vel_auto']
-            obs_lambda_auto = data['obs_lambda_auto']
-            obs_vel_auto = data['obs_vel_auto']
-            n_i = data['n_i']
+        inn_lambda_auto = data['inn_lambda_auto']
+        inn_vel_auto = data['inn_vel_auto']
+        obs_lambda_auto = data['obs_lambda_auto']
+        obs_vel_auto = data['obs_vel_auto']
+        n_i = data['n_i']
+        gamma_range = np.linspace(0, 1, 15)[len(inn_lambda_auto):]
+    else:
+        gamma_range = np.linspace(0, 1, 15)
 
-    # run mean-field calculations
+    # automaton calculations
+    for gamma in gamma_range:  # note that max gamma may be close to collapse
+        key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
+
+        # innovation front
+        front_loc_max = inn_front_loc(inn_front, samples, el[1], K, return_max=True)
+        n_i[gamma] = np.array(leading_front_density(n, inn_front, el, K))
+        p1 = np.polyfit(t[-10:], front_loc_max.mean(1)[-10:], 1)
+
+        inn_lambda_auto[gamma] = inn_front_loc(inn_front, samples, el[1], K,
+                                                return_max=True, pinned=True).mean(1)[-10:].mean()
+        inn_vel_auto[gamma] = p1[0]
+        
+        # obsolescence front
+        p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
+        obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
+        obs_vel_auto[gamma] = p1[0]
+
+        save_pickle(['r', 'I', 'r0', 'rd', 'vo', 'el', 'K', 'n_i', 'inn_vel_auto',
+                        'obs_vel_auto', 'inn_lambda_auto', 'obs_lambda_auto',
+                        'inn_front', 'obs_front', 'n', 't', 'key'],
+                    automaton_save_file, True)
+        clear_caches()
+
+    # mean-field calculations
     for gamma in np.linspace(0, 1, 15):  # max gamma is close to collapse
+        lambda_anal[gamma] = solve_poisson_lambda(gamma)
+
         # innovation front
         vi_tilde = n_i[gamma][-10:].mean() * r * I * I_tilde_coefficient(gamma, K)
-        inn_lambda_anal[gamma] = solve_poisson_lambda(gamma)
         inn_vel_anal[gamma] = vi_tilde
         
         # obsolescence front
-        lam = solve_poisson_lambda(gamma)
         vo_tilde = vo * vo_tilde_coefficient(gamma, K)
-
-        obs_lambda_anal[gamma] = lam
         obs_vel_anal[gamma] = vo_tilde
 
         save_pickle(['r', 'I', 'K', 'inn_vel_anal', 'inn_vel_auto', 'obs_vel_anal', 'obs_vel_auto',
-                     'inn_lambda_anal', 'inn_lambda_auto', 'obs_lambda_anal', 'obs_lambda_auto'],
+                     'lambda_anal', 'inn_lambda_auto', 'obs_lambda_auto'],
                     comparison_save_file, True)
 
 def multiple_front_test(memfraction=.2, device=0):
