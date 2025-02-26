@@ -60,7 +60,7 @@ def low_density_region(vo_plot, r0, I, K, gamma):
     ndarray
         Solved rd corresponding to input range.
     """
-    vo_range = np.linspace(.05, .8, 200)
+    vo_range = np.linspace(.05, .6, 100)
     rd = np.zeros_like(vo_range)
     err = np.zeros_like(vo_range)
     model = CompartmentModel(r0, I=I, gamma=gamma, K=K)
