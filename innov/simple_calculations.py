@@ -366,8 +366,6 @@ def I_tilde_coefficient(gamma, K, mx_x=100, full_output=False):
         Branching number.
     mx_x : int, 100
         Max (inclusive) value of x to which to calculate Poisson distribution.
-    method : int, 0
-        Method to use for calculating correction.
     full_output : bool, False
         If True, return all terms in the correction.
 
@@ -394,7 +392,7 @@ def I_tilde_coefficient(gamma, K, mx_x=100, full_output=False):
     return 1 + gamma*(K-1)*(pk**2).sum() + gamma*(K-1)*sum([pk[x]*(sum(pk[:x]*(x-np.arange(x)+1))) for x in range(1, mx_x)])
 
 @cache
-def vo_tilde_coefficient(gamma, K, mx_x=100, method=0):
+def vo_tilde_coefficient(gamma, K, mx_x=100):
     """For solving for the correction to obsolescence front velocity.
 
     TODO: Handle gamma=1 case separately.
@@ -420,11 +418,8 @@ def vo_tilde_coefficient(gamma, K, mx_x=100, method=0):
     # correction to obsolescence
     lam = solve_poisson_lambda(gamma)
     pk = poisson(i_range, lam)
+    qk = np.array([pk[:x].sum() for x in range(1, mx_x+1)])  # cumulative distribution
 
-    if method==0:  # simplified argument (site gets pulled ahead)
-        return 1 + gamma*(K-1) + gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)])
-    elif method==1:  # simplified argument (site pulls other sites ahead)
-        return (1 + gamma*(K-1) * sum([pk[x]*sum(pk[x:]*(np.arange(x, mx_x)-x+1)) for x in range(mx_x)]) + 
-                gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)]))
-    else: raise NotImplementedError("Method not implemented.")
+    return (1 + gamma*(K-1)*(pk @ qk) +
+            gamma*(K-1)*sum([pk[x]*qk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)]))
 

@@ -259,6 +259,7 @@ def front_test(memfraction=.2, device=0, sim_params=None,
                 clear_caches()
             gamma_ix = np.where(gamma_range==gamma)[0][0]
     except IndexError:
+        gamma_ix = np.where(gamma_range==gamma)[0][0]
         gamma_ix -= 1
         clear_caches()
 
@@ -278,12 +279,12 @@ def front_test(memfraction=.2, device=0, sim_params=None,
                      'lambda_anal', 'inn_lambda_auto', 'obs_lambda_auto'],
                     comparison_save_file, True)
 
-def multiple_front_test(memfraction=.2, device=0):
+def figure2(memfraction=.2, device=0):
     """Check mean-field analytic calculation of innovation front speed against automaton.
 
     This version loops for multiple criteria for additional testing.
     """
-    for i, K in enumerate([25, 100]):
+    for i, K in enumerate([25, 50, 100]):
         sim_params = {'samples':25, 'r':.4, 'I':2., 'r0':50, 'rd':.5, 'vo':.2, 'el':(20, 500), 'K':K}
 
         try:
@@ -299,3 +300,4 @@ def multiple_front_test(memfraction=.2, device=0):
 
 if __name__=='__main__':
     figure1()
+    figure2()
