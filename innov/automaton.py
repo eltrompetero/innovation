@@ -329,23 +329,10 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
-        #inn_dt = 1/((n * inn_front).max() * r * I) / max_sons / 100
-        #inn_dt = jnp.array([jnp.maximum(jnp.minimum(inn_dt, 100), 1e-7)])
-        #obs_dt = 1/vo / max_sons / 100
-        #obs_dt = jnp.array([jnp.maximum(jnp.minimum(obs_dt, 100), 1e-7)])
-        #thisdt = jnp.maximum(inn_dt, obs_dt)
         thisdt = jnp.minimum(1/((n * inn_front).max() * r * I), 1/vo) / max_sons / 100
         thisdt = jnp.array([jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)])
         t += thisdt
 
-        # take the smaller one and see how many times it needs to be looped
-        # to reach the larger one
-        #nloops_inn, nloops_obs, inn_dt, obs_dt = cond(inn_dt[0]>=obs_dt[0],
-        #                                              set_obs_as_smaller_dt,
-        #                                              set_inn_as_smaller_dt,
-        #                                              inn_dt,
-        #                                              obs_dt)
-        
         key, subkey = random.split(key)
         urand_matrix = random.uniform(subkey, (samples, N))
 
@@ -358,7 +345,9 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
                                                                 thisdt)
 
         # roll matrix of shared random numbers as a cheap way to get new random numbers
-        urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
+        #urand_matrix = jnp.roll(urand_matrix, 1, axis=0)
+        key, subkey = random.split(key)
+        urand_matrix = random.uniform(subkey, (samples, N))
 
         # move innovation front
         inn_front, in_sub_pop = move_innov_front(urand_matrix,

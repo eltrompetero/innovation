@@ -70,7 +70,9 @@ def runaway_rd(r0, I, gamma, K):
     r0 : float
         Rescaled birth rate.
     I : float
+        Innovativeness.
     gamma : float
+        Connectivity.
     K : int
         Branching number.
 
@@ -243,11 +245,19 @@ class CompartmentModel:
         return np.exp(sol['x'])[0]
 
     def K_runaway(self, r0=None, I=None, rd=None, vo=None, gamma=None,
-                  f_threshold=1e-7,
-                  K0=1.,
+                  f_threshold=1e-4,
+                  K0=5.,
                   K_max=1e5,
                   return_all=False):
-        """Solve for critical K delineating runaway boundary."""
+        """Solve for critical K delineating runaway boundary.
+
+        Parameters
+        ----------
+        f_threshold : float, 1e-4
+            Threshold for cost function. If not met, return np.nan.
+        K0 : float, 2.
+            Initial guess for log(K-1).
+        """
         r0 = r0 if r0 is not None else self.r0
         I = I if I is not None else self.I
         rd = rd if rd is not None else self.rd
@@ -255,9 +265,19 @@ class CompartmentModel:
         gamma = gamma if gamma is not None else self.gamma
 
         def cost(logK):
-            K = np.exp(logK)[0]
+            K = np.exp(logK)[0] + 1
             if K>K_max: return 1e10
-            return (self.L(r0, I, rd, vo, gamma=gamma, K=K, quadratic_form=1)[0].real)**2
+            c = self.L(r0, I, rd, vo, gamma=gamma, K=K, quadratic_form=1)[3]
+            if c<0: return 1e10
+            return np.abs(c)**2
+
+        #def cost(logK):
+        #    K = np.exp(logK)[0]
+        #    if K>K_max: return 1e10
+        #    I *= I_tilde_coefficient(gamma, K)
+        #    vo *= vo_tilde_coefficient(gamma, K)
+        #    return ((I*r0 + 3*vo - vo**2 - np.sqrt((-I*r0 - 3*vo + vo**2)**2 -
+        #                                        8*vo*(-vo**2 - vo**3 + 2*np.sqrt(I*r0*vo + I*r0*vo**3))))/(4*vo) - rd)**2
         sol = minimize(cost, K0, tol=1e-10)
 
         if sol['fun']>f_threshold:
@@ -265,8 +285,8 @@ class CompartmentModel:
                 return np.nan, sol
             return np.nan
         if return_all:
-            return np.exp(sol['x'][0]), sol
-        return np.exp(sol['x'][0])
+            return np.exp(sol['x'][0]) + 1, sol
+        return np.exp(sol['x'][0]) + 1
 
     def K_collapse(self, r0=None, I=None, rd=None, vo=None, gamma=None, f_threshold=1e-7,
                    K0=20,
@@ -402,7 +422,6 @@ def vo_tilde_coefficient(gamma, K, mx_x=100, method=0):
     pk = poisson(i_range, lam)
 
     if method==0:  # simplified argument (site gets pulled ahead)
-        return 1 + gamma*(K-1) + gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)])
         return 1 + gamma*(K-1) + gamma*(K-1)*sum([pk[x]*pk[:x]@(x-np.arange(x)+1) for x in range(1, mx_x)])
     elif method==1:  # simplified argument (site pulls other sites ahead)
         return (1 + gamma*(K-1) * sum([pk[x]*sum(pk[x:]*(np.arange(x, mx_x)-x+1)) for x in range(mx_x)]) + 

@@ -84,10 +84,7 @@ def structure_low_density(vo):
     """For plots in paper, vo should be either .5 or 1."""
     assert vo==.5 or vo==1
 
-    if vo==1: 
-        gamma_range = np.linspace(.7, 1, 30)
-    else:
-        gamma_range = np.logspace(-3, 0, 60)
+    gamma_range = np.logspace(-3.5, 0, 60)
     r = .4
 
     r0 = 10/r
@@ -103,7 +100,8 @@ def structure_low_density(vo):
             K = np.exp(logK[0]) + 1
             if g>.1 and K>25: return 1e20
             elif .01<=g<=.1 and K>1e2: return 1e20
-            elif g<1e-2 and K>1e3: return 1e20
+            elif 1e-3<g<1e-2 and K>1e3: return 1e20
+            elif g<=1e-3 and K>1e6: return 1e20
             return np.abs(model.L(gamma=g, K=K, quadratic_form=1)[0].real -
                           model.N(gamma=g, K=K, quadratic_form=1)[0].real)**2
         sol = minimize(cost, 0., tol=1e-10)
@@ -118,50 +116,40 @@ def structure_low_density(vo):
 @cache
 def critical_K_line():
     """Critical K and gamma relation for phase diagram in Figure 2.
+
+    For each gamma value in the range, find the critical K value. This is done by solving
+    for where the real part L goes to 0.
     
     This returns the necessary values to plot the lines for the two values of vo shown."""
-    r0 = 10/.52
+    r = .52
+    r0 = 10/r
     I = 2
-    rd = .5/.52
-    
-    # for vo=.5
-    vo = .5
-    model = CompartmentModel(r0=r0, I=I, rd=rd, vo=vo)
-
-    gamma_range = np.linspace(0, 1, 50), np.linspace(0, 1, 100)
-    K_critical = np.zeros_like(gamma_range[0]), np.zeros_like(gamma_range[1])
-
-    K_critical[0][:] = np.array([model.K_runaway(gamma=g, f_threshold=1e-5, K_max=1e4)
-                             for g in gamma_range[0]])
-    dcounter = 0
-    while dcounter<10:
-        counter = 0
-        while counter<100 or (~np.isnan(K_critical[0])).all():
-            for i in range(K_critical[0].size-1):
-                if np.isnan(K_critical[0][i]) and not np.isnan(K_critical[0][i+1]):
-                    K_critical[0][i] = model.K_runaway(gamma=gamma_range[0][i], f_threshold=1e-5, K_max=1e4,
-                                                    K0=np.log(K_critical[0][i+1]) + dcounter*.1)
-            counter += 1
-        dcounter += 1
-        
-    # for vo=1.
+    rd = .5/r
     vo = 1.
+    
+    gamma_range = np.linspace(0, 1, 100)
+    K_critical = np.zeros_like(gamma_range)
+
     model = CompartmentModel(r0=r0, I=I, rd=rd, vo=vo)
-    K_critical[1][:] = np.array([model.K_runaway(gamma=g, f_threshold=1e-5, K_max=1e3) for g in gamma_range[1]])
+    K_critical = np.zeros_like(gamma_range)
+    for i, g in enumerate(gamma_range):
+        if g<.05:
+            K_critical[i] = model.K_runaway(gamma=g, f_threshold=1e-5, K_max=1e3, K0=6.)
+        else:
+            K_critical[i] = model.K_runaway(gamma=g, f_threshold=1e-5, K_max=1e3)
     dcounter = 0
     while dcounter<25:
         counter = 0
-        while counter<100 or (~np.isnan(K_critical[1])).all():
-            for i in range(K_critical[1].size-1):
-                if np.isnan(K_critical[1][i]) and not np.isnan(K_critical[1][i-1]):
-                    K_critical[1][i] = model.K_runaway(gamma=gamma_range[1][i], f_threshold=1e-5, K_max=1e3,
-                                                       K0=np.log(K_critical[1][i-1]) - dcounter*.1)
-                if np.isnan(K_critical[1][i]) and not np.isnan(K_critical[1][i+1]):
-                    K_critical[1][i] = model.K_runaway(gamma=gamma_range[1][i], f_threshold=1e-5, K_max=1e3,
-                                                       K0=np.log(K_critical[1][i+1]) + dcounter*.1)
+        while counter<100 or (~np.isnan(K_critical)).all():
+            for i in range(K_critical.size-1):
+                if np.isnan(K_critical[i]) and not np.isnan(K_critical[i-1]):
+                    K_critical[i] = model.K_runaway(gamma=gamma_range[i], f_threshold=1e-5, K_max=1e3,
+                                                    K0=np.log(K_critical[i-1]) - dcounter*.1)
+                if np.isnan(K_critical[i]) and not np.isnan(K_critical[i+1]):
+                    K_critical[i] = model.K_runaway(gamma=gamma_range[i], f_threshold=1e-5, K_max=1e3,
+                                                    K0=np.log(K_critical[i+1]) + dcounter*.1)
             counter += 1
         dcounter += 1
-
     return K_critical, gamma_range
 
 def find_bistable_l1(r0, I, rd, vo, gamma, K, tmax,

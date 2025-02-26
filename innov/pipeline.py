@@ -232,29 +232,32 @@ def front_test(memfraction=.2, device=0, sim_params=None,
 
     # automaton calculations
     try:
-        for gamma_ix, gamma in enumerate(gamma_range[len(inn_lambda_auto):]):  # note that max gamma may be close to collapse
-            key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
+        if len(inn_lambda_auto)==15:
+            gamma_ix = 14
+        else:
+            for gamma_ix, gamma in enumerate(gamma_range[len(inn_lambda_auto):]):  # note that max gamma may be close to collapse
+                key, inn_front, obs_front, in_sub_pop, n, t = _front_test(key, r, rd, I, r0, vo, el, K, gamma, samples)
 
-            # innovation front
-            front_loc_max = inn_front_loc(inn_front, samples, el[1], K, return_max=True)
-            n_i[gamma] = np.array(leading_front_density(n, inn_front, el, K))
-            p1 = np.polyfit(t[-10:], front_loc_max.mean(1)[-10:], 1)
+                # innovation front
+                front_loc_max = inn_front_loc(inn_front, samples, el[1], K, return_max=True)
+                n_i[gamma] = np.array(leading_front_density(n, inn_front, el, K))
+                p1 = np.polyfit(t[-10:], front_loc_max.mean(1)[-10:], 1)
 
-            inn_lambda_auto[gamma] = inn_front_loc(inn_front, samples, el[1], K,
-                                                    return_max=True, pinned=True).mean(1)[-10:].mean()
-            inn_vel_auto[gamma] = p1[0]
-            
-            # obsolescence front
-            p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
-            obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
-            obs_vel_auto[gamma] = p1[0]
+                inn_lambda_auto[gamma] = inn_front_loc(inn_front, samples, el[1], K,
+                                                        return_max=True, pinned=True).mean(1)[-10:].mean()
+                inn_vel_auto[gamma] = p1[0]
+                
+                # obsolescence front
+                p1 = np.polyfit(t, obs_front_loc(obs_front, samples, el[1], K).mean(1), 1)
+                obs_lambda_auto[gamma] = obs_front_loc(obs_front, samples, el[1], K, pinned=True).mean(1)[-10:].mean()
+                obs_vel_auto[gamma] = p1[0]
 
-            save_pickle(['r', 'I', 'r0', 'rd', 'vo', 'el', 'K', 'n_i', 'inn_vel_auto',
-                            'obs_vel_auto', 'inn_lambda_auto', 'obs_lambda_auto',
-                            'inn_front', 'obs_front', 'n', 't', 'key'],
-                        automaton_save_file, True)
-            clear_caches()
-        gamma_ix = np.where(gamma_range==gamma)[0][0]
+                save_pickle(['r', 'I', 'r0', 'rd', 'vo', 'el', 'K', 'n_i', 'inn_vel_auto',
+                                'obs_vel_auto', 'inn_lambda_auto', 'obs_lambda_auto',
+                                'inn_front', 'obs_front', 'n', 't', 'key'],
+                            automaton_save_file, True)
+                clear_caches()
+            gamma_ix = np.where(gamma_range==gamma)[0][0]
     except IndexError:
         gamma_ix -= 1
         clear_caches()
@@ -281,7 +284,7 @@ def multiple_front_test(memfraction=.2, device=0):
     This version loops for multiple criteria for additional testing.
     """
     for i, K in enumerate([25, 100]):
-        sim_params = {'samples':10, 'r':.4, 'I':2., 'r0':50, 'rd':.5, 'vo':.2, 'el':(20, 700), 'K':K}
+        sim_params = {'samples':25, 'r':.4, 'I':2., 'r0':50, 'rd':.5, 'vo':.2, 'el':(20, 500), 'K':K}
 
         try:
             front_test(memfraction=memfraction,
