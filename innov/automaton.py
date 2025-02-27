@@ -200,8 +200,9 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
     assert vo>0
 
     # initialize graph properties
-    sons = Ady.sum(1).todense()
-    max_sons = sons.max()
+    sons = Ady.sum(1).todense()  # no. of children that a node has
+    parents = Ady.sum(0).todense()  # no. of parents that a node has
+    max_parents = parents.max()
     inverse_sons = Ady @ jnp.ones(N, dtype=jnp.int32)
     inverse_sons = inverse_sons.at[inverse_sons==0].set(1)
     inverse_sons = 1. / inverse_sons
@@ -329,7 +330,7 @@ def setup_auto_sim(N, r, rd, I, r0, vo, samples, Ady,
         # in principle, the cap can be a large value, but it won't matter for the parameter
         # values we are using (i.e. large densities)
         # these choices set precision of the simulation
-        thisdt = jnp.minimum(1/((n * inn_front).max() * r * I), 1/vo) / max_sons / 100
+        thisdt = jnp.minimum(1/((n * inn_front).max() * r * I), 1/vo) / max_parents / 100
         thisdt = jnp.array([jnp.maximum(jnp.minimum(thisdt, 100), 1e-7)])
         t += thisdt
 

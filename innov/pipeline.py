@@ -285,18 +285,14 @@ def figure2(memfraction=.2, device=0):
     This version loops for multiple criteria for additional testing.
     """
     for i, K in enumerate([25, 50, 100]):
-        sim_params = {'samples':25, 'r':.4, 'I':2., 'r0':50, 'rd':.5, 'vo':.2, 'el':(20, 500), 'K':K}
+        sim_params = {'samples':50, 'r':.4, 'I':2., 'r0':50, 'rd':.5, 'vo':.2, 'el':(20, 500), 'K':K}
 
-        try:
-            front_test(memfraction=memfraction,
-                       device=device,
-                       sim_params=sim_params,
-                       automaton_save_file=f'cache/front_vel_test_automata_{i}.p',
-                       comparison_save_file=f'cache/front_vel_test_{i}.p')
-        except IndexError:
-            pass
-        finally:
-            clear_caches()
+        front_test(memfraction=memfraction,
+                    device=device,
+                    sim_params=sim_params,
+                    automaton_save_file=f'cache/front_vel_test_automata_{i}.p',
+                    comparison_save_file=f'cache/front_vel_test_{i}.p')
+        clear_caches()
 
 if __name__=='__main__':
     figure1()
