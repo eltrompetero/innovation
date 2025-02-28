@@ -492,7 +492,6 @@ def structure_phase_space_runaway(ax):
     
     K_collapse = np.zeros_like(gamma_range_collapse)
     model = CompartmentModel(r0, I, rd, vo)
-    sol = []
     for j, gamma in enumerate(gamma_range_collapse):
         K = model.K_collapse(gamma=gamma)
         K_collapse[j] = K
@@ -502,7 +501,7 @@ def structure_phase_space_runaway(ax):
 
     # runaway line
     K_runaway, gamma_range_runaway = critical_K_line()
-    ax.plot(K_runaway[1], gamma_range_runaway[1], '-', c='C3')
+    ax.plot(K_runaway, gamma_range_runaway, '-', c='C3')
 
 def dynamics_survival_phase_diagram(fname, ax, n_points=100):
     with open(fname, 'rb') as f:
@@ -531,8 +530,12 @@ def dynamics_survival_phase_diagram(fname, ax, n_points=100):
             f_rep[i] = (n.sum(1)>0).sum()/samples
             if f_rep[i]>1:
                 print(samples, n.shape)
+
+            # avg fraction of empty branches in each replica
+            f_branch[i] = np.mean([(n_.reshape(el, K).sum(0)>0).sum() for n_ in n])/K
     
     f_rep = f_rep.reshape(len(rd_range), len(vo_range))
+    f_branch = f_branch.reshape(len(rd_range), len(vo_range))
     
     N = np.zeros(vo_grid.size)  # avg over surviving replicas
     for i, n in enumerate(all_n):
@@ -552,9 +555,9 @@ def dynamics_survival_phase_diagram(fname, ax, n_points=100):
     voi, rdi = np.meshgrid(np.linspace(0, 3, n_points),
                            np.linspace(0, 3, n_points))
 
-    fi_complete = griddata((vo_grid.ravel()/r, rd_grid.ravel()/r), f_rep.flatten(),
+    fi_complete = griddata((vo_grid.ravel()/r, rd_grid.ravel()/r), f_branch.flatten(),
                   (voi.ravel(), rdi.ravel()), method='nearest')
-    fi = griddata((vo_grid.ravel()/r, rd_grid.ravel()/r), f_rep.flatten(),
+    fi = griddata((vo_grid.ravel()/r, rd_grid.ravel()/r), f_branch.flatten(),
                   (voi.ravel(), rdi.ravel()), method='linear', fill_value=np.nan)
     fi_complete = fi_complete.reshape(n_points, n_points)
     fi = fi.reshape(n_points, n_points)
@@ -570,13 +573,13 @@ def dynamics_survival_phase_diagram(fname, ax, n_points=100):
         cax = ax.imshow(fi, extent=(voi.min(), voi.max(), rdi.min(), rdi.max()),
                            origin='lower', aspect='auto', cmap='Reds', vmin=0, vmax=1)
 
-    # runaway
+    # runaway boundary
     vo_range = np.linspace(0, 2, 100)
     rd = runaway_rd(r0, I, gamma, K)(vo_range)
 
     ax.plot(vo_range, rd, '-', color = 'red', alpha=.5)
     
-    # collapsed
+    # collapsed boundary
     vo_range = np.linspace(1, 2, 50)
     y = np.array([collapse_rd(vo, r0, I, gamma, K) for vo in vo_range])
     ax.plot(vo_range, y, '-', color='C0')
