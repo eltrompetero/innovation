@@ -5,8 +5,4 @@ For code corresponding to "Idea engines: Unifying innovation and obsolescence fr
 Code to accompany "Innovation and exnovation dynamics on trees and trusses"  by Edward D. Lee and Ernesto Ortega.
 
 ## Dependencies
-Code works with Python 3.12.
-
-```bash
-conda install jaxlib=*=*cuda* jax cuda-nvcc numpy scipy jupyter ipython matplotlib networkx hickle dill statsmodels pygraphviz -c conda-forge -c nvidia
-```
+Code works with Python 3.12. See `spec-file.txt` for necessary libraries.
