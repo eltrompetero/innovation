@@ -15,13 +15,11 @@ K = 50
 gamma = .5
 
 el = 300 
-samples = 50  # number of independent replicas
-total_t = 20
 
 rd_range = np.linspace(.01, 1.2, 10)
 vo_range = np.linspace(.01, 1.2, 30)
 
-def _create_init_variables(r, r0, I, rd, vo, gamma, K):
+def _create_init_variables(r, r0, I, rd, vo, gamma, K, samples):
     """Create a function to initialize variables for running the automaton based
     on mft solutions.
 
@@ -98,7 +96,7 @@ def _create_init_variables(r, r0, I, rd, vo, gamma, K):
         return inn, obs_front, sub, n, t
     return init_variables
 
-def one_point(key, rd, vo, iprint=True):
+def one_point(key, rd, vo, samples, total_t, iprint=True):
     # define graph structure
     tree = KTree(el, K, gamma)
     
@@ -106,7 +104,7 @@ def one_point(key, rd, vo, iprint=True):
     Ady = jsparse.BCOO.from_scipy_sparse(tree.adj)
     Ady.data = Ady.data.astype(jnp.int8)
     
-    init_variables = _create_init_variables(r, r0, I, rd, vo, gamma, K)
+    init_variables = _create_init_variables(r, r0, I, rd, vo, gamma, K, samples)
         
     init_vars, one_loop, run_save, run, run_save_t = setup_auto_sim(N = Ady.shape[0],
                                                                     r = r,
@@ -142,6 +140,14 @@ if __name__=='__main__':
         memfraction = '.5'
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = memfraction
 
+    if len(sys.argv)==5:
+        # options for overwriting sample number and total runtime
+        samples = int(sys.argv[3])
+        total_t = float(sys.argv[4])
+    else:
+        samples = 50
+        total_t = 20
+
     fname = 'cache/dynamics_survival_grid.p'
     counter = 1
     while os.path.exists(fname):
@@ -155,7 +161,7 @@ if __name__=='__main__':
     all_L = []  # size of each replica
     for rd, vo in zip(rd_grid.ravel(), vo_grid.ravel()):
         try:
-            key, n, L = one_point(key, rd, vo, iprint=True)
+            key, n, L = one_point(key, rd, vo, samples, total_t, iprint=True)
             all_n.append(n)
             all_L.append(L)
         except AssertionError:

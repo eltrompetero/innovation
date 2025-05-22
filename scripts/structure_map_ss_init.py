@@ -11,8 +11,7 @@ K_range = np.unique(np.around(np.logspace(0, 2, 50))).astype(np.int32)
 gamma_range = np.logspace(-3, 0, 50).astype(np.float32)
 n0 = 10
 el = 10, 300
-samples = 50  # number of independent replicas
-total_t = 20
+
 
 def runaway_settings():
     # fixed simulation parameters
@@ -21,7 +20,8 @@ def runaway_settings():
     r = .52
     rd = .5
     vo = .4
-
+    samples = 50  # number of independent replicas
+    total_t = 20
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def stable_settings():
@@ -31,7 +31,8 @@ def stable_settings():
     r = .4
     rd = .5
     vo = .4
-
+    samples = 50
+    total_t = 20
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def stable_half_settings():
@@ -41,10 +42,11 @@ def stable_half_settings():
     r = .4
     rd = .5
     vo = .2
-
+    samples = 50
+    total_t = 20
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
-def _create_init_variables(r, r0, I, rd, vo, gamma, K):
+def _create_init_variables(r, r0, I, rd, vo, gamma, K, samples):
     """Create a function to initialize variables for running the automaton based
     on mft solutions.
 
@@ -107,7 +109,7 @@ def _create_init_variables(r, r0, I, rd, vo, gamma, K):
         return inn, obs_front, sub, n, t
     return init_variables
 
-def one_point(key, K, gamma, init_args, iprint=True):
+def one_point(key, K, gamma, init_args, samples, total_t, iprint=True):
     # define graph structure
     tree = KTree(el[1], K, gamma)
     
@@ -115,7 +117,7 @@ def one_point(key, K, gamma, init_args, iprint=True):
     Ady = jsparse.BCOO.from_scipy_sparse(tree.adj)
     Ady.data = Ady.data.astype(jnp.int8)
     
-    init_variables = _create_init_variables(r, r0, I, rd, vo, gamma, K)
+    init_variables = _create_init_variables(r, r0, I, rd, vo, gamma, K, samples)
         
     init_vars, one_loop, run_save, run, run_save_t = setup_auto_sim(N = Ady.shape[0],
                                                                     r = r,
@@ -129,10 +131,14 @@ def one_point(key, K, gamma, init_args, iprint=True):
                                                                     obs_mode = 'random',
                                                                     innov_front_mode = 'explorer')
     key, inn_front, obs_sub, in_sub_pop, n, t = run(key, init_vars, total_t, iprint=iprint)
-    n_ = np.zeros(n.shape, dtype=np.float32)
+
     # copy array to CPU memory
+    n_ = np.zeros(n.shape, dtype=np.float32)
     n_[:] = n[:]
-    return key, n_
+    in_sub_pop_ = np.zeros(in_sub_pop.shape, dtype=np.bool_)
+    in_sub_pop_[:] = in_sub_pop
+
+    return key, n_, in_sub_pop_
 
 def check_pickle_name(fname, path='cache'):
     fname = path + '/' + fname
@@ -172,19 +178,31 @@ if __name__=='__main__':
         memfraction = '.5'
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = memfraction
 
+    if len(sys.argv)==6:
+        # options for overwriting sample number and total runtime
+        samples = int(sys.argv[4])
+        total_t = float(sys.argv[5])
+
     fname = check_pickle_name(fname)
     key = random.PRNGKey(42**2)
     K_grid, gamma_grid = np.meshgrid(K_range, gamma_range)
 
     all_n = []
+    all_in_sub_pop = []
     for K, gamma in zip(K_grid.ravel(), gamma_grid.ravel()):
         try:
-            key, n = one_point(key, K, gamma, init_args=(r, r0, I, rd, vo, gamma, K))
+            key, n, in_sub_pop = one_point(key, K, gamma,
+                                           (r, r0, I, rd, vo, gamma, K),
+                                           samples,
+                                           total_t)
             all_n.append(n)
+            all_in_sub_pop.append(in_sub_pop)
         except AssertionError:
             all_n.append(np.zeros(0, dtype=np.float32))
+            all_in_sub_pop.append(np.zeros(0, dtype=np.bool_))
         clear_caches()  # clear compiled functions
         save_pickle(['r0', 'r', 'I', 'el', 'n0', 'rd', 'vo', 'samples', 'total_t',
-                     'all_n', 'K_range', 'gamma_range'],
+                     'all_n', 'all_in_sub_pop', 'K_range', 'gamma_range'],
                     fname, True)
         print(f"Done with {K=}, {gamma=:.2f}.")
+
