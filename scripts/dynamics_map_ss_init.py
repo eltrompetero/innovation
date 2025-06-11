@@ -7,17 +7,33 @@ from workspace.utils import save_pickle
 from innov import *
 
 
-# fixed simulation parameters
-r0 = 50
-I = 2.
-r = .4
-K = 50
-gamma = .5
+def grid():
+    # fixed simulation parameters
+    r0 = 50
+    I = 2.
+    r = .4
+    K = 50
+    gamma = .5
 
-el = 300 
+    el = 300 
 
-rd_range = np.linspace(.01, 1.2, 10)
-vo_range = np.linspace(.01, 1.2, 30)
+    rd_range = np.linspace(.01, 1.2, 10)
+    vo_range = np.linspace(.01, 1.2, 30)
+    return r0, I, r, K, gamma, el, rd_range, vo_range
+
+def micro():
+    # fixed simulation parameters
+    r0 = 50
+    I = 2.
+    r = .4
+    K = 50
+    gamma = .5
+
+    el = 300 
+
+    rd_range = np.linspace(.01, 1.2, 5)
+    vo_range = np.linspace(.01, 1.2, 20)
+    return r0, I, r, K, gamma, el, rd_range, vo_range
 
 def _create_init_variables(r, r0, I, rd, vo, gamma, K, samples):
     """Create a function to initialize variables for running the automaton based
@@ -96,7 +112,9 @@ def _create_init_variables(r, r0, I, rd, vo, gamma, K, samples):
         return inn, obs_front, sub, n, t
     return init_variables
 
-def one_point(key, rd, vo, samples, total_t, iprint=True):
+def one_point(key, rd, vo, samples, total_t, extra_params=(), iprint=True):
+    r0, I, r, K, gamma, el = extra_params
+
     # define graph structure
     tree = KTree(el, K, gamma)
     
@@ -120,30 +138,36 @@ def one_point(key, rd, vo, samples, total_t, iprint=True):
     key, inn_front, obs_sub, in_sub_pop, n, t = run(key, init_vars, total_t, iprint=iprint)
     n_ = np.zeros(n.shape, dtype=np.float32)
     L_ = np.zeros(n.shape[0], dtype=np.float32)
+    in_sub_pop_ = np.zeros(n.shape, dtype=np.bool_)
+
     # copy array to CPU memory
     n_[:] = n[:]
     L_[:] = in_sub_pop.sum(1)[:]
-    return key, n_, L_
+    in_sub_pop_[:] = in_sub_pop[:]
+    return key, n_, L_, in_sub_pop_
+
 
 if __name__=='__main__':
-    try: 
-        device_id = sys.argv[1]
-        assert device_id in ['0', '1']
-    except IndexError:
-        device_id = '0'
+    device_id = sys.argv[1]
+    assert device_id in ['0', '1']
     os.environ["CUDA_VISIBLE_DEVICES"] = device_id
 
-    try:
-        memfraction = sys.argv[2]
-        assert 0 < float(memfraction) <= 1
-    except IndexError:
-        memfraction = '.5'
+    memfraction = sys.argv[2]
+    assert 0 < float(memfraction) <= 1
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = memfraction
 
-    if len(sys.argv)==5:
+    settings = sys.argv[3]
+    if settings=='grid':
+        r0, I, r, K, gamma, el, rd_range, vo_range = grid()
+    elif settings=='micro':
+        r0, I, r, K, gamma, el, rd_range, vo_range = micro()
+    else:
+        raise NotImplementedError
+
+    if len(sys.argv)==6:
         # options for overwriting sample number and total runtime
-        samples = int(sys.argv[3])
-        total_t = float(sys.argv[4])
+        samples = int(sys.argv[4])
+        total_t = float(sys.argv[5])
     else:
         samples = 50
         total_t = 20
@@ -159,17 +183,22 @@ if __name__=='__main__':
 
     all_n = []
     all_L = []  # size of each replica
+    all_in_sub_pop = []
     for rd, vo in zip(rd_grid.ravel(), vo_grid.ravel()):
         try:
-            key, n, L = one_point(key, rd, vo, samples, total_t, iprint=True)
+            key, n, L, in_sub_pop = one_point(key, rd, vo, samples, total_t,
+                                              extra_params=(r0, I, r, K, gamma, el),
+                                              iprint=True)
             all_n.append(n)
             all_L.append(L)
+            all_in_sub_pop.append(in_sub_pop)
         except AssertionError:
             all_n.append(np.zeros(0, dtype=np.float32))
             all_L.append(np.zeros(0, dtype=np.float32))
+            all_in_sub_pop.append(np.zeros(0, dtype=np.bool_))
 
         clear_caches()  # clear compiled functions
         save_pickle(['r0', 'r', 'I', 'el', 'K', 'gamma', 'samples', 'total_t',
-                     'all_n', 'all_L', 'rd_range', 'vo_range'],
+                     'all_n', 'all_L', 'all_in_sub_pop', 'rd_range', 'vo_range'],
                     fname, True)
         print(f"Done with {rd=:.2f}, {vo=:.2f}.", flush=True)

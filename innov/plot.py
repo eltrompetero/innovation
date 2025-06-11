@@ -314,20 +314,26 @@ def structure_phase_space(r0, I, rd, ax,
     if low_density:
         # low density regime
         K, gamma = structure_low_density(.5)
-        ax.plot(K, gamma, '-.', color='k')
+        #ax.plot(K, gamma, '-.', color='k')
         K, gamma = structure_low_density(1)
         ax.plot(K, gamma, '-', color='k')
         ax.fill_between(K, np.zeros_like(gamma), gamma, hatch='//', fc='none')
 
     # collapse
-    ax.plot(K_collapse[0], gamma_range_collapse, '-.', c='C0', alpha=.5)
-    ax.plot(K_collapse[1], gamma_range_collapse, '-', c='C0')
-    ax.fill_betweenx(gamma_range_collapse, K_collapse[1], np.zeros(K_collapse[0].size)+100,
-                     fc='#C0D5E6', lw=0)
+    if len(K_collapse)>1:
+        ax.plot(K_collapse[0], gamma_range_collapse, '-.', c='C0', alpha=.5)
+        ax.plot(K_collapse[1], gamma_range_collapse, '-', c='C0')
+        ax.fill_betweenx(gamma_range_collapse, K_collapse[1], np.zeros(K_collapse[0].size)+100,
+                         fc='#C0D5E6', lw=0)
+    else:
+        ax.plot(K_collapse[0], gamma_range_collapse, '-', c='C0')
+        ax.fill_betweenx(gamma_range_collapse, K_collapse[0], np.zeros(K_collapse[0].size)+100,
+                         fc='#C0D5E6', lw=0)
+
     
     ax.set_ylim(0, 1)
     ax.set(yticks=(0,1), xticks=(1, 50, 100))
-    ax.set(ylabel=r'connectivity $\gamma$                      ', xlim=(1, 100))
+    ax.set(ylabel=r'connectivity                      ', xlim=(1, 100))
 
     ax.plot([], 'k-.', label=r'$v_o=1/2$')
     ax.plot([], 'k-', label=r'$v_o=1$')
@@ -431,7 +437,7 @@ def dynamics_density(fig, ax, colorbar=False,
         cb.set_ticklabels([r'$\leq-10^2$',r'$0$',r'$\geq10^2$'], fontsize='small')
         cb.set_label(r'$N-L$', labelpad=-30)
 
-def structure_density(fig, ax, cbax, r=.4, n_points=100):
+def structure_density(fig, ax, cbax=None, r=.4, n_points=100, cbar_label=r'$N-L$'):
     r0 = 10/r
     I = 2
     rd = .5/r
@@ -457,9 +463,10 @@ def structure_density(fig, ax, cbax, r=.4, n_points=100):
                    cmap='seismic',
                    vmin=-100, vmax=100)
     
-    cb = fig.colorbar(im, cax=cbax, ticks=[-100, 0, 100])
-    cb.set_ticklabels([r'$\leq-10^2$',r'$0$',r'$\geq10^2$'], fontsize='small')
-    cb.set_label(r'$N-L$', labelpad=-30)
+    if not cbax is None:
+        cb = fig.colorbar(im, cax=cbax, ticks=[-100, 0, 100])
+        cb.set_ticklabels([r'$\leq-10^2$',r'$0$',r'$\geq10^2$'], fontsize='small')
+        cb.set_label(cbar_label, labelpad=-30)
     ax.set(xticks=[1, 50,100], yticks=[0,.5,1])
     ax.set_xticklabels([1,50,100], fontsize='small')
     ax.set_yticklabels([0,.5,1], fontsize='small')

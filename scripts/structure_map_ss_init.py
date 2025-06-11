@@ -8,7 +8,6 @@ from innov import *
 
 
 K_range = np.unique(np.around(np.logspace(0, 2, 50))).astype(np.int32)
-gamma_range = np.logspace(-3, 0, 50).astype(np.float32)
 n0 = 10
 el = 10, 300
 
@@ -22,6 +21,19 @@ def runaway_settings():
     vo = .4
     samples = 50  # number of independent replicas
     total_t = 20
+    gamma_range = np.logspace(-3, 0, 50).astype(np.float32)
+    return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
+
+def runaway_micro_settings():
+    # fixed simulation parameters
+    r0 = 10
+    I = 2.
+    r = .52
+    rd = .5
+    vo = .4
+    samples = 50  # number of independent replicas
+    total_t = 20
+    gamma_range = np.linspace(.01, 1, 6).astype(np.float32)
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def stable_settings():
@@ -33,6 +45,7 @@ def stable_settings():
     vo = .4
     samples = 50
     total_t = 20
+    gamma_range = np.logspace(-3, 0, 50).astype(np.float32)
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def stable_half_settings():
@@ -44,6 +57,7 @@ def stable_half_settings():
     vo = .2
     samples = 50
     total_t = 20
+    gamma_range = np.logspace(-3, 0, 50).astype(np.float32)
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def _create_init_variables(r, r0, I, rd, vo, gamma, K, samples):
@@ -155,6 +169,9 @@ if __name__=='__main__':
     if settings == 'runaway':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = runaway_settings()
         fname = 'structure_survival_grid_runaway.p'
+    elif settings == 'runaway_micro':
+        r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = runaway_micro_settings()
+        fname = 'structure_survival_grid_runaway.p'
     elif settings == 'stable':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = stable_settings()
         fname = 'structure_survival_grid_stable.p'
@@ -162,7 +179,7 @@ if __name__=='__main__':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = stable_half_settings()
         fname = 'structure_survival_grid_stable_half.p'
     else:
-        raise ValueError("Invalid settings. Choose 'runaway', 'stable_half', or 'stable'.")
+        raise ValueError("Invalid settings. Choose 'runaway', 'runaway_micro', 'stable_half', or 'stable'.")
 
     try: 
         device_id = sys.argv[2]
