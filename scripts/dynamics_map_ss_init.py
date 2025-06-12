@@ -4,9 +4,13 @@ import os, sys
 import jax.experimental.sparse as jsparse
 from jax import clear_caches
 from workspace.utils import save_pickle
+import argparse
 from innov import *
 
 
+# ============================= #
+# Default simulation parameters #
+# ============================= #
 def grid():
     # fixed simulation parameters
     r0 = 50
@@ -14,7 +18,6 @@ def grid():
     r = .4
     K = 50
     gamma = .5
-
     el = 300 
 
     rd_range = np.linspace(.01, 1.2, 10)
@@ -28,10 +31,9 @@ def micro():
     r = .4
     K = 50
     gamma = .5
-
     el = 300 
 
-    rd_range = np.linspace(.01, 1.2, 5)
+    rd_range = np.linspace(.01, 1.2, 4)
     vo_range = np.linspace(.01, 1.2, 20)
     return r0, I, r, K, gamma, el, rd_range, vo_range
 
@@ -148,29 +150,29 @@ def one_point(key, rd, vo, samples, total_t, extra_params=(), iprint=True):
 
 
 if __name__=='__main__':
-    device_id = sys.argv[1]
-    assert device_id in ['0', '1']
-    os.environ["CUDA_VISIBLE_DEVICES"] = device_id
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--device_id', type=str, choices=['0', '1'], required=True)
+    parser.add_argument('--memfraction', type=float, default=.3)
+    parser.add_argument('--sim', type=str, choices=['grid', 'micro'], default='grid')
+    parser.add_argument('--samples', type=int, default=50)
+    parser.add_argument('--total_t', type=float, default=20)
 
-    memfraction = sys.argv[2]
-    assert 0 < float(memfraction) <= 1
-    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = memfraction
+    args = parser.parse_args()
 
-    settings = sys.argv[3]
-    if settings=='grid':
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.device_id
+
+    assert 0 < args.memfraction <= 1
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = str(args.memfraction)
+
+    samples = args.samples
+    total_t = args.total_t
+
+    if args.sim=='grid':
         r0, I, r, K, gamma, el, rd_range, vo_range = grid()
-    elif settings=='micro':
+    elif args.sim=='micro':
         r0, I, r, K, gamma, el, rd_range, vo_range = micro()
     else:
         raise NotImplementedError
-
-    if len(sys.argv)==6:
-        # options for overwriting sample number and total runtime
-        samples = int(sys.argv[4])
-        total_t = float(sys.argv[5])
-    else:
-        samples = 50
-        total_t = 20
 
     fname = 'cache/dynamics_survival_grid.p'
     counter = 1

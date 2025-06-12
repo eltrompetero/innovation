@@ -4,13 +4,17 @@ import os, sys
 from jax import clear_caches
 import jax.experimental.sparse as jsparse
 from workspace.utils import save_pickle
+import argparse
 from innov import *
 
 
+
+# ============================= #
+# Default simulation parameters #
+# ============================= #
 K_range = np.unique(np.around(np.logspace(0, 2, 50))).astype(np.int32)
 n0 = 10
 el = 10, 300
-
 
 def runaway_settings():
     # fixed simulation parameters
@@ -25,15 +29,19 @@ def runaway_settings():
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def runaway_micro_settings():
-    # fixed simulation parameters
+    """For comparing microscopic simulation with compartment model.
+    This will run fewer parameter combinations but with more samples to access the
+    unstable regime.
+    """
     r0 = 10
     I = 2.
     r = .52
     rd = .5
     vo = .4
-    samples = 50  # number of independent replicas
+    samples = 200  # number of independent replicas
     total_t = 20
-    gamma_range = np.linspace(.01, 1, 6).astype(np.float32)
+    gamma_range = np.linspace(.01, 1, 4).astype(np.float32)
+    K_range = np.unique(np.around(np.logspace(0, 2, 20))).astype(np.int32)
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
 def stable_settings():
@@ -60,6 +68,10 @@ def stable_half_settings():
     gamma_range = np.logspace(-3, 0, 50).astype(np.float32)
     return r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range
 
+
+# ======================== #
+# Simulation run functions #
+# ======================== #
 def _create_init_variables(r, r0, I, rd, vo, gamma, K, samples):
     """Create a function to initialize variables for running the automaton based
     on mft solutions.
@@ -164,41 +176,39 @@ def check_pickle_name(fname, path='cache'):
     return fname
 
 if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--device_id', type=str, choices=['0', '1'], required=True)
+    parser.add_argument('--memfraction', type=float, default=.3)
+    parser.add_argument('--sim', type=str, choices=['grid', 'micro'], default='grid')
+    parser.add_argument('--samples', type=int, default=50)
+    parser.add_argument('--total_t', type=float, default=20)
+
+    args = parser.parse_args()
+
     # read in parameters
-    settings = sys.argv[1]
-    if settings == 'runaway':
+    if args.sim== 'runaway':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = runaway_settings()
         fname = 'structure_survival_grid_runaway.p'
-    elif settings == 'runaway_micro':
+    elif args.sim == 'runaway_micro':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = runaway_micro_settings()
         fname = 'structure_survival_grid_runaway.p'
-    elif settings == 'stable':
+    elif args.sim == 'stable':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = stable_settings()
         fname = 'structure_survival_grid_stable.p'
-    elif settings == 'stable_half':
+    elif args.sim == 'stable_half':
         r0, r, I, el, n0, rd, vo, samples, total_t, K_range, gamma_range = stable_half_settings()
         fname = 'structure_survival_grid_stable_half.p'
     else:
         raise ValueError("Invalid settings. Choose 'runaway', 'runaway_micro', 'stable_half', or 'stable'.")
 
-    try: 
-        device_id = sys.argv[2]
-        assert device_id in ['0', '1']
-    except IndexError:
-        device_id = '0'
-    os.environ["CUDA_VISIBLE_DEVICES"] = device_id
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.device_id
 
-    try:
-        memfraction = sys.argv[3]
-        assert 0 < float(memfraction) <= 1
-    except IndexError:
-        memfraction = '.5'
-    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = memfraction
+    assert 0 < args.memfraction <= 1
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = str(args.memfraction)
 
-    if len(sys.argv)==6:
-        # options for overwriting sample number and total runtime
-        samples = int(sys.argv[4])
-        total_t = float(sys.argv[5])
+    # options for overwriting sample number and total runtime
+    samples = args.samples
+    total_t = args.total_t
 
     fname = check_pickle_name(fname)
     key = random.PRNGKey(42**2)
