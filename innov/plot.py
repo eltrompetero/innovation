@@ -392,8 +392,6 @@ def dynamical_phase_space(ax):
     ax.legend(loc=1, fontsize ='x-small', handlelength=1.14, framealpha=1)
     ax.set(title=f'', xlabel=r'exnovation velocity ${v}_o$', ylabel=r'death rate ${r}_d$')
     
-    ax.text(-.27, 1, '(a)', transform=ax.transAxes, fontsize=24, va='top')
-
 def dynamics_density(fig, ax, colorbar=False,
                      r=.4, n_points=101):
     r0 = 50/r
